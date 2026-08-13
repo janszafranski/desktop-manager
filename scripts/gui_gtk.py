@@ -145,7 +145,8 @@ class Card(Gtk.Frame):
 
         # selector + title
         self.radio = Gtk.RadioButton.new_with_label_from_widget(group, cfg["name"])
-        self.radio.get_child().set_markup(f"<b>{cfg['name']}</b>")
+        self.radio.get_child().set_markup(
+            f"<b>{GLib.markup_escape_text(cfg['name'])}</b>")
         box.pack_start(self.radio, False, False, 0)
 
         # thumbnail — a flat button; click enlarges the full-res image
@@ -169,7 +170,7 @@ class Card(Gtk.Frame):
 
         # description
         desc = Gtk.Label()
-        desc.set_markup(f"<small>{cfg['desc']}</small>")
+        desc.set_markup(f"<small>{GLib.markup_escape_text(cfg['desc'])}</small>")
         desc.set_halign(Gtk.Align.START)
         desc.set_line_wrap(True)
         box.pack_start(desc, False, False, 0)
