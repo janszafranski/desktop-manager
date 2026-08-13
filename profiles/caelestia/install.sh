@@ -28,7 +28,7 @@ log "AUR helper: $AUR"
 # We add Hyprland itself, a terminal, portals and a polkit agent for a usable
 # session. Building quickshell-git can take several minutes.
 log "Installing Hyprland + Caelestia shell + session essentials (this can take a while)…"
-"$AUR" -S --needed \
+"$AUR" -S --needed --noconfirm --answerclean=All --answerdiff=None \
   hyprland \
   caelestia-shell caelestia-cli \
   alacritty wl-clipboard \
