@@ -54,6 +54,18 @@ CONFIGS = [
         "apply": _p("profiles", "macos", "apply.sh"),
         "revert": _p("profiles", "macos", "revert.sh"),
     },
+    {
+        "kind": "profile",
+        "key": "caelestia",
+        "name": "Caelestia (Hyprland)",
+        "desc": "Adds a Hyprland + Caelestia shell session at the login screen. "
+                "Non-destructive — KDE Plasma stays your default.",
+        "image": _p("profiles", "caelestia", "preview.png"),
+        "apply": _p("profiles", "caelestia", "install.sh"),
+        "revert": _p("profiles", "caelestia", "uninstall.sh"),
+        "apply_label": "Install the session",
+        "revert_label": "Uninstall it",
+    },
 ]
 
 # stage checkboxes offered per card: (id, label, default-on)
@@ -166,10 +178,12 @@ class Card(Gtk.Frame):
                        False, False, 2)
 
         if self.kind == "profile":
-            # apply / revert selector
-            self.op_apply = Gtk.RadioButton.new_with_label(None, "Apply this look")
+            # apply / revert selector (labels are per-card so an installer-style
+            # profile can say "Install / Uninstall" instead of "Apply / Revert")
+            self.op_apply = Gtk.RadioButton.new_with_label(
+                None, cfg.get("apply_label", "Apply this look"))
             op_revert = Gtk.RadioButton.new_with_label_from_widget(
-                self.op_apply, "Revert to previous")
+                self.op_apply, cfg.get("revert_label", "Revert to previous"))
             self.op_apply.set_active(True)
             box.pack_start(self.op_apply, False, False, 0)
             box.pack_start(op_revert, False, False, 0)
