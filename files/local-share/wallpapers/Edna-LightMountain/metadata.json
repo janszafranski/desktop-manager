@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "gicalucejo@gmail.com",
+                "Name": "jomada"
+            }
+        ],
+        "Id": "Edna-LightMountain",
+        "License": "CC-BY-SA-4.0",
+        "Version": "1.1",
+        "Name": "Edna-Light",
+         "Name[x-test]": "xxEdna-LightMountainxx"
+    }
+}

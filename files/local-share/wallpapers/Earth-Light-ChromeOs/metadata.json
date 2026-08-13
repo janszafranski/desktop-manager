@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "zayronxio.gm@gmail.com",
+                "Name": "zayronxio"
+            }
+        ],
+        "Id": "Earth-Light-ChromeOs",
+        "License": "CC-BY-SA-4.0",
+        "Name": "Earth-Light-ChromeOs",
+        "Name[x-test]": "xxEarth-Light-ChromeOsxx"
+        }
+    }
+

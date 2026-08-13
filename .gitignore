@@ -1,0 +1,6 @@
+# optional/large — include explicitly via REPLICA_INCLUDE_PICTURES=1
+files/pictures/
+
+# editor / OS cruft
+*.swp
+.DS_Store

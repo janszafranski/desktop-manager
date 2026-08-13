@@ -1,0 +1,9 @@
+brother-hl-l8260cdw
+librewolf-bin
+litehtml0.9
+open-plc-utils
+plasma6-applets-kara
+python-pkg_resources
+whatsie
+xkill-shortcut
+zoom

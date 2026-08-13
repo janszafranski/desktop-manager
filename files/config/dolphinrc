@@ -1,0 +1,13 @@
+[DetailsMode]
+PreviewSize=64
+
+[General]
+Version=202
+ViewPropsTimestamp=2026,6,15,7,55,21.46
+
+[KFileDialog Settings]
+Places Icons Auto-resize=false
+Places Icons Static Size=22
+
+[UiSettings]
+ColorScheme=CachyOSNord

@@ -1,0 +1,57 @@
+[42defa9f-4cef-4cbf-a370-01a13532b769]
+Description=Application settings for teams-for-linux
+activity=6313594f-6b71-4d8c-a71e-da95e493a08a
+activityrule=3
+closeablerule=2
+ignoregeometry=true
+ignoregeometryrule=2
+noborderrule=2
+placementrule=2
+position=1040,20
+positionrule=2
+size=1000,800
+sizerule=2
+types=1
+wmclass=zoom
+wmclassmatch=1
+
+[43f1551d-6f10-4824-a6fa-31b55abe82e9]
+Description=Application settings for zoom
+clientmachine=localhost
+closeable=true
+closeablerule=2
+ignoregeometry=true
+ignoregeometryrule=2
+placementrule=2
+position=1000,20
+positionrule=2
+size=1000,800
+sizerule=2
+wmclass=zoom
+wmclassmatch=1
+
+[8e1ab30a-d98e-42a7-a31b-d30af4d753a2]
+Description=Application settings for org.kde.konsole
+position=919,280
+positionrule=3
+size=1084,790
+sizerule=3
+wmclass=konsole org.kde.konsole
+wmclasscomplete=true
+wmclassmatch=1
+
+[General]
+count=4
+rules=c2357296-99a0-43bf-805d-6ce913e4b6e0,43f1551d-6f10-4824-a6fa-31b55abe82e9,8e1ab30a-d98e-42a7-a31b-d30af4d753a2,42defa9f-4cef-4cbf-a370-01a13532b769
+
+[c2357296-99a0-43bf-805d-6ce913e4b6e0]
+Description=Application settings for teams-for-linux
+ignoregeometry=true
+ignoregeometryrule=2
+position=1000,20
+positionrule=2
+size=1100,800
+sizerule=2
+strictgeometryrule=2
+wmclass=teams-for-linux
+wmclassmatch=1

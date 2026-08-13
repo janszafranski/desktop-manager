@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "adolfo.librepixels.com",
+                "Name": "zayronxio "
+            }
+        ],
+        "Id": "MkosBigSur_2",
+        "License": "CC-BY-SA-4.0",
+        "Name": "MkosBigSur_2",
+        "Name[x-test]": "xxMkosBigSur_2xx"
+        }
+    }
+

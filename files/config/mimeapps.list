@@ -1,0 +1,26 @@
+[Added Associations]
+application/pdf=com.github.jeromerobert.pdfarranger.desktop;
+application/x-extension-htm=userapp-Firefox-QKNSQ3.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;
+application/x-extension-html=userapp-Firefox-QKNSQ3.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;
+application/x-extension-shtml=userapp-Firefox-QKNSQ3.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;
+application/x-extension-xht=userapp-Firefox-QKNSQ3.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;
+application/x-extension-xhtml=userapp-Firefox-QKNSQ3.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;
+application/xhtml+xml=userapp-Firefox-QKNSQ3.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;
+text/html=userapp-Firefox-QKNSQ3.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;
+x-scheme-handler/chrome=zen.desktop;userapp-Zen-S5R3Q3.desktop;userapp-Firefox-QKNSQ3.desktop;
+x-scheme-handler/http=floorp.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;userapp-Firefox-QKNSQ3.desktop;
+x-scheme-handler/https=floorp.desktop;zen.desktop;userapp-Zen-S5R3Q3.desktop;userapp-Firefox-QKNSQ3.desktop;
+
+[Default Applications]
+application/pdf=com.github.jeromerobert.pdfarranger.desktop;
+application/x-extension-htm=zen.desktop
+application/x-extension-html=zen.desktop
+application/x-extension-shtml=zen.desktop
+application/x-extension-xht=zen.desktop
+application/x-extension-xhtml=zen.desktop
+application/xhtml+xml=zen.desktop
+text/html=zen.desktop
+x-scheme-handler/chrome=zen.desktop
+x-scheme-handler/claude-cli=claude-code-url-handler.desktop
+x-scheme-handler/http=floorp.desktop;
+x-scheme-handler/https=floorp.desktop;

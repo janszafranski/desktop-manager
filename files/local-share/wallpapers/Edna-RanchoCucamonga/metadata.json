@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "gicalucejo@gmail.com",
+                "Name": "jomada"
+            }
+        ],
+        "Id": "Edna-RanchoCucamonga",
+        "License": "CC-BY-SA-4.0",
+        "Version": "1.1",
+        "Name": "Edna RanchoCucamonga",
+         "Name[x-test]": "xxEdna RanchoCucamongaxx"
+    }
+}

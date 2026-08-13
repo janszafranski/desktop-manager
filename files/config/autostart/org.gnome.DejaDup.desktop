@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Backups
+X-XDP-Autostart=org.gnome.DejaDup
+Exec=flatpak run --command=/app/libexec/deja-dup/deja-dup-monitor org.gnome.DejaDup
+X-Flatpak=org.gnome.DejaDup
