@@ -44,14 +44,32 @@ cd ~/system-replica
 
 ### GUI (KDE / any desktop)
 
-Prefer clicking? A `kdialog`/`zenity` front-end lets you tick which stages to
-run and whether it's a dry run, then executes them in a terminal window (so
-`sudo` prompts and live output work):
+Prefer clicking? `scripts/gui.sh` opens a graphical picker: choose a desktop
+configuration and which stages to run (with a Dry-run option), then it launches
+the work in a terminal window (so `sudo` prompts and live output work).
 
 ```bash
 ./scripts/gui.sh                 # run the picker now
 ./scripts/install-launcher.sh    # add "System Replica" to your app menu
 ```
+
+It uses the best available toolkit, in order:
+
+1. **GTK** (`gui_gtk.py`, via `python-gobject`) — a titled window with an intro,
+   a preview thumbnail and a grid of configuration cards. Preferred.
+2. **yad** — single window with the preview image + checkboxes.
+3. **kdialog / zenity** — plain checklist, no image.
+
+The preview image comes from `preview.png` in the repo root (a desktop
+screenshot); it's auto-cropped to 16:9 and scaled for the dialog. Replace that
+file to change the preview.
+
+> **TODO — float the GUI window on tiling setups.** On KDE + Krohnkite the
+> window still gets tiled. The app sets a `DIALOG` type hint and a stable
+> `system-replica` WM_CLASS, and we added `System Replica` to Krohnkite's
+> `floatingTitle` (in the bundled `kwinrc`), but that didn't take on Wayland.
+> Next thing to try: add the `system-replica` **class** to Krohnkite's
+> `ignoreClass`, or ship a KWin window rule (force-float + size + center).
 
 Or run a single stage:
 

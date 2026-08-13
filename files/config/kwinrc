@@ -14,7 +14,7 @@ ultrawidewindowsEnabled=true
 wobblywindowsEnabled=true
 
 [Script-krohnkite]
-floatingTitle=Shelly, CachyOS Welcome
+floatingTitle=Shelly, CachyOS Welcome, System Replica
 ignoreClass=krunner,yakuake,spectacle,kded5,xwaylandvideobridge,plasmashell,ksplashqml,org.kde.plasmashell,org.kde.polkit-kde-authentication-agent-1,org.kde.kruler,kruler,kwin_wayland,ksmserver-logout-greeter,yakuake
 ignoreRole=quake,yakuake
 ignoreTitle=Konsole,yakuake
