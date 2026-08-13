@@ -28,7 +28,12 @@ log "AUR helper: $AUR"
 # We add Hyprland itself, a terminal, portals and a polkit agent for a usable
 # session. Building quickshell-git can take several minutes.
 log "Installing Hyprland + Caelestia shell + session essentials (this can take a while)…"
+# NOTE: caelestia-shell depends on 'quickshell-git'. Several packages *provide*
+# that name — notably 'noctalia-qs', a FORK of Quickshell that Caelestia will
+# not run on. Install the genuine upstream 'quickshell-git' EXPLICITLY (and
+# first) so the resolver doesn't substitute the fork.
 "$AUR" -S --needed --noconfirm --answerclean=All --answerdiff=None \
+  quickshell-git \
   hyprland \
   caelestia-shell caelestia-cli \
   alacritty wl-clipboard \
@@ -83,8 +88,8 @@ decoration { rounding = 10 }
 bind = \$mod, Return, exec, alacritty
 bind = \$mod, Q, killactive,
 bind = \$mod, E, exec, dolphin
-# Caelestia app launcher (verify exact IPC in Caelestia docs if this does nothing):
-bind = \$mod, Space, exec, caelestia shell -s launcher
+# NOTE: the Caelestia shell registers its OWN global shortcuts (launcher,
+# dashboard, etc.) once running, so we don't bind a launcher here.
 bind = \$mod, F, fullscreen,
 bind = \$mod SHIFT, Q, exit,
 # focus
