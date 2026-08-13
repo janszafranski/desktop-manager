@@ -61,15 +61,18 @@ It uses the best available toolkit, in order:
 3. **kdialog / zenity** — plain checklist, no image.
 
 The preview image comes from `preview.png` in the repo root (a desktop
-screenshot); it's auto-cropped to 16:9 and scaled for the dialog. Replace that
-file to change the preview.
+screenshot); it's scaled to fit the dialog (full desktop, not cropped) and a
+larger copy backs the click-to-enlarge popup. Replace that file to change it.
 
-> **TODO — float the GUI window on tiling setups.** On KDE + Krohnkite the
-> window still gets tiled. The app sets a `DIALOG` type hint and a stable
-> `system-replica` WM_CLASS, and we added `System Replica` to Krohnkite's
-> `floatingTitle` (in the bundled `kwinrc`), but that didn't take on Wayland.
-> Next thing to try: add the `system-replica` **class** to Krohnkite's
-> `ignoreClass`, or ship a KWin window rule (force-float + size + center).
+> **TODO — float the GUI window on tiling setups (UNRESOLVED).** On KDE +
+> Krohnkite the window still tiles. Tried, none of which worked on Wayland:
+> a `DIALOG` type hint; a stable `system-replica` WM_CLASS; adding
+> `System Replica` to Krohnkite's `floatingTitle`; adding `system-replica`
+> to Krohnkite's `ignoreClass` (its exact `resourceClass`, confirmed via a
+> KWin script) — even after a full Krohnkite unload/reload, not just
+> `qdbus … reconfigure`. Konsole floats fine via `ignoreTitle`, so the
+> mechanism works but not for this window. Next idea: a dedicated KWin window
+> rule (force-float + size + center), or capture what differs at map-time.
 
 Or run a single stage:
 
@@ -78,6 +81,47 @@ Or run a single stage:
 ./scripts/install.sh files       # deploy configs & themes
 ./scripts/install.sh services    # enable systemd --user units
 ```
+
+## Desktop profiles (alternative looks)
+
+Beyond the captured "current" desktop, `profiles/<name>/` holds **alternative
+looks** you can switch to and back from. Each profile is a self-contained,
+reversible transformation and appears as its own card in the GUI grid (with an
+**Apply / Revert** selector).
+
+```
+profiles/macos/
+├── apply.sh        # transform KDE -> the look (idempotent)
+├── revert.sh       # restore the exact pre-apply state
+├── add-dock.js     # plasmashell script that builds the dock
+├── wallpaper.jpg   # wallpaper the profile sets
+├── preview.png     # card image
+└── restore/        # snapshot taken on first apply (state.env + config files)
+```
+
+Run directly, or via the GUI (card → Apply/Revert → Install):
+
+```bash
+./profiles/macos/apply.sh    # switch to the look
+./profiles/macos/revert.sh   # switch back
+```
+
+**How `apply.sh` works** (macOS example): installs the **WhiteSur** theme suite
+entirely at **user level (no sudo)** — cloning vinceliuice's repos and running
+their installers if the theme is missing — then applies the Global Theme
+(look-and-feel) with `plasma-apply-lookandfeel --resetLayout`, sets a calm
+*Monterey Light* wallpaper, and adds a native floating Plasma dock (Latte isn't
+available on Plasma 6). It runs cleanly on a fresh machine as long as it has
+network access for the theme clone.
+
+**Revert safety:** the *first* `apply.sh` snapshots your live Global Theme,
+color scheme, cursor, and panel layout into `restore/`. `revert.sh` restores
+those files and re-applies your original Global Theme, so you always have a way
+back. Your Nordic setup is also the repo's default captured config.
+
+macOS is currently the only profile; add more by dropping another
+`profiles/<name>/` directory and a matching entry in `CONFIGS` in
+`scripts/gui_gtk.py`.
 
 Existing files are **backed up** to `~/.config-backup-<timestamp>/` before being
 overwritten — nothing is destroyed silently.
