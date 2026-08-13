@@ -12,25 +12,35 @@ REPO="$(dirname "$SCRIPT_DIR")"
 INSTALL="$SCRIPT_DIR/install.sh"
 TITLE="System Replica"
 
-# ---- locate a display-ready preview image -----------------------------------
-# Returns (echoes) a path to a scaled preview, or nothing if none available.
-prepare_preview() {
-  local src="" thumb="$REPO/.preview-thumb.png"
+# ---- locate the original (full-res) preview image ---------------------------
+preview_source() {
+  local c
   for c in "$REPO/preview.png" "$REPO/preview.jpg" "$REPO/files/preview.png"; do
-    [[ -f "$c" ]] && { src="$c"; break; }
+    [[ -f "$c" ]] && { echo "$c"; return 0; }
   done
-  [[ -z "$src" ]] && return 0
-  # scale down large screenshots so the dialog stays a sane size
-  if command -v magick >/dev/null 2>&1;  then MG=(magick "$src");   MGT=magick
-  elif command -v convert >/dev/null 2>&1; then MG=(convert "$src"); MGT=convert
-  else echo "$src"; return 0; fi
-  if [[ ! -f "$thumb" || "$src" -nt "$thumb" ]]; then
-    # center-crop to a 16:9 "normal monitor" shape, then scale down
-    "${MG[@]}" -gravity center -crop 16:9 +repage -resize '360x203>' "$thumb" \
-      2>/dev/null || { echo "$src"; return 0; }
-  fi
-  echo "$thumb"
 }
+
+# ---- render a scaled preview at a given size --------------------------------
+# Resizes the whole desktop screenshot to fit (keeps full aspect — nothing is
+# cropped, so the entire desktop is visible, just smaller).
+# _render_preview <geometry> <outfile>; echoes outfile, or the source on failure.
+_render_preview() {
+  local geom="$1" out="$2" src; src="$(preview_source)"
+  [[ -z "$src" ]] && return 0
+  local mg
+  if   command -v magick  >/dev/null 2>&1; then mg=magick
+  elif command -v convert >/dev/null 2>&1; then mg=convert
+  else echo "$src"; return 0; fi
+  if [[ ! -f "$out" || "$src" -nt "$out" ]]; then
+    "$mg" "$src" -resize "$geom" "$out" 2>/dev/null || { echo "$src"; return 0; }
+  fi
+  echo "$out"
+}
+
+# small thumbnail for the card (fits within this box, keeps aspect)
+prepare_preview()       { _render_preview '360x240>'  "$REPO/.preview-thumb.png"; }
+# larger image for the click-to-enlarge popup
+prepare_preview_large() { _render_preview '1600x1000>' "$REPO/.preview-large.png"; }
 
 # ---- pick a dialog tool -----------------------------------------------------
 # Prefer the GTK app (grid of desktop cards). Fall back to yad, then kdialog/zenity.
@@ -41,18 +51,24 @@ elif command -v kdialog >/dev/null 2>&1; then DLG=kdialog
 elif command -v zenity  >/dev/null 2>&1; then DLG=zenity
 else echo "Need python-gobject, yad, kdialog or zenity for the GUI." >&2; exit 1; fi
 
-# STAGES (space-separated canonical order) and DRY ("--dry-run" or "") are set
-# by the chooser below.
-STAGES=""; DRY=""
+# Set by the chooser below.
+#   MODE   = "stages" (run install.sh stages) or "profile" (run a profile script)
+#   STAGES = space-separated stage list (MODE=stages)
+#   CMD    = absolute path of an apply/revert script (MODE=profile)
+#   DRY    = "--dry-run" or ""
+MODE="stages"; STAGES=""; CMD=""; DRY=""
 
 choose_gtk() {
-  local img out; img="$(prepare_preview)"
+  local img full out; img="$(prepare_preview)"; full="$(prepare_preview_large)"
   local -a a=(python3 "$SCRIPT_DIR/gui_gtk.py")
-  [[ -n "$img" ]] && a+=(--image "$img")
+  [[ -n "$img" ]]  && a+=(--image "$img")
+  [[ -n "$full" ]] && a+=(--image-full "$full")
   out="$("${a[@]}")" || return 1     # cancel/close -> non-zero
-  STAGES="$(sed -n 1p <<<"$out")"
-  DRY="$(sed -n 2p <<<"$out")"
-  [[ -n $STAGES ]]
+  MODE="$(sed -n 1p <<<"$out")"      # "stages" | "profile"
+  local payload; payload="$(sed -n 2p <<<"$out")"
+  DRY="$(sed -n 3p <<<"$out")"
+  if [[ $MODE == profile ]]; then CMD="$payload"; [[ -n $CMD ]]
+  else STAGES="$payload"; [[ -n $STAGES ]]; fi
 }
 
 choose_yad() {
@@ -130,10 +146,19 @@ case $DLG in
 esac
 
 inner="cd $(printf '%q' "$SCRIPT_DIR"); rc=0;"
-for s in $STAGES; do
-  inner+=" echo; echo '==== stage: $s ${DRY} ===='; bash ./install.sh $s $DRY || rc=1;"
-done
-inner+=" echo; if [ \$rc -eq 0 ]; then echo '[OK] All selected stages finished.'; else echo '[!!] Some stages reported errors - scroll up.'; fi;"
+if [[ $MODE == profile ]]; then
+  # apply/revert a themed look; dry-run just prints what would run
+  if [[ -n $DRY ]]; then
+    inner+=" echo '[dry] would run: bash $(printf '%q' "$CMD")';"
+  else
+    inner+=" echo '==== running: $CMD ===='; bash $(printf '%q' "$CMD") || rc=1;"
+  fi
+else
+  for s in $STAGES; do
+    inner+=" echo; echo '==== stage: $s ${DRY} ===='; bash ./install.sh $s $DRY || rc=1;"
+  done
+fi
+inner+=" echo; if [ \$rc -eq 0 ]; then echo '[OK] Finished.'; else echo '[!!] Errors reported - scroll up.'; fi;"
 inner+=" read -rp 'Press Enter to close this window... ' _"
 
 run_in_terminal "$inner"

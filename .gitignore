@@ -7,5 +7,6 @@ files/pictures/
 
 # generated at runtime by gui.sh / python
 .preview-thumb.png
+.preview-large.png
 __pycache__/
 *.pyc
