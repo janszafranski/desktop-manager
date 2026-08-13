@@ -42,6 +42,17 @@ cd ~/system-replica
 ./scripts/install.sh             # packages + files + services
 ```
 
+### GUI (KDE / any desktop)
+
+Prefer clicking? A `kdialog`/`zenity` front-end lets you tick which stages to
+run and whether it's a dry run, then executes them in a terminal window (so
+`sudo` prompts and live output work):
+
+```bash
+./scripts/gui.sh                 # run the picker now
+./scripts/install-launcher.sh    # add "System Replica" to your app menu
+```
+
 Or run a single stage:
 
 ```bash
