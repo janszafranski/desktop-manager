@@ -4,3 +4,8 @@ files/pictures/
 # editor / OS cruft
 *.swp
 .DS_Store
+
+# generated at runtime by gui.sh / python
+.preview-thumb.png
+__pycache__/
+*.pyc
