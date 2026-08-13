@@ -33,7 +33,7 @@ log "Installing Hyprland + Caelestia shell + session essentials (this can take a
 # not run on. Install the genuine upstream 'quickshell-git' EXPLICITLY (and
 # first) so the resolver doesn't substitute the fork.
 "$AUR" -S --needed --noconfirm --answerclean=All --answerdiff=None \
-  quickshell-git \
+  aur/quickshell-git \
   hyprland \
   caelestia-shell caelestia-cli \
   alacritty wl-clipboard \
