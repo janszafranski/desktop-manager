@@ -987,11 +987,11 @@
 <use width="100%" x="0" y="0" height="100%" xlink:href="#floating-tab-toggled-bottomleft" id="tabBarFrame-normal-bottomleft" transform="matrix(0,-1,1,0,-878,1086.5001)"/>
 <g style="fill-rule:evenodd;stroke:none" id="tooltip-shadow-top" transform="translate(354,-38)">
 <path style="opacity:.3;fill:url(#linearGradient4963)" id="path4959" d="m 17.5005,877 0,3 58,0 0,-3 z "/>
-<path style="fill:#474d5d" id="path4961" d="m 17.5,879 0,3 58,0 0,-3 z"/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path4961" d="m 17.5,879 0,3 58,0 0,-3 z"/>
 </g>
 <use width="100%" x="0" y="0" height="100%" xlink:href="#menu-shadow-hint-top" id="tooltip-shadow-hint-top" transform="matrix(1,0,0,0.8,354,206.2)"/>
 <g style="stroke:none;fill-rule:evenodd">
-<g style="fill:#474d5d">
+<g style="fill:#474d5d;fill-opacity:0.28">
 <path id="tooltip-normal-left" d="m 371.5,916.9997 4.9999,.0003 0,48 -4.9999,-.0003 z "/>
 <path id="tooltip-normal-topleft" d="m 376.5,911.9999 -4.9989,.0003 -.001,5 4.9999,0 z "/>
 <path id="tooltip-normal-top" d="m 424.5,912 -3e-4,4.9999 -48,0 L 376.5,912 Z"/>
@@ -1004,36 +1004,36 @@
 </g>
 <g id="tooltip-shadow-left" transform="translate(354,-38)">
 <path style="opacity:.4;fill:url(#linearGradient4953)" id="tooltip-shadow-left0" d="m 12.5005,882 0,60 4.9999,0 0,-60 z "/>
-<path style="fill:#474d5d" id="path4968" d="m 14.5,882 0,60 3,0 0,-60 z"/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path4968" d="m 14.5,882 0,60 3,0 0,-60 z"/>
 </g>
 </g>
 <use width="100%" x="0" y="0" height="100%" xlink:href="#menu-shadow-hint-left" id="tooltip-shadow-hint-left" transform="matrix(0.39992103,0,0,1,361.50126,48)"/>
 <g style="fill-rule:evenodd;stroke:none" id="tooltip-shadow-right" transform="translate(354,-38)">
 <path style="opacity:.48;fill:url(#linearGradient4957)" id="tooltip-shadow-right0" d="m 75.5003,882 0,60 5.0001,0 0,-60 z "/>
-<path style="fill:#474d5d" id="path4982" d="m 75.5003,882 0,60 1.9997,0 0,-60 z "/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path4982" d="m 75.5003,882 0,60 1.9997,0 0,-60 z "/>
 </g>
 <use width="100%" x="0" y="0" height="100%" xlink:href="#menu-shadow-hint-right" id="tooltip-shadow-hint-right" transform="matrix(0.60007448,0,0,1,386.19419,48)"/>
 <g style="fill-rule:evenodd;stroke:none" id="tooltip-shadow-bottom" transform="translate(354,-38)">
 <path style="opacity:.58;fill:url(#linearGradient4945)" id="tooltip-shadow-bottom0" d="m 17.5005,941.9999 0,5.0001 58,0 0,-5.0001 z "/>
-<path style="fill:#474d5d" id="path4990" d="m 17.5,942 0,2 58,0 0,-2 z "/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path4990" d="m 17.5,942 0,2 58,0 0,-2 z "/>
 </g>
 <use width="100%" x="0" y="0" height="100%" xlink:href="#menu-shadow-hint-bottom" id="tooltip-shadow-hint-bottom" transform="matrix(1,0,0,0.60000008,354,392.39993)"/>
 <g style="stroke:none;fill-rule:evenodd">
 <g id="tooltip-shadow-topleft" transform="translate(354,-38)">
 <path style="opacity:.28;fill:url(#radialGradient4966)" id="tooltip-shadow-topleft0" d="m 12.50035,877 1e-4,5 4.9999,-10e-5 0,-4.9999 z"/>
-<path style="fill:#474d5d" id="path4998" d="m 14.5,879 6e-5,3 3.00029,-6e-5 0,-2.99994 z"/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path4998" d="m 14.5,879 6e-5,3 3.00029,-6e-5 0,-2.99994 z"/>
 </g>
 <g id="tooltip-shadow-topright" transform="translate(354,-38)">
 <path style="opacity:.43;fill:url(#radialGradient4962)" id="tooltip-shadow-topright0" d="m 75.5005,877 0,5 4.9999,0 .0001,-5 z "/>
-<path style="fill:#474d5d" id="path5004" d="m 75.5005,879 0,3 1.9995,0 0,-3 z "/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path5004" d="m 75.5005,879 0,3 1.9995,0 0,-3 z "/>
 </g>
 <g id="tooltip-shadow-bottomleft" transform="translate(354,-38)">
 <path style="opacity:.48;fill:url(#radialGradient4949)" id="tooltip-shadow-bottomleft0" d="m 12.50045,942 0,5 5,0 -5e-4,-5 z"/>
-<path style="fill:#474d5d" id="path5010" d="m 14.5,942 0,2 3.00045,0 -3e-4,-2 z"/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path5010" d="m 14.5,942 0,2 3.00045,0 -3e-4,-2 z"/>
 </g>
 <g id="tooltip-shadow-bottomright" transform="translate(354,-38)">
 <path style="opacity:.48;fill:url(#radialGradient4940)" id="tooltip-shadow-bottomright0" d="m 75.50045,942 3e-4,5 4.9997,0 0,-5 z"/>
-<path style="fill:#474d5d" id="path5016" d="m 75.5005,942 .0001,2 1.9994,0 0,-2 z "/>
+<path style="fill:#474d5d;fill-opacity:0.28" id="path5016" d="m 75.5005,942 .0001,2 1.9994,0 0,-2 z "/>
 </g>
 </g>
 <g style="fill:#81a1c1;stroke:none" id="scrollbarslider-focused-topright" transform="matrix(0.74999779,0,0,1.0341089,-97.749516,407.35702)">
