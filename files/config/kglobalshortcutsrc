@@ -349,6 +349,7 @@ activate task manager entry 8=Meta+8,Meta+8,Activate Task Manager Entry 8
 activate task manager entry 9=Meta+9,Meta+9,Activate Task Manager Entry 9
 activate widget 100=none,none,Activate Desktop Indicator Widget
 activate widget 120=none,none,Activate AI Models Widget
+activate widget 125=Alt+F1,none,Activate Application Launcher Widget
 clear history=none,none,Clear Notification History
 clear-history=none,none,Clear Clipboard History
 clipboard_action=Meta+Ctrl+X,Meta+Ctrl+X,Automatic Action Popup Menu
@@ -366,6 +367,9 @@ show-on-mouse-pos=Meta+V,Meta+V,Show Clipboard Items at Mouse Position
 switch to next activity=none,none,Switch to Next Activity
 switch to previous activity=none,none,Switch to Previous Activity
 toggle do not disturb=none,none,Toggle do not disturb
+
+[services][caelestia-launcher.desktop]
+_launch=Meta+Space
 
 [services][org.kde.spectacle.desktop]
 CurrentMonitorScreenShot=none
