@@ -126,8 +126,13 @@ macOS is currently the only profile; add more by dropping another
 Existing files are **backed up** to `~/.config-backup-<timestamp>/` before being
 overwritten — nothing is destroyed silently.
 
-After the `files` stage: **log out and back in** (or restart Plasma) so KWin,
-the color scheme, and GTK/Qt theming reload.
+The `files` stage **applies live** when run inside a Plasma session: it stops
+plasmashell before deploying (so a running shell can't overwrite the restored
+panel layout on the next logout), then re-applies the colour scheme, reconfigures
+KWin and restarts plasmashell — panels, wallpaper and decoration return without a
+re-login. On a fresh machine with no running session it just deploys and prints a
+reminder to log in. A log-out/in is still the surest way to make **every** app
+(GTK/Qt) adopt the new theming.
 
 ## Refresh the snapshot from the current machine
 

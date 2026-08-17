@@ -41,7 +41,48 @@ deploy_into() {
   echo "  -> ${dest/#$HOME/\~}"
 }
 
+# Apply the just-deployed KDE config to the RUNNING session so a "restore"
+# takes effect immediately — no log-out required. Mirrors the manual rescue
+# sequence: colour scheme -> KWin reconfigure -> restart plasmashell (which now
+# reads the freshly-restored panel/wallpaper layout).
+apply_live_kde() {
+  say "Applying to the live Plasma session (no log-out needed)"
+  # Colour scheme, read back from the deployed kdeglobals.
+  local scheme
+  scheme="$( (kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null \
+            || kreadconfig5 --file kdeglobals --group General --key ColorScheme 2>/dev/null) || true )"
+  if [[ -n "$scheme" ]] && command -v plasma-apply-colorscheme >/dev/null 2>&1; then
+    plasma-apply-colorscheme "$scheme" >/dev/null 2>&1 \
+      || plasma-apply-colorscheme "${scheme,,}" >/dev/null 2>&1 || true
+  fi
+  # KWin: reload decoration, borders, colours and KWin scripts in place.
+  qdbus6 org.kde.KWin /KWin reconfigure 2>/dev/null \
+    || qdbus org.kde.KWin /KWin reconfigure 2>/dev/null \
+    || qdbus-qt6 org.kde.KWin /KWin reconfigure 2>/dev/null || true
+  # Panels + wallpaper: bring plasmashell back up against the restored appletsrc.
+  setsid -f plasmashell >/dev/null 2>&1 \
+    || ( nohup plasmashell >/dev/null 2>&1 & ) || true
+  say "Live apply complete — a few already-open apps adopt the colours only when relaunched."
+}
+
 install_files() {
+  # If a Plasma session is live, stop plasmashell BEFORE copying its config: a
+  # running plasmashell keeps the old panel layout in memory and rewrites
+  # appletsrc/plasmashellrc on exit, which would clobber the restored panels at
+  # the next logout. Stopping first makes the restore actually stick.
+  local live_kde=0
+  if [[ $DRY == 0 ]] && [[ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]] \
+     && pgrep -x plasmashell >/dev/null 2>&1; then
+    live_kde=1
+  fi
+  if [[ $live_kde == 1 ]]; then
+    say "Live Plasma session detected — stopping plasmashell so panels restore cleanly"
+    kquitapp6 plasmashell 2>/dev/null || kquitapp5 plasmashell 2>/dev/null \
+      || killall plasmashell 2>/dev/null || true
+  elif [[ $DRY == 1 ]]; then
+    echo "  [dry] (in a live Plasma session) would stop plasmashell, deploy, then apply the colour scheme, reconfigure KWin and restart plasmashell"
+  fi
+
   say "Deploying config (backup of any existing files -> $BACKUP)"
 
   for item in "${HOME_ITEMS[@]}";       do deploy_into "$FILES/home"        "$HOME"              "$item"; done
@@ -60,7 +101,11 @@ install_files() {
   command -v kbuildsycoca6 >/dev/null && run kbuildsycoca6 >/dev/null 2>&1 || \
     { command -v kbuildsycoca5 >/dev/null && run kbuildsycoca5 >/dev/null 2>&1; } || true
 
-  warn "Log out & back in (or restart Plasma) for KDE/KWin/GTK changes to fully apply."
+  if [[ $live_kde == 1 ]]; then
+    apply_live_kde
+  else
+    warn "Log out & back in (or restart Plasma) for KDE/KWin/GTK changes to fully apply."
+  fi
 }
 
 need_aur_helper() {

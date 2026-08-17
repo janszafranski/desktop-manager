@@ -41,7 +41,6 @@ CONFIG_ITEMS=(
   kwinrc
   kwinrulesrc
   kglobalshortcutsrc
-  kdeglobals
   plasmarc
   plasmashellrc
   plasma-org.kde.plasma.desktop-appletsrc
