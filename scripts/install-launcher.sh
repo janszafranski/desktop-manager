@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-launcher.sh — add "System Replica" to your application menu.
+# install-launcher.sh — add "Desktop Manager" to your application menu.
 # Generates a .desktop entry pointing at this repo's gui.sh (absolute path).
 set -euo pipefail
 
@@ -11,9 +11,10 @@ DEST="$HOME/.local/share/applications/system-replica.desktop"
 
 chmod +x "$GUI"
 mkdir -p "$(dirname "$DEST")"
-sed "s|__GUI__|$GUI|g" "$TEMPLATE" > "$DEST"
+ICON="$REPO/icon.png"
+sed -e "s|__GUI__|$GUI|g" -e "s|__ICON__|$ICON|g" "$TEMPLATE" > "$DEST"
 command -v update-desktop-database >/dev/null 2>&1 \
   && update-desktop-database "$(dirname "$DEST")" 2>/dev/null || true
 
 echo "Installed launcher: $DEST"
-echo "Look for \"System Replica\" in your application menu."
+echo "Look for \"Desktop Manager\" in your application menu."

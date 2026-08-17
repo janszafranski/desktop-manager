@@ -10,3 +10,6 @@ files/pictures/
 .preview-large.png
 __pycache__/
 *.pyc
+
+# intermediate icon sizes rasterized from icon.svg (only icon.png is used)
+.icon-*.png

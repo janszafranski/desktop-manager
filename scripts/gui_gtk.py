@@ -32,6 +32,70 @@ def _p(*parts):
     return os.path.join(REPO, *parts)
 
 
+# --- dark-mode preference (remembered across runs) --------------------------
+def _pref_path():
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "desktop-manager", "prefs")
+
+
+APPEARANCE_MODES = ("system", "light", "dark")
+
+
+def load_mode_pref(default="system"):
+    """Remembered appearance mode: 'system', 'light' or 'dark'."""
+    try:
+        with open(_pref_path()) as f:
+            v = f.read().strip()
+        return v if v in APPEARANCE_MODES else default
+    except OSError:
+        return default
+
+
+def save_mode_pref(mode):
+    try:
+        p = _pref_path()
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(mode)
+    except OSError:
+        pass
+
+
+# --- light/dark theme switching ---------------------------------------------
+# We standardise on Adwaita as the base theme because its dark variant is a
+# built-in, reliably repainted by the `gtk-application-prefer-dark-theme` hint
+# (verified on this GTK build). Naming the theme "Adwaita-dark" does NOT work —
+# no such theme exists on disk, so GTK falls back to light. The Breeze GTK
+# theme is avoided because it follows the Plasma colour scheme, so it can't
+# give a genuine light look on a dark desktop.
+def detect_system_dark(fallback_theme=""):
+    """True if the desktop prefers a dark colour scheme.
+
+    Reads the XDG appearance portal (org.freedesktop.appearance color-scheme:
+    1=dark, 2=light, 0=no preference). Falls back to whether the ambient GTK
+    theme name contains 'dark'."""
+    try:
+        from gi.repository import Gio
+        proxy = Gio.DBusProxy.new_for_bus_sync(
+            Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None,
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings", None)
+        res = proxy.call_sync(
+            "Read",
+            GLib.Variant("(ss)",
+                         ("org.freedesktop.appearance", "color-scheme")),
+            Gio.DBusCallFlags.NONE, 1000, None)
+        scheme = res.unpack()[0]      # unwraps the nested variant -> uint32
+        if scheme == 1:
+            return True
+        if scheme == 2:
+            return False
+    except Exception:
+        pass
+    return "dark" in (fallback_theme or "").lower()
+
+
 # --- desktop configurations -------------------------------------------------
 # Add more dicts here to grow the grid. Each becomes a card/cell.
 #   kind    : "install" (deploy the captured config via install.sh stages) or
@@ -219,24 +283,52 @@ class ReplicaWindow(Gtk.Window):
         self.set_border_width(0)
 
         # --- title bar --------------------------------------------------------
-        header = Gtk.HeaderBar(title="System Replica")
+        header = Gtk.HeaderBar(title="Desktop Manager")
         header.set_subtitle("Config & Theme Installer")
         header.set_show_close_button(True)
         # ensure a maximize (and minimize) button is present in the title bar
         header.set_decoration_layout("icon:minimize,maximize,close")
         self.set_titlebar(header)
-        self.set_title("System Replica")
+        self.set_title("Desktop Manager")
+
+        # appearance selector — System / Light / Dark, remembered across runs.
+        # "System" follows the desktop's colour-scheme preference.
+        self._settings = Gtk.Settings.get_default()
+        self._orig_theme = self._settings.get_property("gtk-theme-name") or ""
+        self._mode = load_mode_pref()
+        self._apply_mode(self._mode)
+        appearance = Gtk.ComboBoxText()
+        for mid, label in (("system", "System"),
+                           ("light", "Light"),
+                           ("dark", "Dark")):
+            appearance.append(mid, label)
+        appearance.set_active_id(self._mode)
+        appearance.set_tooltip_text("Appearance")
+        appearance.connect("changed", self.on_mode_changed)
+        header.pack_end(appearance)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         outer.set_border_width(18)
         self.add(outer)
 
-        # --- intro paragraph --------------------------------------------------
+        # --- intro paragraph (app icon on the left) ---------------------------
+        intro_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        icon_path = _p("icon.png")
+        if os.path.exists(icon_path):
+            try:
+                ipix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    icon_path, 64, 64, True)
+                logo = Gtk.Image.new_from_pixbuf(ipix)
+                logo.set_valign(Gtk.Align.START)
+                intro_row.pack_start(logo, False, False, 0)
+            except Exception:
+                pass
         intro = Gtk.Label(label=INTRO)
         intro.set_line_wrap(True)
         intro.set_xalign(0.0)
         intro.set_max_width_chars(64)
-        outer.pack_start(intro, False, False, 0)
+        intro_row.pack_start(intro, True, True, 0)
+        outer.pack_start(intro_row, False, False, 0)
 
         # --- grid of configuration cards -------------------------------------
         grid = Gtk.Grid(column_spacing=14, row_spacing=14)
@@ -269,6 +361,24 @@ class ReplicaWindow(Gtk.Window):
         outer.pack_start(actions, False, False, 0)
 
         self.connect("destroy", Gtk.main_quit)
+
+    def _apply_visual(self, dark):
+        # Adwaita is a real, always-present base whose dark variant is toggled
+        # by the prefer-dark hint (verified to actually repaint on this build).
+        self._settings.set_property("gtk-theme-name", "Adwaita")
+        self._settings.set_property("gtk-application-prefer-dark-theme", dark)
+
+    def _apply_mode(self, mode):
+        if mode == "system":
+            self._apply_visual(detect_system_dark(self._orig_theme))
+        else:
+            self._apply_visual(mode == "dark")
+
+    def on_mode_changed(self, combo):
+        mode = combo.get_active_id() or "system"
+        self._mode = mode
+        self._apply_mode(mode)
+        save_mode_pref(mode)
 
     def active_card(self):
         for c in self.cards:

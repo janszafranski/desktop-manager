@@ -50,7 +50,7 @@ the work in a terminal window (so `sudo` prompts and live output work).
 
 ```bash
 ./scripts/gui.sh                 # run the picker now
-./scripts/install-launcher.sh    # add "System Replica" to your app menu
+./scripts/install-launcher.sh    # add "Desktop Manager" to your app menu
 ```
 
 It uses the best available toolkit, in order:
@@ -67,7 +67,7 @@ larger copy backs the click-to-enlarge popup. Replace that file to change it.
 > **TODO — float the GUI window on tiling setups (UNRESOLVED).** On KDE +
 > Krohnkite the window still tiles. Tried, none of which worked on Wayland:
 > a `DIALOG` type hint; a stable `system-replica` WM_CLASS; adding
-> `System Replica` to Krohnkite's `floatingTitle`; adding `system-replica`
+> `Desktop Manager` to Krohnkite's `floatingTitle`; adding `system-replica`
 > to Krohnkite's `ignoreClass` (its exact `resourceClass`, confirmed via a
 > KWin script) — even after a full Krohnkite unload/reload, not just
 > `qdbus … reconfigure`. Konsole floats fine via `ignoreTitle`, so the

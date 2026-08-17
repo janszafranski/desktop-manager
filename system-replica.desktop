@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=System Replica
+Name=Desktop Manager
 GenericName=Config & Theme Installer
 Comment=Deploy this machine's config, themes and packages
-Icon=system-software-install
+Icon=__ICON__
 Exec=__GUI__
 Terminal=false
 Categories=System;Settings;

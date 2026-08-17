@@ -10,7 +10,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$SCRIPT_DIR")"
 INSTALL="$SCRIPT_DIR/install.sh"
-TITLE="System Replica"
+TITLE="Desktop Manager"
 
 # ---- locate the original (full-res) preview image ---------------------------
 preview_source() {
