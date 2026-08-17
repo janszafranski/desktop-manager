@@ -1,5 +1,5 @@
 [TabBox]
-LayoutName=big_icons
+LayoutName=org.kde.breeze.desktop
 
 [org.kde.kdecoration2]
 NoPlugin=false
