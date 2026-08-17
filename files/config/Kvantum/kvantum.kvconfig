@@ -2,4 +2,4 @@
 theme=Nordic-Frost
 
 [Applications]
-Nordic-Frost-solid=systemsettings, systemsettings5, kinfocenter, plasma-discover, plasmawindowed
+Nordic-Frost-solid=kinfocenter, plasma-discover, plasmawindowed
