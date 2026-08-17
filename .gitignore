@@ -13,3 +13,7 @@ __pycache__/
 
 # intermediate icon sizes rasterized from icon.svg (only icon.png is used)
 .icon-*.png
+
+# machine-specific secrets — never publish (device identity keys)
+files/config/kdeconnect/privateKey.pem
+files/config/kdeconnect/certificate.pem
