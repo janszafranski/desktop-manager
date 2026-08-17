@@ -1,6 +1,6 @@
 [%General]
 author=Tsu Jan
-comment=Nordic frosted-glass (translucent+blurred KvArcDark)
+comment=Nordic-Frost, solid variant for Kirigami apps (System Settings/Discover/Info Center)
 x11drag=menubar_and_primary_toolbar
 alt_mnemonic=true
 left_tabs=true
@@ -28,10 +28,10 @@ progressbar_thickness=3
 menubar_mouse_tracking=true
 toolbutton_style=1
 click_behavior=0
-translucent_windows=true
+translucent_windows=false
 blurring=true
 popup_blurring=true
-reduce_window_opacity=45
+reduce_window_opacity=0
 reduce_menu_opacity=60
 vertical_spin_indicators=false
 spin_button_width=32

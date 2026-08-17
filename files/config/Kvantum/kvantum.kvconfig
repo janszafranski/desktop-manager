@@ -1,2 +1,5 @@
 [General]
 theme=Nordic-Frost
+
+[Applications]
+Nordic-Frost-solid=systemsettings, systemsettings5, kinfocenter, plasma-discover, plasmawindowed
