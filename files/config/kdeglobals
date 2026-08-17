@@ -136,6 +136,9 @@ ForegroundVisited=155,89,182
 ColorScheme=BreezeDark
 ColorSchemeHash=9d38eb71ded8ff549da26d57d7cbab9164da243a
 
+[Icons]
+Theme=char-white
+
 [KDE]
 AnimationDurationFactor=0.25
 LookAndFeelPackage=Nordic-bluish
