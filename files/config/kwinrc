@@ -8,16 +8,17 @@ Number=3
 Rows=1
 
 [Plugins]
+blurEnabled=true
 krohnkiteEnabled=true
 translucencyEnabled=true
 ultrawidewindowsEnabled=true
 wobblywindowsEnabled=true
 
 [Script-krohnkite]
-floatingTitle=Shelly, CachyOS Welcome, Desktop Manager
+floatingTitle=Shelly, CachyOS Welcome, System Replica
 ignoreClass=krunner,yakuake,spectacle,kded5,xwaylandvideobridge,plasmashell,ksplashqml,org.kde.plasmashell,org.kde.polkit-kde-authentication-agent-1,org.kde.kruler,kruler,kwin_wayland,ksmserver-logout-greeter,yakuake,system-replica
 ignoreRole=quake,yakuake
-ignoreTitle=Konsole,yakuake,Desktop Manager
+ignoreTitle=Konsole,yakuake,System Replica
 limitTileWidth=true
 noTileBorder=true
 screenGapBetween=10

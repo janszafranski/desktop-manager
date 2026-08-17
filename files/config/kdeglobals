@@ -133,6 +133,7 @@ ForegroundPositive=39,174,96
 ForegroundVisited=155,89,182
 
 [General]
+ColorScheme=BreezeDark
 ColorSchemeHash=9d38eb71ded8ff549da26d57d7cbab9164da243a
 
 [KDE]
@@ -140,10 +141,11 @@ AnimationDurationFactor=0.25
 LookAndFeelPackage=Nordic-bluish
 contrast=4
 frameContrast=0.2
+widgetStyle=kvantum
 
 [KFileDialog Settings]
 Allow Expansion=false
-Automatically select filename extension=true
+Automatically select filename extension=false
 Breadcrumb Navigation=false
 Decoration position=2
 Show Full Path=false

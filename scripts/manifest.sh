@@ -35,6 +35,7 @@ CONFIG_ITEMS=(
   xsettingsd
   Trolltech.conf
   kdeglobals
+  Kvantum
 
   # KDE Plasma / KWin
   kwinrc

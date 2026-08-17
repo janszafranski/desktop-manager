@@ -152,6 +152,7 @@ konsole
 krita
 krita-plugin-gmic
 kscreen
+kvantum
 kwalletmanager
 kwallet-pam
 less
