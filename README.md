@@ -35,7 +35,7 @@ in any package repo** on this system, so they are bundled here directly.
 ## Restore on a fresh install
 
 ```bash
-git clone <your-remote> ~/system-replica    # or copy the folder over
+git clone https://github.com/janszafranski/desktop-manager.git ~/system-replica
 cd ~/system-replica
 
 ./scripts/install.sh --dry-run   # preview everything, change nothing
