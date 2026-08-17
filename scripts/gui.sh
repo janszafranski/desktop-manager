@@ -79,12 +79,14 @@ choose_yad() {
   [[ -n "$img" ]] && args+=(--image="$img")
   args+=(--field="Install packages (pacman + AUR, needs sudo):CHK" FALSE
          --field="Deploy config files & themes:CHK" TRUE
+         --field="Install SDDM login screen (needs sudo):CHK" FALSE
          --field="Enable systemd --user services:CHK" FALSE
          --field="Dry run (preview only, no changes):CHK" FALSE)
   out="$(yad "${args[@]}")" || return 1     # cancel/close -> non-zero
-  IFS='|' read -r p f s d _ <<<"$out"
+  IFS='|' read -r p f m s d _ <<<"$out"
   [[ ${p^^} == TRUE ]] && STAGES+="packages "
   [[ ${f^^} == TRUE ]] && STAGES+="files "
+  [[ ${m^^} == TRUE ]] && STAGES+="sddm "
   [[ ${s^^} == TRUE ]] && STAGES+="services "
   STAGES=${STAGES% }
   [[ ${d^^} == TRUE ]] && DRY="--dry-run"
@@ -98,6 +100,7 @@ choose_kdialog_zenity() {
       --checklist "Select what to install / deploy:" \
       packages "Install packages (pacman + AUR, needs sudo)" off \
       files    "Deploy config files & themes"                 on  \
+      sddm     "Install SDDM login screen (needs sudo)"        off \
       services "Enable systemd --user services"               off) || return 1
     sel=${sel//\"/}
   else
@@ -106,10 +109,11 @@ choose_kdialog_zenity() {
       --column "" --column "Stage" --column "Description" \
       FALSE packages "Install packages (pacman + AUR, needs sudo)" \
       TRUE  files    "Deploy config files & themes" \
+      FALSE sddm     "Install SDDM login screen (needs sudo)" \
       FALSE services "Enable systemd --user services") || return 1
     sel=${sel//|/ }
   fi
-  for s in packages files services; do
+  for s in packages files sddm services; do
     [[ " $sel " == *" $s "* ]] && STAGES+="$s "
   done
   STAGES=${STAGES% }

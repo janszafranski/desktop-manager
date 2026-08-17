@@ -25,7 +25,9 @@ system-replica/
     ├── local-share/  -> ~/.local/share   (Nordic icon themes, color-schemes,
     │                                       aurorae, kwin scripts, wallpapers)
     ├── icons/        -> ~/.icons         (Nordic-cursors)
-    └── bin/          -> ~/bin            (small helper scripts)
+    ├── bin/          -> ~/bin            (small helper scripts)
+    └── system/       -> /                (SDDM login screen: /etc/sddm.conf.d
+                                           + /usr/share/sddm/themes/<active>)
 ```
 
 The Nordic GTK/icon/cursor themes, the Plasma *look-and-feel*, the Aurorae
@@ -39,8 +41,16 @@ git clone https://github.com/janszafranski/desktop-manager.git ~/system-replica
 cd ~/system-replica
 
 ./scripts/install.sh --dry-run   # preview everything, change nothing
-./scripts/install.sh             # packages + files + services
+./scripts/install.sh             # packages + files + sddm + services
 ```
+
+Individual stages can be run on their own: `files` (user config/themes, no
+sudo), `packages`, `services`, and `sddm`. The **`sddm`** stage deploys the
+login screen — the `/etc/sddm.conf.d` drop-ins plus the currently-active theme
+directory under `/usr/share/sddm/themes/` — so it needs sudo. It does **not**
+restart `sddm.service` (that would end your session); the new look shows up at
+the next login screen. Re-run `./scripts/collect.sh sddm` any time you change
+your login screen to refresh the bundled copy, then re-deploy it.
 
 ### GUI (KDE / any desktop)
 

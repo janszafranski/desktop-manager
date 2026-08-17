@@ -4,6 +4,11 @@
 #
 # Each array entry is a path RELATIVE to the given root. Both files and
 # directories are allowed. Missing sources are silently skipped on collect.
+#
+# NOTE: the SDDM login screen (system-level /etc + /usr/share, needs sudo to
+# install) is NOT listed here — its theme name is dynamic, so it is handled by
+# dedicated collect_sddm()/install_sddm() functions that bundle whichever theme
+# is active into files/system/. See the "sddm" stage in install.sh.
 
 # --- files that live directly in $HOME ---------------------------------------
 HOME_ITEMS=(

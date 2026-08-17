@@ -5,6 +5,7 @@
 #   ./install.sh            # everything (prompts before package install)
 #   ./install.sh files      # only deploy config files/themes
 #   ./install.sh packages   # only install packages
+#   ./install.sh sddm       # only deploy the SDDM login screen (needs sudo)
 #   ./install.sh services   # only enable user services
 #   ./install.sh --dry-run  # show what would happen, change nothing
 #
@@ -108,6 +109,43 @@ install_files() {
   fi
 }
 
+# Deploy the bundled SDDM login screen (config drop-ins + theme) back to the
+# system. These live under /etc and /usr/share, so this stage needs sudo — it
+# is deliberately separate from the user-level "files" stage. We do NOT restart
+# sddm.service: that would kill the running graphical session. The new look
+# applies at the next login screen (log out / reboot).
+install_sddm() {
+  local sysroot="$FILES/system"
+  if [[ ! -d "$sysroot" ]]; then
+    warn "No SDDM snapshot bundled (files/system missing). Run: collect.sh sddm"
+    return
+  fi
+
+  say "Installing SDDM login screen (-> /etc, /usr/share; needs sudo)"
+  if [[ $DRY == 0 ]]; then
+    sudo -v || { warn "sudo required for the SDDM stage — skipping."; return; }
+  fi
+
+  # Deploy each bundled system file to its absolute location, backing up any
+  # existing file to $BACKUP/system/ first.
+  local f rel dest bdest
+  while IFS= read -r -d '' f; do
+    rel="${f#"$sysroot"/}"          # e.g. usr/share/sddm/themes/White-Tiger/Main.qml
+    dest="/$rel"
+    if [[ -e "$dest" ]]; then
+      bdest="$BACKUP/system/$rel"
+      run mkdir -p "$(dirname "$bdest")"
+      run sudo cp -a "$dest" "$bdest" 2>/dev/null || true
+    fi
+    run sudo mkdir -p "$(dirname "$dest")"
+    run sudo cp -a "$f" "$dest"
+    echo "  -> $dest"
+  done < <(find "$sysroot" -type f -print0)
+
+  say "SDDM login screen deployed. It applies at the NEXT login screen"
+  warn "(not restarting sddm.service — that would end this session)."
+}
+
 need_aur_helper() {
   command -v yay >/dev/null && { echo yay; return; }
   command -v paru >/dev/null && { echo paru; return; }
@@ -158,10 +196,12 @@ main() {
   case "$target" in
     files)    install_files ;;
     packages) install_packages ;;
+    sddm)     install_sddm ;;
     services) install_services ;;
     --dry-run|all)
       install_packages
       install_files
+      install_sddm
       install_services
       ;;
     *) warn "Unknown target: $target"; grep '^#' "$0" | head -12; exit 1 ;;

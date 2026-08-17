@@ -136,6 +136,7 @@ CONFIGS = [
 STAGES = [
     ("packages", "Install packages (pacman + AUR, needs sudo)", False),
     ("files",    "Deploy config files & themes",                True),
+    ("sddm",     "Install SDDM login screen (needs sudo)",      False),
     ("services", "Enable systemd --user services",              False),
 ]
 
