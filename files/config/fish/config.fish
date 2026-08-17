@@ -8,3 +8,6 @@ source /usr/share/cachyos-fish-config/cachyos-config.fish
 
 # uv
 fish_add_path "/home/jan/.local/bin"
+
+# launch claude with permission prompts disabled
+alias claude+="claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions"
