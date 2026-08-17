@@ -67,6 +67,7 @@ LOCALSHARE_ITEMS=(
   icons/Nordic-green
   color-schemes
   plasma/look-and-feel/Nordic-bluish
+  plasma/desktoptheme/Nordic-bluish
   aurorae/themes/Nordic
   kwin/scripts/krohnkite
   kwin/scripts/ultrawidewindows

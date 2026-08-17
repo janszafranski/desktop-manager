@@ -458,6 +458,7 @@ useCustomIcon=true
 
 [Containments][23][General]
 AppletOrder=24;92;96;98;108;102;109;26;82;116;115;114;112;111;76;120;121;122;71;94;77;27
+panelOpacity=2
 
 [Containments][4][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/cachyos-wallpapers/north.png
@@ -796,6 +797,7 @@ screenWidth=3127
 
 [Containments][45][General]
 AppletOrder=84;118;117;119;74;68;85;66;72;99;113;87;49;70;50;86
+panelOpacity=2
 
 [ScreenMapping]
 itemsOnDisabledScreens=
