@@ -34,6 +34,14 @@ if ! kpackagetool6 --list --type Plasma/LookAndFeel 2>/dev/null | grep -q "$LNF"
   rm -rf "$tmp"
 fi
 
+# 1b. ensure the Punchi Dock plasmoid (bundled in this profile) is installed
+PLASMOID="$(ls "$HERE"/*.plasmoid 2>/dev/null | head -1)"
+if [[ -n "$PLASMOID" ]]; then
+  echo ":: installing Punchi Dock plasmoid"
+  kpackagetool6 --type Plasma/Applet --install "$PLASMOID" 2>/dev/null \
+    || kpackagetool6 --type Plasma/Applet --upgrade "$PLASMOID" 2>/dev/null || true
+fi
+
 # 2. apply global theme + supporting pieces
 echo ":: applying macOS (WhiteSur) global theme"
 plasma-apply-lookandfeel -a "$LNF" --resetLayout
@@ -65,6 +73,17 @@ if [[ -f "$HERE/wallpaper.jpg" ]]; then
 fi
 
 echo ":: adding dock"
-qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "$HERE/add-dock.js")" || true
+DOCK_ID="$(qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "$HERE/add-dock.js")" 2>/dev/null | tr -d '[:space:]')"
+
+# 5. make the dock translucent (panelOpacity=2) so it matches the rest of the
+# desktop; this key only takes effect from the config file, so write it to the
+# dock's containment and restart the shell once more to render it.
+if [[ "$DOCK_ID" =~ ^[0-9]+$ ]]; then
+  echo ":: making dock translucent"
+  kwriteconfig6 --file plasma-org.kde.plasma.desktop-appletsrc \
+    --group Containments --group "$DOCK_ID" --group General --key panelOpacity 2
+  kquitapp6 plasmashell 2>/dev/null || killall plasmashell 2>/dev/null || true
+  (setsid plasmashell >/dev/null 2>&1 &)
+fi
 
 echo ":: macOS look applied. Undo with: $HERE/revert.sh"
