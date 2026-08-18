@@ -144,6 +144,9 @@ hl.bind("XF86MonBrightnessDown", hl.dsp.global("caelestia:brightnessDown"), { lo
 
 -- keybind cheatsheet overlay (this popup)
 hl.bind(mod .. " + slash", hl.dsp.exec_cmd("~/.config/hypr/scripts/keybinds.sh"))
+
+-- float the keybind widget window like a proper overlay
+hl.window_rule({ name = "float-keybinds", match = { class = "yad" }, float = true })
 CONF
 log "Wrote $HYPR/hyprland.lua (keyboard layout: $KBLAYOUT)"
 
@@ -151,16 +154,19 @@ log "Wrote $HYPR/hyprland.lua (keyboard layout: $KBLAYOUT)"
 mkdir -p "$HYPR/scripts"
 cat > "$HYPR/scripts/keybinds.sh" <<'SHEET'
 #!/usr/bin/env bash
-# Live Hyprland keybind cheatsheet, rendered in a fuzzel overlay.
+# Hyprland keybind widget — a simple window that just lists your keybindings.
 # Auto-generated from `hyprctl binds`, so it always matches the running config
-# (no manual upkeep). Global shortcuts (caelestia:*) are shown with their
-# human-readable descriptions from `hyprctl globalshortcuts`.
+# (no manual upkeep). Global shortcuts (caelestia:*) show their descriptions
+# from `hyprctl globalshortcuts`.
 #
-# Usage: keybinds.sh [--print]   (--print dumps plain text instead of fuzzel)
+# Usage:
+#   keybinds.sh            show the widget (yad window)
+#   keybinds.sh --fuzzel   show as a searchable fuzzel list instead
+#   keybinds.sh --print    dump plain text to stdout
 set -uo pipefail
 
-render() {
-    # Map: global-shortcut name -> description, e.g. "caelestia:dashboard" -> "Toggle dashboard"
+render() {   # emits one "<combo>\t<action>" line per bind
+    # Map: global-shortcut name -> description ("caelestia:dashboard" -> "Toggle dashboard")
     declare -A DESC
     while IFS= read -r line; do
         [[ $line == *" -> "* ]] || continue
@@ -183,16 +189,29 @@ render() {
                 "")     action="(none)" ;;
                 *)      action="$dispatcher${arg:+ $arg}" ;;
             esac
-            printf '%-26s  %s\n' "$combo" "$action"
+            printf '%s\t%s\n' "$combo" "$action"
         done
 }
 
-if [[ "${1:-}" == "--print" ]]; then
-    render
-else
-    render | fuzzel --dmenu --prompt "keybinds  " \
-        --font "monospace:size=11" --width 64 --lines 25 >/dev/null 2>&1 || true
-fi
+case "${1:-}" in
+    --print)
+        render | column -t -s $'\t'
+        ;;
+    --fuzzel)
+        render | awk -F'\t' '{printf "%-26s  %s\n", $1, $2}' \
+            | fuzzel --dmenu --prompt "keybinds  " --font "monospace:size=11" \
+                     --width 64 --lines 25 >/dev/null 2>&1 || true
+        ;;
+    *)
+        # yad: one field per line feeds the two-column list widget
+        render | tr '\t' '\n' \
+            | yad --list --title="Keybindings" \
+                  --text="Hyprland / Caelestia keybindings" \
+                  --column="Key" --column="Action" \
+                  --width=560 --height=680 --center \
+                  --button="Close:0" --borders=8 >/dev/null 2>&1 || true
+        ;;
+esac
 SHEET
 chmod +x "$HYPR/scripts/keybinds.sh"
 log "Wrote $HYPR/scripts/keybinds.sh (bound to Super+/)"
