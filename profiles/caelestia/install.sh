@@ -123,8 +123,79 @@ end
 -- move / resize with the mouse
 hl.bind(mod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
 hl.bind(mod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
+
+-- --- Caelestia shell actions (full list: hyprctl globalshortcuts) ---
+hl.bind(mod .. " + D", hl.dsp.global("caelestia:dashboard"))
+hl.bind(mod .. " + N", hl.dsp.global("caelestia:nexus"))
+hl.bind(mod .. " + S", hl.dsp.global("caelestia:session"))
+hl.bind(mod .. " + U", hl.dsp.global("caelestia:utilities"))
+hl.bind(mod .. " + B", hl.dsp.global("caelestia:sidebar"))
+hl.bind(mod .. " + L", hl.dsp.global("caelestia:lock"))
+hl.bind("Print",               hl.dsp.global("caelestia:screenshot"))
+hl.bind(mod .. " + SHIFT + S", hl.dsp.global("caelestia:screenshotClip"))
+
+-- media / brightness keys
+hl.bind("XF86AudioPlay",  hl.dsp.global("caelestia:mediaToggle"), { locked = true })
+hl.bind("XF86AudioPause", hl.dsp.global("caelestia:mediaToggle"), { locked = true })
+hl.bind("XF86AudioNext",  hl.dsp.global("caelestia:mediaNext"),   { locked = true })
+hl.bind("XF86AudioPrev",  hl.dsp.global("caelestia:mediaPrev"),   { locked = true })
+hl.bind("XF86MonBrightnessUp",   hl.dsp.global("caelestia:brightnessUp"),   { locked = true, repeating = true })
+hl.bind("XF86MonBrightnessDown", hl.dsp.global("caelestia:brightnessDown"), { locked = true, repeating = true })
+
+-- keybind cheatsheet overlay (this popup)
+hl.bind(mod .. " + slash", hl.dsp.exec_cmd("~/.config/hypr/scripts/keybinds.sh"))
 CONF
 log "Wrote $HYPR/hyprland.lua (keyboard layout: $KBLAYOUT)"
+
+# --- 2b. Keybind cheatsheet script (Super+/) ---------------------------------
+mkdir -p "$HYPR/scripts"
+cat > "$HYPR/scripts/keybinds.sh" <<'SHEET'
+#!/usr/bin/env bash
+# Live Hyprland keybind cheatsheet, rendered in a fuzzel overlay.
+# Auto-generated from `hyprctl binds`, so it always matches the running config
+# (no manual upkeep). Global shortcuts (caelestia:*) are shown with their
+# human-readable descriptions from `hyprctl globalshortcuts`.
+#
+# Usage: keybinds.sh [--print]   (--print dumps plain text instead of fuzzel)
+set -uo pipefail
+
+render() {
+    # Map: global-shortcut name -> description, e.g. "caelestia:dashboard" -> "Toggle dashboard"
+    declare -A DESC
+    while IFS= read -r line; do
+        [[ $line == *" -> "* ]] || continue
+        DESC["${line%% -> *}"]="${line#* -> }"
+    done < <(hyprctl globalshortcuts 2>/dev/null)
+
+    hyprctl binds -j 2>/dev/null \
+        | jq -r '.[] | [(.modmask|tostring), .key, .dispatcher, .arg] | @tsv' \
+        | while IFS=$'\t' read -r modmask key dispatcher arg; do
+            combo=""
+            (( modmask & 64 )) && combo+="Super+"
+            (( modmask & 8  )) && combo+="Alt+"
+            (( modmask & 4  )) && combo+="Ctrl+"
+            (( modmask & 1  )) && combo+="Shift+"
+            combo+="$key"
+
+            case "$dispatcher" in
+                exec)   action="$arg" ;;
+                global) action="${DESC[$arg]:-$arg}" ;;
+                "")     action="(none)" ;;
+                *)      action="$dispatcher${arg:+ $arg}" ;;
+            esac
+            printf '%-26s  %s\n' "$combo" "$action"
+        done
+}
+
+if [[ "${1:-}" == "--print" ]]; then
+    render
+else
+    render | fuzzel --dmenu --prompt "keybinds  " \
+        --font "monospace:size=11" --width 64 --lines 25 >/dev/null 2>&1 || true
+fi
+SHEET
+chmod +x "$HYPR/scripts/keybinds.sh"
+log "Wrote $HYPR/scripts/keybinds.sh (bound to Super+/)"
 
 # --- 3. SDDM session entry (needs root) --------------------------------------
 log "Creating the 'Caelestia' login session entry (sudo)…"
