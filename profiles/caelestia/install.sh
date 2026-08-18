@@ -41,11 +41,18 @@ log "Installing Hyprland + Caelestia shell + session essentials (this can take a
   || die "Package install failed — fix the error above and re-run."
 
 # --- 2. Hyprland user config (autostarts Caelestia) --------------------------
+# Hyprland 0.56+ uses a Lua config (hyprland.lua); the legacy hyprland.conf is
+# deprecated and slated for removal, so we write the Lua format.
 HYPR="$HOME/.config/hypr"
-if [[ -e "$HYPR/hyprland.conf" ]]; then
-  bak="$HYPR/hyprland.conf.bak-$(date +%Y%m%d-%H%M%S)"
-  cp -a "$HYPR/hyprland.conf" "$bak"; warn "backed up existing config -> $bak"
-fi
+for old in hyprland.conf hyprland.lua; do
+  if [[ -e "$HYPR/$old" ]]; then
+    bak="$HYPR/$old.bak-$(date +%Y%m%d-%H%M%S)"
+    cp -a "$HYPR/$old" "$bak"; warn "backed up existing config -> $bak"
+  fi
+done
+# A leftover legacy hyprland.conf would just sit unused next to hyprland.lua;
+# move it aside so it's clear the Lua file is authoritative.
+[[ -e "$HYPR/hyprland.conf" ]] && mv "$HYPR/hyprland.conf" "$HYPR/hyprland.conf.pre-lua"
 mkdir -p "$HYPR"
 
 # detect keyboard layout (KDE, else localectl, else us)
@@ -53,66 +60,71 @@ KBLAYOUT="$(kreadconfig6 --file kxkbrc --group Layout --key LayoutList 2>/dev/nu
 [[ -z $KBLAYOUT ]] && KBLAYOUT="$(localectl status 2>/dev/null | awk -F: '/X11 Layout/{gsub(/ /,"",$2);print $2}')"
 KBLAYOUT="${KBLAYOUT:-us}"
 
-cat > "$HYPR/hyprland.conf" <<CONF
-# Minimal Hyprland config that autostarts the Caelestia shell.
-# For the full Caelestia keybind/UX set, install the caelestia dotfiles later:
-#   https://github.com/caelestia-dots/caelestia
+cat > "$HYPR/hyprland.lua" <<CONF
+-- Minimal Hyprland (Lua) config that autostarts the Caelestia shell.
+-- For the full Caelestia keybind/UX set, install the caelestia dotfiles later:
+--   https://github.com/caelestia-dots/caelestia
 
-monitor = , preferred, auto, 1
+local mod = "SUPER"
 
-# --- environment ---
-env = XCURSOR_SIZE,24
-env = QT_QPA_PLATFORM,wayland
+-- --- monitors ---
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "1" })
 
-# --- autostart ---
-exec-once = caelestia shell -d
-exec-once = /usr/lib/polkit-kde-authentication-agent-1
+-- --- environment ---
+hl.env("XCURSOR_SIZE", "24")
+hl.env("QT_QPA_PLATFORM", "wayland")
 
-# --- input ---
-input {
-    kb_layout = ${KBLAYOUT}
-    follow_mouse = 1
-    touchpad { natural_scroll = true }
-}
+-- --- autostart ---
+hl.on("hyprland.start", function()
+    hl.exec_cmd("caelestia shell -d")
+    hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
+end)
 
-general {
-    gaps_in = 5
-    gaps_out = 10
-    border_size = 2
-    layout = dwindle
-}
-decoration { rounding = 10 }
+-- --- look, feel and input ---
+hl.config({
+    general = {
+        gaps_in  = 5,
+        gaps_out = 10,
+        border_size = 2,
+        layout = "dwindle",
+    },
+    decoration = {
+        rounding = 10,
+    },
+    input = {
+        kb_layout = "${KBLAYOUT}",
+        follow_mouse = 1,
+        touchpad = {
+            natural_scroll = true,
+        },
+    },
+})
 
-\$mod = SUPER
-# --- keybinds (minimal but usable) ---
-bind = \$mod, Return, exec, alacritty
-bind = \$mod, Q, killactive,
-bind = \$mod, E, exec, dolphin
-# NOTE: the Caelestia shell registers its OWN global shortcuts (launcher,
-# dashboard, etc.) once running, so we don't bind a launcher here.
-bind = \$mod, F, fullscreen,
-bind = \$mod SHIFT, Q, exit,
-# focus
-bind = \$mod, left,  movefocus, l
-bind = \$mod, right, movefocus, r
-bind = \$mod, up,    movefocus, u
-bind = \$mod, down,  movefocus, d
-# workspaces 1-5
-bind = \$mod, 1, workspace, 1
-bind = \$mod, 2, workspace, 2
-bind = \$mod, 3, workspace, 3
-bind = \$mod, 4, workspace, 4
-bind = \$mod, 5, workspace, 5
-bind = \$mod SHIFT, 1, movetoworkspace, 1
-bind = \$mod SHIFT, 2, movetoworkspace, 2
-bind = \$mod SHIFT, 3, movetoworkspace, 3
-bind = \$mod SHIFT, 4, movetoworkspace, 4
-bind = \$mod SHIFT, 5, movetoworkspace, 5
-# move / resize with the mouse
-bindm = \$mod, mouse:272, movewindow
-bindm = \$mod, mouse:273, resizewindow
+-- --- keybinds (minimal but usable) ---
+hl.bind(mod .. " + Return", hl.dsp.exec_cmd("alacritty"))
+hl.bind(mod .. " + Space",  hl.dsp.exec_cmd("caelestia shell drawers toggle launcher"))
+hl.bind(mod .. " + Q", hl.dsp.window.close())
+hl.bind(mod .. " + E", hl.dsp.exec_cmd("dolphin"))
+hl.bind(mod .. " + F", hl.dsp.window.fullscreen())
+hl.bind(mod .. " + SHIFT + Q", hl.dsp.exit())
+
+-- focus
+hl.bind(mod .. " + left",  hl.dsp.focus({ direction = "left" }))
+hl.bind(mod .. " + right", hl.dsp.focus({ direction = "right" }))
+hl.bind(mod .. " + up",    hl.dsp.focus({ direction = "up" }))
+hl.bind(mod .. " + down",  hl.dsp.focus({ direction = "down" }))
+
+-- workspaces 1-5 (switch with mod, move active window with mod+SHIFT)
+for i = 1, 5 do
+    hl.bind(mod .. " + " .. i,         hl.dsp.focus({ workspace = i }))
+    hl.bind(mod .. " + SHIFT + " .. i, hl.dsp.window.move({ workspace = i }))
+end
+
+-- move / resize with the mouse
+hl.bind(mod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
+hl.bind(mod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 CONF
-log "Wrote $HYPR/hyprland.conf (keyboard layout: $KBLAYOUT)"
+log "Wrote $HYPR/hyprland.lua (keyboard layout: $KBLAYOUT)"
 
 # --- 3. SDDM session entry (needs root) --------------------------------------
 log "Creating the 'Caelestia' login session entry (sudo)…"
@@ -120,7 +132,7 @@ sudo install -Dm644 /dev/stdin /usr/share/wayland-sessions/caelestia.desktop <<'
 [Desktop Entry]
 Name=Caelestia
 Comment=Hyprland with the Caelestia shell
-Exec=Hyprland
+Exec=start-hyprland
 Type=Application
 DesktopNames=Hyprland
 DESK
