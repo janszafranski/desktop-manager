@@ -594,6 +594,42 @@ TOGGLE
 chmod +x "$HYPR/scripts/keybinds-toggle.sh"
 log "Wrote $HYPR/scripts/keybinds-toggle.sh (bound to Super+/)"
 
+# --- 2d. Colour scheme: catppuccin mocha with black (AMOLED) surfaces ---------
+# The shell derives every colour from ~/.local/state/caelestia/scheme.json.
+# Apply the preferred scheme, then overwrite the neutral/surface family with a
+# pure-black ramp (keeping catppuccin accents + text) so the shell reads black.
+# NB: re-running `caelestia scheme set` regenerates scheme.json and undoes this,
+# so re-run this installer (or re-apply the patch) after any scheme change.
+log "Setting scheme to catppuccin mocha with black surfaces…"
+caelestia scheme set -n catppuccin -f mocha -m dark >/dev/null 2>&1 \
+    || warn "caelestia scheme set failed (is the CLI installed?); black patch may still apply to the existing scheme"
+
+SCHEME_JSON="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/scheme.json"
+if [ -f "$SCHEME_JSON" ]; then
+    python3 - "$SCHEME_JSON" <<'PY'
+import json, os, sys, tempfile
+path = sys.argv[1]
+# pure-black AMOLED ramp for the neutral/surface family; accents + text untouched
+black = {
+    "background": "000000", "surface": "000000", "surfaceDim": "000000",
+    "surfaceBright": "1a1a1a", "surfaceContainerLowest": "000000",
+    "surfaceContainerLow": "0a0a0a", "surfaceContainer": "0d0d0d",
+    "surfaceContainerHigh": "141414", "surfaceContainerHighest": "1c1c1c",
+    "surfaceVariant": "2a2a2a", "surface0": "121212", "surface1": "1a1a1a",
+    "surface2": "222222",
+}
+data = json.load(open(path))
+data.setdefault("colours", {}).update(black)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f)
+os.replace(tmp, path)
+PY
+    log "Applied black surfaces to $SCHEME_JSON"
+else
+    warn "$SCHEME_JSON not found; skipped black surface patch"
+fi
+
 # --- 3. SDDM session entry (needs root) --------------------------------------
 log "Creating the 'Caelestia' login session entry (sudo)…"
 sudo install -Dm644 /dev/stdin /usr/share/wayland-sessions/caelestia.desktop <<'DESK'
