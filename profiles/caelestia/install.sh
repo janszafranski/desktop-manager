@@ -149,6 +149,7 @@ hl.bind(mod .. " + S", hl.dsp.global("caelestia:session"),   { description = "Se
 hl.bind(mod .. " + U", hl.dsp.global("caelestia:utilities"), { description = "Utilities" })
 hl.bind(mod .. " + B", hl.dsp.global("caelestia:sidebar"),   { description = "Sidebar" })
 hl.bind(mod .. " + L", hl.dsp.global("caelestia:lock"),      { description = "Lock screen" })
+hl.bind(mod .. " + Tab", hl.dsp.global("caelestia:showall"), { description = "Show all windows (overview)" })
 hl.bind("Print",               hl.dsp.exec_cmd("spectacle"),             { description = "Screenshot (Spectacle)" })
 hl.bind(mod .. " + SHIFT + S", hl.dsp.global("caelestia:screenshotClip"), { description = "Screenshot region to clipboard" })
 
