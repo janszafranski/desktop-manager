@@ -89,7 +89,7 @@ hl.config({
         layout = "dwindle",
     },
     decoration = {
-        rounding = 10,
+        rounding = 18,
     },
     input = {
         kb_layout = "${KBLAYOUT}",
