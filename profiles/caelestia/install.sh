@@ -99,6 +99,12 @@ hl.config({
             natural_scroll = true,
         },
     },
+    misc = {
+        -- pin the "cats" wallpaper (wall2) for the pre-shell / shell-closed state;
+        -- Hyprland shows a random wall0/1/2 otherwise. Leave disable_hyprland_logo
+        -- false -- true would blank the default wallpaper entirely.
+        force_default_wallpaper = 2,
+    },
 })
 
 -- --- keybinds (minimal but usable) ---
