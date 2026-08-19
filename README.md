@@ -92,6 +92,35 @@ Or run a single stage:
 ./scripts/install.sh services    # enable systemd --user units
 ```
 
+## Running on another machine (e.g. BigLinux)
+
+The app itself is portable — it's just this repo plus Python's GTK bindings.
+BigLinux is Manjaro/Arch-based, so the same `pacman` and SDDM layout apply.
+
+```bash
+sudo pacman -S --needed python-gobject gtk3 git   # GUI deps (yad/kdialog/zenity also work)
+git clone https://github.com/janszafranski/desktop-manager.git ~/desktop-manager
+~/desktop-manager/scripts/install-launcher.sh      # adds "Desktop Manager" to the app menu
+# …or just run it directly:
+~/desktop-manager/scripts/gui.sh
+```
+
+The clone carries everything, including the bundled SDDM themes. What's safe to
+apply elsewhere, though, is narrower than on the machine this was captured from:
+
+- **Portable:** the **SDDM** stage and the **login-theme profiles** (e.g. Hello
+  Kitty). BigLinux also uses SDDM, with the same `/usr/share/sddm/themes/` and
+  `/etc/sddm.conf.d/` layout, so these transplant cleanly. Tick **Dry run** first.
+- **Be selective:** the **packages** stage installs from `packages/pacman-native.txt`,
+  which is *this* machine's CachyOS set — some names differ or are absent on
+  Manjaro. Leave it off unless you've reviewed the list.
+- **Overwrites config:** the **files** stage replaces KDE/KWin config with this
+  machine's. It backs up first, but on a machine you want to keep distinct,
+  preview with **Dry run** before applying.
+
+In short: clone it, launch it, and cherry-pick — the login-theme parts are the
+ones that move over safely.
+
 ## Desktop profiles (alternative looks)
 
 Beyond the captured "current" desktop, `profiles/<name>/` holds **alternative
