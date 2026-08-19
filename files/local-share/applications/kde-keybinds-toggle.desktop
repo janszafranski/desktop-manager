@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Keybindings Popup (toggle)
+Comment=Toggle the KDE keybindings widget
+Exec=/usr/bin/qs -c kde-keybinds ipc call keybinds toggle
+NoDisplay=true
+Terminal=false

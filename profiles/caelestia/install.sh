@@ -249,7 +249,7 @@ render() {   # emits one "<combo>\t<action>" line per bind
             printf '%s\t%s\n' "$combo" "$action"
         done \
         | awk '!seen[$0]++' \
-        | sort -f -t $'\t' -k2,2
+        | sort -f -t $'\t' -k1,1
 }
 
 case "${1:-}" in
@@ -430,7 +430,7 @@ ShellRoot {
                     seen[dedupKey] = true;
                     out.push({ combo: combo, action: action });
                 }
-                out.sort(function (a, b) { return a.action.toLowerCase().localeCompare(b.action.toLowerCase()); });
+                out.sort(function (a, b) { return a.combo.toLowerCase().localeCompare(b.combo.toLowerCase()); });
                 root.rows = out;
             }
         }

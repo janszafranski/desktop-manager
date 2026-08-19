@@ -62,6 +62,11 @@ CONFIG_ITEMS=(
   libinput-gestures.conf
   autostart
   systemd/user/shelly-notifications.service
+
+  # Caelestia (Hyprland session) shell config — idle/power tweaks etc.
+  caelestia/shell.json
+  # KDE keybindings popup widget (QuickShell): hot corner + Meta+/
+  quickshell/kde-keybinds
 )
 
 # --- items under ~/.local/share ---------------------------------------------
@@ -77,6 +82,10 @@ LOCALSHARE_ITEMS=(
   kwin/scripts/krohnkite
   kwin/scripts/ultrawidewindows
   wallpapers
+
+  # launchers for the KDE keybindings popup (bound to Meta+/ via kglobalshortcutsrc)
+  applications/kde-keybinds-toggle.desktop
+  applications/kde-keybinds-yad.desktop
 )
 
 # --- items under ~/.icons ----------------------------------------------------

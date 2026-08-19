@@ -317,6 +317,11 @@ seekforwardmedia=Media Fast Forward,Media Fast Forward,Media playback seek forwa
 seekforwardmedialong=none,none,Media playback seek forward 30s
 stopmedia=Media Stop,Media Stop,Stop media playback
 
+[org.kde.plasma.punchi-dock-remastered]
+_k_friendly_name=Punchi Dock Remastered
+toggle-punchimenu-183=none,none,Open or close PunchiMenu
+toggle-punchimenu-185=none,none,Open or close PunchiMenu
+
 [org_kde_powerdevil]
 Decrease Keyboard Brightness=Keyboard Brightness Down,Keyboard Brightness Down,Decrease Keyboard Brightness
 Decrease Screen Brightness=Monitor Brightness Down,Monitor Brightness Down,Decrease Screen Brightness
@@ -350,6 +355,8 @@ activate task manager entry 9=Meta+9,Meta+9,Activate Task Manager Entry 9
 activate widget 100=none,none,Activate Desktop Indicator Widget
 activate widget 120=none,none,Activate AI Models Widget
 activate widget 125=Alt+F1,none,Activate Application Launcher Widget
+activate widget 151=Alt+F1,none,Activate Application Dashboard Widget
+activate widget 154=Alt+F1,none,Activate Application Launcher Widget
 clear history=none,none,Clear Notification History
 clear-history=none,none,Clear Clipboard History
 clipboard_action=Meta+Ctrl+X,Meta+Ctrl+X,Automatic Action Popup Menu
@@ -371,10 +378,18 @@ toggle do not disturb=none,none,Toggle do not disturb
 [services][caelestia-launcher.desktop]
 _launch=Meta+Space
 
-[services][org.kde.spectacle.desktop]
-CurrentMonitorScreenShot=none
-OpenWithoutScreenshot=none
-
 [yakuake]
 _k_friendly_name=Yakuake
 toggle-window-state=F12,F12,Open/Retract Yakuake
+
+[services][floorp.desktop]
+_launch=Meta+B
+
+[services][org.kde.plasma.emojier.desktop]
+_launch=Meta+.
+
+[services][kde-keybinds-toggle.desktop]
+_launch=Meta+/
+
+[services][kde-keybinds-yad.desktop]
+_launch=Meta+Shift+/

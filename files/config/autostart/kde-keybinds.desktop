@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KDE Keybindings Widget
+Comment=Resident QuickShell widget: top-right hot corner + Meta+/ keybindings popup
+Exec=/usr/bin/qs -c kde-keybinds
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=2
+Terminal=false

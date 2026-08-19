@@ -1,0 +1,23 @@
+{
+    "appearance": {
+        "transparency": {
+            "enabled": false
+        }
+    },
+    "background": {
+        "wallpaperEnabled": true
+    },
+    "general": {
+        "idle": {
+            "timeouts": [
+            ]
+        }
+    },
+    "notifs": {
+        "expire": false,
+        "openExpanded": true
+    },
+    "services": {
+        "useFahrenheit": false
+    }
+}
