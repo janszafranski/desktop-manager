@@ -1,0 +1,16 @@
+[SddmGreeterTheme]
+Name=Hello Kitty
+Description=Hello Kitty for SDDM
+Author=Sadistic Scribbler
+Copyright=Copyright (C) 2023 Sadistic Scribbler
+License=GPL-3.0-or-later
+Type=sddm-theme
+Version=1.0
+Website=https://idea-technology.co.uk
+Screenshot=preview.png
+MainScript=Main.qml
+ConfigFile=theme.conf
+TranslationsDirectory=translations
+Email=jan.szafranski@gmail.com
+Theme-Id=hello-kitty
+Theme-API=2.11

@@ -130,6 +130,31 @@ CONFIGS = [
         "apply_label": "Install the session",
         "revert_label": "Uninstall it",
     },
+    {
+        "kind": "profile",
+        "key": "hellokitty",
+        "name": "Hello Kitty login",
+        "desc": "Swaps the SDDM login screen to a Hello Kitty theme. "
+                "Non-destructive — White Tiger stays installed and is restored on uninstall.",
+        "image": _p("profiles", "hellokitty", "preview-sitting.png"),
+        "apply": _p("profiles", "hellokitty", "install.sh"),
+        "revert": _p("profiles", "hellokitty", "uninstall.sh"),
+        "apply_label": "Install the theme",
+        "revert_label": "Uninstall it",
+        # A pick-one background chooser for this profile. Selecting an option
+        # updates the preview above and is written to `choice_file`, which
+        # install.sh reads to set the deployed theme's background.
+        "choice_label": "Background:",
+        "choice_file": _p("profiles", "hellokitty", ".bg-choice"),
+        "choices": [
+            {"value": "Background-Sitting.jpg", "label": "Kitty on pink",
+             "preview": _p("profiles", "hellokitty", "preview-sitting.png")},
+            {"value": "Background-Dress.jpg", "label": "Kitty in a red dress",
+             "preview": _p("profiles", "hellokitty", "preview-dress.png")},
+            {"value": "Background-Flower.jpg", "label": "Flower + scalloped border",
+             "preview": _p("profiles", "hellokitty", "preview-flower.png")},
+        ],
+    },
 ]
 
 # stage checkboxes offered per card: (id, label, default-on)
@@ -214,24 +239,22 @@ class Card(Gtk.Frame):
             f"<b>{GLib.markup_escape_text(cfg['name'])}</b>")
         box.pack_start(self.radio, False, False, 0)
 
-        # thumbnail — a flat button; click enlarges the full-res image
-        img_path = image_override or cfg.get("image")
-        full_path = image_full or cfg.get("image_full") or img_path
-        if img_path:
-            try:
-                # scale to a uniform card width, preserving aspect
-                pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    img_path, self.THUMB_W, -1, True)
-                btn = Gtk.Button()
-                btn.set_relief(Gtk.ReliefStyle.NONE)
-                btn.set_image(Gtk.Image.new_from_pixbuf(pix))
-                btn.set_always_show_image(True)
-                btn.set_tooltip_text("Click to enlarge")
-                btn.connect("clicked",
-                            lambda _b, p=full_path: show_enlarged(self.get_toplevel(), p))
-                box.pack_start(btn, False, False, 0)
-            except Exception:
-                pass
+        # thumbnail — a flat button; click enlarges the full-res image. Held as
+        # instance state so a profile's chooser (below) can swap it live.
+        self._thumb_img = Gtk.Image()
+        self._thumb_full = image_full or cfg.get("image_full") \
+            or image_override or cfg.get("image")
+        init_img = image_override or cfg.get("image")
+        if init_img:
+            self._set_thumb(init_img)
+            btn = Gtk.Button()
+            btn.set_relief(Gtk.ReliefStyle.NONE)
+            btn.set_image(self._thumb_img)
+            btn.set_always_show_image(True)
+            btn.set_tooltip_text("Click to enlarge")
+            btn.connect("clicked",
+                        lambda _b: show_enlarged(self.get_toplevel(), self._thumb_full))
+            box.pack_start(btn, False, False, 0)
 
         # description
         desc = Gtk.Label()
@@ -253,6 +276,24 @@ class Card(Gtk.Frame):
             self.op_apply.set_active(True)
             box.pack_start(self.op_apply, False, False, 0)
             box.pack_start(op_revert, False, False, 0)
+
+            # optional pick-one chooser (e.g. which background). Selecting an
+            # option swaps the preview above; the value is saved on install.
+            self.choices = cfg.get("choices")
+            self.choice_combo = None
+            if self.choices:
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                row.pack_start(
+                    Gtk.Label(label=cfg.get("choice_label", "Option:")),
+                    False, False, 0)
+                combo = Gtk.ComboBoxText()
+                for ch in self.choices:
+                    combo.append(ch["value"], ch["label"])
+                combo.set_active(0)
+                combo.connect("changed", self._on_choice_changed)
+                self.choice_combo = combo
+                row.pack_start(combo, True, True, 0)
+                box.pack_start(row, False, False, 0)
         else:
             # per-card stage checkboxes
             self.checks = {}
@@ -261,6 +302,33 @@ class Card(Gtk.Frame):
                 cb.set_active(default)
                 self.checks[sid] = cb
                 box.pack_start(cb, False, False, 0)
+
+    def _set_thumb(self, path):
+        """Load `path` scaled to the card width into the (swappable) thumbnail."""
+        try:
+            pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                path, self.THUMB_W, -1, True)
+            self._thumb_img.set_from_pixbuf(pix)
+            self._thumb_full = path
+        except Exception:
+            pass
+
+    def _on_choice_changed(self, combo):
+        val = combo.get_active_id()
+        for ch in (self.choices or []):
+            if ch["value"] == val and ch.get("preview"):
+                self._set_thumb(ch["preview"])
+                break
+
+    def commit_choice(self):
+        """Persist the picked option to choice_file so the apply script reads it."""
+        cf = self.cfg.get("choice_file")
+        if self.choice_combo is not None and cf:
+            try:
+                with open(cf, "w") as f:
+                    f.write(self.choice_combo.get_active_id() or "")
+            except OSError:
+                pass
 
     def selected_stages(self):
         return [sid for sid, cb in self.checks.items() if cb.get_active()]
@@ -399,6 +467,8 @@ class ReplicaWindow(Gtk.Window):
         card = self.active_card()
         dry = "--dry-run" if self.dry.get_active() else ""
         if card.kind == "profile":
+            if card.op_apply.get_active():
+                card.commit_choice()
             self.result = ("profile", card.profile_command(), dry)
         else:
             stages = card.selected_stages()

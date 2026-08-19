@@ -14,6 +14,10 @@ __pycache__/
 # intermediate icon sizes rasterized from icon.svg (only icon.png is used)
 .icon-*.png
 
+# transient profile state written at apply/revert time
+profiles/hellokitty/.bg-choice
+profiles/hellokitty/.prev-theme
+
 # machine-specific secrets — never publish (device identity keys)
 files/config/kdeconnect/privateKey.pem
 files/config/kdeconnect/certificate.pem

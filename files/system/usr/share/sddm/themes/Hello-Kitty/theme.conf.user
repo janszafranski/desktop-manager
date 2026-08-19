@@ -1,0 +1,10 @@
+[General]
+showClock=true
+type=image
+
+## --- Background toggle ------------------------------------------------------
+## Uncomment ONE of the lines below to pick which Hello Kitty background shows
+## at the login screen. This overrides the default set in theme.conf.
+background=Background-Sitting.jpg
+#background=Background-Dress.jpg
+#background=Background-Flower.jpg
