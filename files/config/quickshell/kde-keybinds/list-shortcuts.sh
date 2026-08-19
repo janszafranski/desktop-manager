@@ -37,4 +37,17 @@ awk '
   }
 ' "$CONF" \
   | awk -F'\t' '!seen[$0]++' \
-  | sort -f -t "$(printf '\t')" -k1,1
+  | awk -F'\t' '
+      # Prepend two sort columns: the bare key (modifiers stripped) and a
+      # modifier rank, so variants of a key group together — bare bind first,
+      # then Alt, Shift, Ctrl (and combos) — instead of scattering by prefix.
+      {
+        combo=$1; key=combo; sub(/.*\+/,"",key)       # strip up to the last +
+        rank=0
+        if (combo ~ /[Aa]lt/)                rank+=1
+        if (combo ~ /[Ss]hift/)              rank+=2
+        if (combo ~ /[Cc]trl|[Cc]ontrol/)    rank+=4
+        printf "%s\t%d\t%s\n", tolower(key), rank, $0
+      }' \
+  | sort -f -t "$(printf '\t')" -k1,1 -k2,2n \
+  | cut -f3-
