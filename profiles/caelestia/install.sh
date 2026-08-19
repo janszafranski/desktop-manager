@@ -153,7 +153,7 @@ hl.bind(mod .. " + D", hl.dsp.global("caelestia:dashboard"), { description = "Da
 hl.bind(mod .. " + N", hl.dsp.global("caelestia:nexus"),     { description = "Nexus" })
 hl.bind(mod .. " + S", hl.dsp.global("caelestia:session"),   { description = "Session" })
 hl.bind(mod .. " + U", hl.dsp.global("caelestia:utilities"), { description = "Utilities" })
-hl.bind(mod .. " + B", hl.dsp.global("caelestia:sidebar"),   { description = "Sidebar" })
+hl.bind(mod .. " + W", hl.dsp.global("caelestia:sidebar"),   { description = "Sidebar" })
 hl.bind(mod .. " + L", hl.dsp.global("caelestia:lock"),      { description = "Lock screen" })
 hl.bind(mod .. " + Tab", hl.dsp.global("caelestia:showall"), { description = "Show all windows (overview)" })
 hl.bind("Print",               hl.dsp.exec_cmd("spectacle"),             { description = "Screenshot (Spectacle)" })
@@ -172,6 +172,27 @@ hl.bind("XF86AudioNext",  hl.dsp.global("caelestia:mediaNext"),   { locked = tru
 hl.bind("XF86AudioPrev",  hl.dsp.global("caelestia:mediaPrev"),   { locked = true, description = "Previous track" })
 hl.bind("XF86MonBrightnessUp",   hl.dsp.global("caelestia:brightnessUp"),   { locked = true, repeating = true, description = "Brightness up" })
 hl.bind("XF86MonBrightnessDown", hl.dsp.global("caelestia:brightnessDown"), { locked = true, repeating = true, description = "Brightness down" })
+
+-- --- extra apps & utilities (pulled from upstream Caelestia; my letters kept) ---
+hl.bind(mod .. " + B",       hl.dsp.exec_cmd("floorp"),                                { description = "Web browser (Floorp)" })
+hl.bind(mod .. " + C",       hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard"),    { description = "Clipboard history" })
+hl.bind(mod .. " + ALT + C", hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard -d"), { description = "Clipboard: delete an entry" })
+hl.bind(mod .. " + Period",  hl.dsp.exec_cmd("pkill fuzzel || caelestia emoji -p"),     { description = "Emoji / glyph picker" })
+
+-- keyboard window resize (mouse-free; hold to repeat)
+hl.bind(mod .. " + Minus",         hl.dsp.exec_cmd("hyprctl dispatch resizeactive -60 0"), { repeating = true, description = "Shrink width" })
+hl.bind(mod .. " + Equal",         hl.dsp.exec_cmd("hyprctl dispatch resizeactive 60 0"),  { repeating = true, description = "Grow width" })
+hl.bind(mod .. " + SHIFT + Minus", hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 -60"), { repeating = true, description = "Shrink height" })
+hl.bind(mod .. " + SHIFT + Equal", hl.dsp.exec_cmd("hyprctl dispatch resizeactive 0 60"),  { repeating = true, description = "Grow height" })
+
+-- window groups (tabbed container)
+hl.bind(mod .. " + G",         hl.dsp.exec_cmd("hyprctl dispatch togglegroup"),         { description = "Toggle window group" })
+hl.bind(mod .. " + SHIFT + G", hl.dsp.exec_cmd("hyprctl dispatch changegroupactive f"), { description = "Cycle window within group" })
+hl.bind(mod .. " + ALT + G",   hl.dsp.exec_cmd("hyprctl dispatch moveoutofgroup"),      { description = "Remove window from group" })
+
+-- restart the Caelestia shell (kill / kill+relaunch)
+hl.bind("CTRL + " .. mod .. " + SHIFT + R", hl.dsp.exec_cmd("qs -c caelestia kill"),                               { description = "Kill Caelestia shell" })
+hl.bind("CTRL + " .. mod .. " + ALT + R",   hl.dsp.exec_cmd("qs -c caelestia kill; sleep .1; caelestia shell -d"), { description = "Restart Caelestia shell" })
 
 -- keybind widget: Caelestia-styled QuickShell overlay (Super+/),
 -- with the plain yad window as a fallback (Super+Shift+/)
@@ -227,7 +248,8 @@ render() {   # emits one "<combo>\t<action>" line per bind
             [ -n "$action" ] || continue   # skip binds we can't label
             printf '%s\t%s\n' "$combo" "$action"
         done \
-        | awk '!seen[$0]++'
+        | awk '!seen[$0]++' \
+        | sort -f -t $'\t' -k2,2
 }
 
 case "${1:-}" in
@@ -408,6 +430,7 @@ ShellRoot {
                     seen[dedupKey] = true;
                     out.push({ combo: combo, action: action });
                 }
+                out.sort(function (a, b) { return a.action.toLowerCase().localeCompare(b.action.toLowerCase()); });
                 root.rows = out;
             }
         }
