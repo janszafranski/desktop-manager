@@ -629,31 +629,44 @@ log "Wrote $HYPR/scripts/keybinds-toggle.sh (bound to Super+/)"
 # pure-black ramp (keeping catppuccin accents + text) so the shell reads black.
 # NB: re-running `caelestia scheme set` regenerates scheme.json and undoes this,
 # so re-run this installer (or re-apply the patch) after any scheme change.
-log "Setting scheme to catppuccin mocha with black surfaces…"
-caelestia scheme set -n catppuccin -f mocha -m dark >/dev/null 2>&1 \
-    || warn "caelestia scheme set failed (is the CLI installed?); black patch may still apply to the existing scheme"
+# Write the standalone re-blacken helper first — it is the single source of
+# truth for the AMOLED patch, called here and by set-wallpaper.sh below.
+cat > "$HYPR/scripts/blacken.sh" <<'BLACKEN'
+#!/usr/bin/env bash
+# Re-apply the pure-black AMOLED surface ramp to the Caelestia scheme, keeping
+# the catppuccin accents. Run this after `caelestia scheme set` or a wallpaper
+# change, both of which regenerate scheme.json and reset surfaces to dark-gray.
+# The shell reads scheme.json live (FileView watch), so this applies instantly.
+set -euo pipefail
+scheme="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/scheme.json"
 
-SCHEME_JSON="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/scheme.json"
-if [ -f "$SCHEME_JSON" ]; then
-    python3 - "$SCHEME_JSON" <<'PY'
+python3 - "$scheme" <<'PY'
 import json, os, sys, tempfile
-path = sys.argv[1]
-# pure-black AMOLED ramp for the neutral/surface family; accents + text untouched
-black = {
+p = sys.argv[1]
+d = json.load(open(p))
+d.setdefault("colours", {}).update({
     "background": "000000", "surface": "000000", "surfaceDim": "000000",
     "surfaceBright": "1a1a1a", "surfaceContainerLowest": "000000",
     "surfaceContainerLow": "0a0a0a", "surfaceContainer": "0d0d0d",
     "surfaceContainerHigh": "141414", "surfaceContainerHighest": "1c1c1c",
     "surfaceVariant": "2a2a2a", "surface0": "121212", "surface1": "1a1a1a",
     "surface2": "222222",
-}
-data = json.load(open(path))
-data.setdefault("colours", {}).update(black)
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
-with os.fdopen(fd, "w") as f:
-    json.dump(data, f)
-os.replace(tmp, path)
+})
+fd, t = tempfile.mkstemp(dir=os.path.dirname(p))
+os.write(fd, json.dumps(d).encode()); os.close(fd); os.replace(t, p)
 PY
+echo "Black surfaces re-applied to $scheme"
+BLACKEN
+chmod +x "$HYPR/scripts/blacken.sh"
+log "Wrote $HYPR/scripts/blacken.sh (standalone black-surface patch)"
+
+log "Setting scheme to catppuccin mocha with black surfaces…"
+caelestia scheme set -n catppuccin -f mocha -m dark >/dev/null 2>&1 \
+    || warn "caelestia scheme set failed (is the CLI installed?); black patch may still apply to the existing scheme"
+
+SCHEME_JSON="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/scheme.json"
+if [ -f "$SCHEME_JSON" ]; then
+    "$HYPR/scripts/blacken.sh"
     log "Applied black surfaces to $SCHEME_JSON"
 else
     warn "$SCHEME_JSON not found; skipped black surface patch"
@@ -672,23 +685,8 @@ wall="${1:-/usr/share/hypr/wall2.png}"
 caelestia wallpaper -f "$wall"
 
 # caelestia re-reads the catppuccin theme colours on a wallpaper change, which
-# undoes the black surfaces -- re-apply them (matches install.sh section 2d).
-scheme="${XDG_STATE_HOME:-$HOME/.local/state}/caelestia/scheme.json"
-python3 - "$scheme" <<'PY'
-import json, os, sys, tempfile
-p = sys.argv[1]
-d = json.load(open(p))
-d.setdefault("colours", {}).update({
-    "background": "000000", "surface": "000000", "surfaceDim": "000000",
-    "surfaceBright": "1a1a1a", "surfaceContainerLowest": "000000",
-    "surfaceContainerLow": "0a0a0a", "surfaceContainer": "0d0d0d",
-    "surfaceContainerHigh": "141414", "surfaceContainerHighest": "1c1c1c",
-    "surfaceVariant": "2a2a2a", "surface0": "121212", "surface1": "1a1a1a",
-    "surface2": "222222",
-})
-fd, t = tempfile.mkstemp(dir=os.path.dirname(p))
-os.write(fd, json.dumps(d).encode()); os.close(fd); os.replace(t, p)
-PY
+# undoes the black surfaces -- re-apply them (single source of truth).
+"$(dirname "$(readlink -f "$0")")/blacken.sh"
 echo "Wallpaper: $wall  (black surfaces preserved)"
 WALLSET
 chmod +x "$HYPR/scripts/set-wallpaper.sh"
