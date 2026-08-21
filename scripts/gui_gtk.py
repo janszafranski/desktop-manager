@@ -132,6 +132,19 @@ CONFIGS = [
     },
     {
         "kind": "profile",
+        "key": "end4",
+        "name": "illogical-impulse (end4)",
+        "desc": "Adds an end-4 Hyprland + Quickshell session at the login screen, "
+                "installed into an isolated ~/.config-ii tree so it coexists with "
+                "Caelestia. Non-destructive — your default session stays put.",
+        "image": _p("profiles", "end4", "preview.png"),
+        "apply": _p("profiles", "end4", "install.sh"),
+        "revert": _p("profiles", "end4", "uninstall.sh"),
+        "apply_label": "Install the session",
+        "revert_label": "Uninstall it",
+    },
+    {
+        "kind": "profile",
         "key": "hellokitty",
         "name": "Hello Kitty login",
         "desc": "Swaps the SDDM login screen to a Hello Kitty theme. "
