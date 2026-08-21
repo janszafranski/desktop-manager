@@ -140,6 +140,22 @@ if [[ -f "$KB" ]] && ! grep -q 'OpenClaw web UI' "$KB"; then
     "$HOME" >> "$KB"
   log "Added SUPER+SHIFT+O bind → $KB"
 fi
+# App finder on SUPER+Space. end-4's native SUPER-tap opens the overview+search;
+# this binds a plain fuzzel app launcher (dmenu-style) for a quick finder.
+if [[ -f "$KB" ]] && ! grep -q 'app finder' "$KB"; then
+  printf '\n-- added by desktop-manager: app finder (fuzzel) on SUPER+Space\nhl.bind("SUPER + Space", hl.dsp.exec_cmd("pkill fuzzel || fuzzel"), { description = "App finder" })\n' >> "$KB"
+  log "Added SUPER+Space app-finder bind → $KB"
+fi
+
+# --- 6b. float + center the Desktop Manager window ---------------------------
+# The GTK app (window class "system-replica") tiles by default under end-4;
+# float and center it. Rules go in the base rules.lua (custom/ doesn't load in
+# the relocated tree); end-4-tracked, so reverts on reinstall.
+RULES="$II_CONFIG/hypr/hyprland/rules.lua"
+if [[ -f "$RULES" ]] && ! grep -q 'system-replica' "$RULES"; then
+  printf '\n-- added by desktop-manager: float + center the Desktop Manager app\nhl.window_rule({match = {class = "^(system-replica)$"}, float = true})\nhl.window_rule({match = {class = "^(system-replica)$"}, center = true})\n' >> "$RULES"
+  log "Added float+center window rule → $RULES"
+fi
 
 # --- 7. OpenClaw AI flyout bridge -------------------------------------------
 # end-4's left-edge AI flyout speaks raw OpenAI/Gemini HTTP; it can't reach the
