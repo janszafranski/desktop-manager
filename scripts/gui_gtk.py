@@ -187,7 +187,7 @@ INTRO = (
     "to preview exactly what would change without touching anything."
 )
 
-COLUMNS = 2  # cards per row in the grid
+COLUMNS = 3  # cards per row in the grid
 
 
 def show_enlarged(parent, path):
