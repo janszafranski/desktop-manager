@@ -73,7 +73,11 @@ fi
 #   * If it offers to set a default session / touch SDDM: DECLINE — we add our
 #     own session entry below.
 warn "end-4's installer is interactive. Reminders:"
-warn "  • pipewire/audio step  -> press 'i' (ignore)"
+warn "  • ANY step failing with 'installing libpipewire (…-1) breaks dependency'"
+warn "    is the CachyOS stock-vs-.1 skew — the real deps are already present."
+warn "    Install any genuinely-missing pkgs from that batch in another terminal"
+warn "    (WITHOUT libpipewire/pipewire), then press 'i' (ignore). Never let it"
+warn "    downgrade pipewire. Seen in: the audio meta AND the qt6 batch."
 warn "  • 'set default session?'-> decline (we handle the session)"
 log "Launching end-4 setup with XDG_CONFIG_HOME=$II_CONFIG …"
 ( cd "$REPO_DIR" && XDG_CONFIG_HOME="$II_CONFIG" ./setup install )
