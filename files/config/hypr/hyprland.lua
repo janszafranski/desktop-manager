@@ -140,3 +140,6 @@ hl.bind(mod .. " + SHIFT + slash", hl.dsp.exec_cmd("~/.config/hypr/scripts/keybi
 
 -- float the yad fallback window like a proper overlay
 hl.window_rule({ name = "float-keybinds", match = { class = "yad" }, float = true })
+
+-- float the Desktop Manager (system-replica) GUI instead of tiling it fullscreen
+hl.window_rule({ name = "float-desktop-manager", match = { class = "system-replica" }, float = true })
