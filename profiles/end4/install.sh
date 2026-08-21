@@ -111,7 +111,11 @@ EOF
 sudo install -Dm644 "$tmp" "$SESSION"
 rm -f "$tmp"
 
-# --- 6. convenience keybind (SUPER+O launches OpenClaw web UI) ---------------
+# --- 6. convenience keybind (SUPER+SHIFT+O launches OpenClaw web UI) ----------
+# NOTE: end-4 binds native SUPER+O to "toggle left sidebar" — and with step 8's
+# bridge that sidebar IS the OpenClaw agent, so SUPER+O is already your primary
+# OpenClaw interface. Do NOT reuse SUPER+O here (it double-fires: sidebar + this).
+# Bind the full web Control UI to SUPER+SHIFT+O instead.
 # end-4 uses a LUA config; binds are hl.bind(...) calls. Its "custom" override
 # folder is gated on a HARDCODED ~/.config/hypr path in hyprland.lua, so in this
 # relocated ~/.config-ii tree those overrides don't load. Append to the base
@@ -124,9 +128,9 @@ if [[ -f "$KB" ]] && ! grep -q 'OpenClaw web UI' "$KB"; then
   else
     BROWSER_CMD="xdg-open http://127.0.0.1:18789/"
   fi
-  printf '\n-- added by desktop-manager: launch OpenClaw web UI\nhl.bind("SUPER + O", hl.dsp.exec_cmd("%s"), { description = "Launch OpenClaw web UI" })\n' \
+  printf '\n-- added by desktop-manager: launch OpenClaw web UI (SUPER+O opens the flyout = the agent)\nhl.bind("SUPER + SHIFT + O", hl.dsp.exec_cmd("%s"), { description = "Launch OpenClaw web UI" })\n' \
     "$BROWSER_CMD" >> "$KB"
-  log "Added SUPER+O bind → $KB"
+  log "Added SUPER+SHIFT+O bind → $KB"
 fi
 
 # --- 7. OpenClaw AI flyout bridge -------------------------------------------
