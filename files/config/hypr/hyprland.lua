@@ -114,6 +114,7 @@ hl.bind("XF86MonBrightnessDown", hl.dsp.global("caelestia:brightnessDown"), { lo
 -- --- extra apps & utilities (pulled from upstream Caelestia; my letters kept) ---
 hl.bind(mod .. " + B",       hl.dsp.exec_cmd("floorp"),                                { description = "Web browser (Floorp)" })
 hl.bind(mod .. " + C",       hl.dsp.exec_cmd("alacritty --title 'Claude Code' -e claude --dangerously-skip-permissions"), { description = "Claude Code" })
+hl.bind(mod .. " + SHIFT + C", hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard"), { description = "Clipboard history" })
 hl.bind(mod .. " + ALT + C", hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard -d"), { description = "Clipboard: delete an entry" })
 hl.bind(mod .. " + Period",  hl.dsp.exec_cmd("pkill fuzzel || caelestia emoji -p"),     { description = "Emoji / glyph picker" })
 
