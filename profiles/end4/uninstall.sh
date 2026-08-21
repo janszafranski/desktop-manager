@@ -16,6 +16,7 @@ log "Stopping and removing the OpenClaw AI flyout bridge…"
 systemctl --user disable --now openclaw-ai-bridge.service 2>/dev/null || true
 rm -f "$HOME/.config/systemd/user/openclaw-ai-bridge.service"
 rm -f "$HOME/.local/bin/openclaw-ai-bridge.js"
+rm -f "$HOME/.local/bin/openclaw-dashboard.sh"
 systemctl --user daemon-reload 2>/dev/null || true
 # The "OpenClaw (me)" model entry lives in ~/.config-ii/illogical-impulse/config.json,
 # which is moved aside below with the rest of the isolated tree.

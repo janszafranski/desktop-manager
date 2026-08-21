@@ -22,6 +22,7 @@ II_CONFIG="$HOME/.config-ii"          # isolated XDG_CONFIG_HOME for end-4
 REPO_DIR="$HOME/src/dots-hyprland"    # where end-4's source is cloned
 WRAPPER="$HOME/.local/bin/start-hypr-ii"
 SESSION="/usr/share/wayland-sessions/hyprland-ii.desktop"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # this profile dir (asset source)
 
 # --- 0. prerequisites --------------------------------------------------------
 AUR=""
@@ -111,11 +112,23 @@ EOF
 sudo install -Dm644 "$tmp" "$SESSION"
 rm -f "$tmp"
 
-# --- 6. convenience keybind (SUPER+SHIFT+O launches OpenClaw web UI) ----------
+# --- 6. web Control UI launcher + keybind (SUPER+SHIFT+O) ---------------------
 # NOTE: end-4 binds native SUPER+O to "toggle left sidebar" — and with step 8's
 # bridge that sidebar IS the OpenClaw agent, so SUPER+O is already your primary
 # OpenClaw interface. Do NOT reuse SUPER+O here (it double-fires: sidebar + this).
 # Bind the full web Control UI to SUPER+SHIFT+O instead.
+#
+# IMPORTANT: the bare URL http://127.0.0.1:18789/ can't authenticate — the auth
+# token lives in the URL fragment (/#<token>). Opening it raw gives "Could not
+# connect". The shipped launcher runs `openclaw dashboard --no-open` (which puts
+# the tokenized URL on the clipboard), opens it in Floorp, then restores the
+# clipboard. That's why we bind a script, not a raw browser command.
+DASH_SRC="$SCRIPT_DIR/openclaw-dashboard.sh"
+DASH_DST="$HOME/.local/bin/openclaw-dashboard.sh"
+if [[ -f "$DASH_SRC" ]]; then
+  install -Dm755 "$DASH_SRC" "$DASH_DST"
+  log "Installed web Control UI launcher → $DASH_DST"
+fi
 # end-4 uses a LUA config; binds are hl.bind(...) calls. Its "custom" override
 # folder is gated on a HARDCODED ~/.config/hypr path in hyprland.lua, so in this
 # relocated ~/.config-ii tree those overrides don't load. Append to the base
@@ -123,13 +136,8 @@ rm -f "$tmp"
 # end-4-tracked, so re-running the installer may overwrite this bind.
 KB="$II_CONFIG/hypr/hyprland/keybinds.lua"
 if [[ -f "$KB" ]] && ! grep -q 'OpenClaw web UI' "$KB"; then
-  if command -v floorp >/dev/null 2>&1; then
-    BROWSER_CMD="floorp --new-window http://127.0.0.1:18789/"
-  else
-    BROWSER_CMD="xdg-open http://127.0.0.1:18789/"
-  fi
-  printf '\n-- added by desktop-manager: launch OpenClaw web UI (SUPER+O opens the flyout = the agent)\nhl.bind("SUPER + SHIFT + O", hl.dsp.exec_cmd("%s"), { description = "Launch OpenClaw web UI" })\n' \
-    "$BROWSER_CMD" >> "$KB"
+  printf '\n-- added by desktop-manager: launch OpenClaw web Control UI (tokenized). SUPER+O opens the flyout = the agent.\nhl.bind("SUPER + SHIFT + O", hl.dsp.exec_cmd("%s/.local/bin/openclaw-dashboard.sh"), { description = "Launch OpenClaw web UI" })\n' \
+    "$HOME" >> "$KB"
   log "Added SUPER+SHIFT+O bind → $KB"
 fi
 
@@ -139,7 +147,6 @@ fi
 # endpoint that forwards to `openclaw agent`, so the flyout becomes the actual
 # OpenClaw agent (memory + persona), not a raw model. Skipped if openclaw/node
 # aren't present.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BRIDGE_SRC="$SCRIPT_DIR/openclaw-ai-bridge.js"
 BRIDGE_DST="$HOME/.local/bin/openclaw-ai-bridge.js"
 UNIT="$HOME/.config/systemd/user/openclaw-ai-bridge.service"
