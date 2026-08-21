@@ -90,7 +90,10 @@ cat > "$WRAPPER" <<EOF
 # Launch end-4 (illogical-impulse) with an isolated config tree so it never
 # collides with the default (Caelestia / KDE) setup in ~/.config.
 export XDG_CONFIG_HOME="$II_CONFIG"
-exec Hyprland
+export XDG_CURRENT_DESKTOP="Hyprland"
+# end-4 ships a Lua config (hyprland.lua), NOT hyprland.conf — point Hyprland at
+# it explicitly, otherwise it boots a default empty config.
+exec Hyprland -c "$II_CONFIG/hypr/hyprland.lua"
 EOF
 chmod +x "$WRAPPER"
 
@@ -103,20 +106,27 @@ Name=Hyprland (illogical-impulse)
 Comment=end-4 dots, isolated config tree ~/.config-ii
 Exec=$WRAPPER
 Type=Application
+DesktopNames=Hyprland
 EOF
 sudo install -Dm644 "$tmp" "$SESSION"
 rm -f "$tmp"
 
 # --- 6. convenience keybind (SUPER+O launches OpenClaw web UI) ---------------
-# Mirrors the bind on the Caelestia session, in end-4's own hypr tree.
-HYPR_CUSTOM="$II_CONFIG/hypr/custom"
-if [[ -d "$II_CONFIG/hypr" ]]; then
-  mkdir -p "$HYPR_CUSTOM"
-  KB="$HYPR_CUSTOM/keybinds.conf"
-  if ! grep -qs 'SUPER, O' "$KB" 2>/dev/null; then
-    printf '\n# added by desktop-manager\nbind = SUPER, O, exec, xdg-open http://127.0.0.1:18789/\n' >> "$KB"
-    log "Added SUPER+O bind → $KB"
+# end-4 uses a LUA config; binds are hl.bind(...) calls. Its "custom" override
+# folder is gated on a HARDCODED ~/.config/hypr path in hyprland.lua, so in this
+# relocated ~/.config-ii tree those overrides don't load. Append to the base
+# hyprland/keybinds.lua (loaded unconditionally) instead. NOTE: that file is
+# end-4-tracked, so re-running the installer may overwrite this bind.
+KB="$II_CONFIG/hypr/hyprland/keybinds.lua"
+if [[ -f "$KB" ]] && ! grep -q 'OpenClaw web UI' "$KB"; then
+  if command -v floorp >/dev/null 2>&1; then
+    BROWSER_CMD="floorp --new-window http://127.0.0.1:18789/"
+  else
+    BROWSER_CMD="xdg-open http://127.0.0.1:18789/"
   fi
+  printf '\n-- added by desktop-manager: launch OpenClaw web UI\nhl.bind("SUPER + O", hl.dsp.exec_cmd("%s"), { description = "Launch OpenClaw web UI" })\n' \
+    "$BROWSER_CMD" >> "$KB"
+  log "Added SUPER+O bind → $KB"
 fi
 
 log "Done. Log out and pick 'Hyprland (illogical-impulse)' at the login screen."
