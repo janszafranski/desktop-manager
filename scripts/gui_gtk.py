@@ -98,8 +98,9 @@ def detect_system_dark(fallback_theme=""):
 
 # --- desktop configurations -------------------------------------------------
 # Add more dicts here to grow the grid. Each becomes a card/cell.
-#   kind    : "install" (deploy the captured config via install.sh stages) or
-#             "profile" (apply/revert a themed look via shell scripts)
+#   kind    : "install" (deploy the captured config via install.sh stages),
+#             "profile" (apply/revert a themed look via shell scripts) or
+#             "stage"   (run a single install.sh stage; thumbnail + Install only)
 #   image   : preview path ("install" card's is overridden by --image)
 CONFIGS = [
     {
@@ -155,13 +156,23 @@ CONFIGS = [
              "preview": _p("profiles", "hellokitty", "preview-flower.png")},
         ],
     },
+    {
+        "kind": "stage",
+        "key": "sddm",
+        "name": "SDDM login screen",
+        "desc": "Installs the White Tiger SDDM login screen (needs sudo). This is the "
+                "default login look; the Hello Kitty card swaps it and restores this.",
+        "image": _p("profiles", "sddm", "preview.png"),
+        "stage": "sddm",
+    },
 ]
 
-# stage checkboxes offered per card: (id, label, default-on)
+# stage checkboxes offered on the "install" card: (id, label, default-on).
+# NOTE: the SDDM login screen is its own "stage" card (see CONFIGS), not a
+# checkbox here.
 STAGES = [
     ("packages", "Install packages (pacman + AUR, needs sudo)", False),
     ("files",    "Deploy config files & themes",                True),
-    ("sddm",     "Install SDDM login screen (needs sudo)",      False),
     ("services", "Enable systemd --user services",              False),
 ]
 
@@ -294,6 +305,10 @@ class Card(Gtk.Frame):
                 self.choice_combo = combo
                 row.pack_start(combo, True, True, 0)
                 box.pack_start(row, False, False, 0)
+        elif self.kind == "stage":
+            # single-stage card: thumbnail + description above are the whole UI;
+            # the stage runs on Install. No checkboxes / apply-revert selector.
+            self.stage = cfg["stage"]
         else:
             # per-card stage checkboxes
             self.checks = {}
@@ -470,6 +485,8 @@ class ReplicaWindow(Gtk.Window):
             if card.op_apply.get_active():
                 card.commit_choice()
             self.result = ("profile", card.profile_command(), dry)
+        elif card.kind == "stage":
+            self.result = ("stages", card.stage, dry)
         else:
             stages = card.selected_stages()
             if not stages:
