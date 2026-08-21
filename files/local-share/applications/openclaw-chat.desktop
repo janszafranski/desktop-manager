@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=OpenClaw Chat
+GenericName=AI Assistant
+Comment=Open the OpenClaw chat TUI in a terminal
+Icon=utilities-terminal
+Exec=alacritty --title OpenClaw -e openclaw chat
+Terminal=false
+Categories=Utility;
+Keywords=openclaw;ai;chat;assistant;llm;
+StartupNotify=true

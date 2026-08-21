@@ -28,6 +28,8 @@ awk '
           if      (svc=="floorp")                  action="Floorp"
           else if (svc=="org.kde.plasma.emojier")  action="Emoji selector"
           else if (svc=="caelestia-launcher")      action="App launcher"
+          else if (svc=="openclaw-chat")           action="OpenClaw chat"
+          else if (svc=="claude-code")             action="Claude Code"
           else if (svc!="")                        action="Launch " svc
           else                                     action="Launch"
       } else {

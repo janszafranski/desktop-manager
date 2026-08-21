@@ -54,6 +54,7 @@ hl.bind(mod .. " + Space",  hl.dsp.exec_cmd("caelestia shell drawers toggle laun
 hl.bind(mod .. " + Q", hl.dsp.window.close(), { description = "Close window" })
 hl.bind(mod .. " + E", hl.dsp.exec_cmd("dolphin"), { description = "File manager" })
 hl.bind(mod .. " + K", hl.dsp.exec_cmd("chromium --app=https://keep.google.com"), { description = "Google Keep" })
+hl.bind(mod .. " + O", hl.dsp.exec_cmd("alacritty --title OpenClaw -e openclaw chat"), { description = "OpenClaw chat" })
 hl.bind(mod .. " + F", hl.dsp.window.fullscreen(), { description = "Fullscreen" })
 hl.bind(mod .. " + SHIFT + F", hl.dsp.exec_cmd("hyprctl dispatch fullscreen 1"), { description = "Maximise (keep bar)" })
 hl.bind(mod .. " + V", hl.dsp.exec_cmd("hyprctl dispatch togglefloating"), { description = "Toggle floating" })
@@ -112,7 +113,7 @@ hl.bind("XF86MonBrightnessDown", hl.dsp.global("caelestia:brightnessDown"), { lo
 
 -- --- extra apps & utilities (pulled from upstream Caelestia; my letters kept) ---
 hl.bind(mod .. " + B",       hl.dsp.exec_cmd("floorp"),                                { description = "Web browser (Floorp)" })
-hl.bind(mod .. " + C",       hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard"),    { description = "Clipboard history" })
+hl.bind(mod .. " + C",       hl.dsp.exec_cmd("alacritty --title 'Claude Code' -e claude --dangerously-skip-permissions"), { description = "Claude Code" })
 hl.bind(mod .. " + ALT + C", hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard -d"), { description = "Clipboard: delete an entry" })
 hl.bind(mod .. " + Period",  hl.dsp.exec_cmd("pkill fuzzel || caelestia emoji -p"),     { description = "Emoji / glyph picker" })
 

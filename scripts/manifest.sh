@@ -65,6 +65,8 @@ CONFIG_ITEMS=(
 
   # Caelestia (Hyprland session) shell config — idle/power tweaks etc.
   caelestia/shell.json
+  # Hyprland (Caelestia session) Lua keybind/window config — Super+O OpenClaw etc.
+  hypr/hyprland.lua
   # KDE keybindings popup widget (QuickShell): hot corner + Meta+/
   quickshell/kde-keybinds
 )
@@ -88,6 +90,8 @@ LOCALSHARE_ITEMS=(
   applications/kde-keybinds-yad.desktop
   # Claude Code launcher (bound to Meta+C via kglobalshortcutsrc)
   applications/claude-code.desktop
+  # OpenClaw chat launcher (bound to Meta+O via kglobalshortcutsrc)
+  applications/openclaw-chat.desktop
 )
 
 # --- items under ~/.icons ----------------------------------------------------

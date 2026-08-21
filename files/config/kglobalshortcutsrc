@@ -390,6 +390,9 @@ _launch=Meta+/
 [services][kde-keybinds-yad.desktop]
 _launch=Meta+Shift+/
 
+[services][openclaw-chat.desktop]
+_launch=Meta+O
+
 [services][org.kde.plasma.emojier.desktop]
 _launch=Meta+.
 
