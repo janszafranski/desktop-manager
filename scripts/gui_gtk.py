@@ -210,10 +210,15 @@ def show_enlarged(parent, path):
     header.set_show_close_button(True)          # the X
     win.set_titlebar(header)
 
-    # scale to fit ~85% of the screen (don't upscale past native size)
-    screen = win.get_screen()
-    max_w = min(int(screen.get_width() * 0.85), 1600)
-    max_h = min(int(screen.get_height() * 0.85), 1000)
+    # scale to fit ~85% of the screen (don't upscale past native size).
+    # Use monitor geometry — Gdk.Screen.get_width/height are deprecated.
+    display = Gdk.Display.get_default()
+    pwin = parent.get_window() if parent is not None else None
+    monitor = (display.get_monitor_at_window(pwin) if pwin is not None else None) \
+        or display.get_primary_monitor() or display.get_monitor(0)
+    geo = monitor.get_geometry()
+    max_w = min(int(geo.width * 0.85), 1600)
+    max_h = min(int(geo.height * 0.85), 1000)
     w, h = pix.get_width(), pix.get_height()
     scale = min(max_w / w, max_h / h, 1.0)
     if scale < 1.0:
