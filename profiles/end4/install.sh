@@ -44,6 +44,18 @@ if grep -qiE '^ID=cachyos' /etc/os-release 2>/dev/null; then
     warn "Could not pre-install audio tools; if end-4's audio step fails, press 'i' to ignore."
 fi
 
+# --- 1b. Material Symbols font conflict (Caelestia coexistence) ---------------
+# Caelestia installs the STABLE 'ttf-material-symbols-variable'; end-4 wants the
+# '-git' variant. They conflict (same files), but the -git pkg Provides the
+# stable name, so caelestia-shell's dependency stays satisfied after the swap.
+# Do the replace up front so end-4's font batch doesn't abort on the conflict.
+if pacman -Q ttf-material-symbols-variable >/dev/null 2>&1 && \
+   ! pacman -Q ttf-material-symbols-variable-git >/dev/null 2>&1; then
+  log "Replacing stable Material Symbols font with the -git variant end-4 needs…"
+  "$AUR" -S --noconfirm --ask=4 ttf-material-symbols-variable-git || \
+    warn "Font swap failed; when end-4's font step conflicts, remove the stable pkg then press 'r'."
+fi
+
 # --- 2. fetch end-4 source ---------------------------------------------------
 if [[ -d "$REPO_DIR/.git" ]]; then
   log "Refreshing existing clone at $REPO_DIR…"
