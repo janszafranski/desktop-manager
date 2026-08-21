@@ -378,18 +378,21 @@ toggle do not disturb=none,none,Toggle do not disturb
 [services][caelestia-launcher.desktop]
 _launch=Meta+Space
 
-[yakuake]
-_k_friendly_name=Yakuake
-toggle-window-state=F12,F12,Open/Retract Yakuake
+[services][claude-code.desktop]
+_launch=Meta+C
 
 [services][floorp.desktop]
 _launch=Meta+B
-
-[services][org.kde.plasma.emojier.desktop]
-_launch=Meta+.
 
 [services][kde-keybinds-toggle.desktop]
 _launch=Meta+/
 
 [services][kde-keybinds-yad.desktop]
 _launch=Meta+Shift+/
+
+[services][org.kde.plasma.emojier.desktop]
+_launch=Meta+.
+
+[yakuake]
+_k_friendly_name=Yakuake
+toggle-window-state=F12,F12,Open/Retract Yakuake

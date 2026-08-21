@@ -86,6 +86,8 @@ LOCALSHARE_ITEMS=(
   # launchers for the KDE keybindings popup (bound to Meta+/ via kglobalshortcutsrc)
   applications/kde-keybinds-toggle.desktop
   applications/kde-keybinds-yad.desktop
+  # Claude Code launcher (bound to Meta+C via kglobalshortcutsrc)
+  applications/claude-code.desktop
 )
 
 # --- items under ~/.icons ----------------------------------------------------

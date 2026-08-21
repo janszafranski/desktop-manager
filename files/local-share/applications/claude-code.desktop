@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Claude Code
+GenericName=AI Coding Agent
+Comment=Launch Claude Code (bypass permissions) in a terminal
+Icon=/home/jan/.local/share/icons/WhiteSur/apps/scalable/claude.svg
+Exec=konsole -p tabtitle="Claude Code" -e claude --dangerously-skip-permissions
+Path=/home/jan
+Terminal=false
+Categories=Development;ConsoleOnly;
+Keywords=claude;ai;code;assistant;llm;
+StartupNotify=true
