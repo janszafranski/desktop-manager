@@ -159,6 +159,7 @@ ExecStart=/usr/bin/node %h/.local/bin/openclaw-ai-bridge.js
 Restart=on-failure
 RestartSec=3
 Environment=OPENCLAW_BRIDGE_PORT=8787
+Environment=OPENCLAW_BRIDGE_TIMEOUT=600
 
 [Install]
 WantedBy=default.target
@@ -206,6 +207,86 @@ PY
   warn "Bridge is loopback-only (127.0.0.1:8787). Anything local that can POST to it can trigger agent turns."
 else
   warn "openclaw or node not found — skipping AI flyout bridge."
+fi
+
+# --- 9. Flyout: boot open + stay pinned on focus loss ------------------------
+# end-4's left sidebar (the OpenClaw flyout) can pin via Ctrl+P, but the state
+# isn't persisted AND a pinned sidebar still auto-hides on focus loss (only
+# *detach* is exempted from the focus-grab dismissal). Patch it to boot
+# open+pinned and stay put when you click into another window.
+# These are end-4-tracked QML files, so re-running end-4's installer reverts them.
+QSDIR="$II_CONFIG/quickshell/ii"
+if command -v python3 >/dev/null 2>&1 && [[ -f "$QSDIR/modules/ii/sidebarLeft/SidebarLeft.qml" ]]; then
+  log "Patching flyout to boot open + stay pinned…"
+  QSDIR="$QSDIR" python3 - <<'PY' || warn "Flyout pin patch skipped (end-4 layout may have changed); pin manually with Ctrl+P."
+import os
+qsdir = os.environ["QSDIR"]
+sl = os.path.join(qsdir, "modules/ii/sidebarLeft/SidebarLeft.qml")
+gs = os.path.join(qsdir, "GlobalStates.qml")
+
+OLD_BLOCK = '''            onVisibleChanged: {
+                if (visible) {
+                    GlobalFocusGrab.addDismissable(panelWindow);
+                } else {
+                    GlobalFocusGrab.removeDismissable(panelWindow);
+                }
+            }
+            Connections {
+                target: GlobalFocusGrab
+                function onDismissed() {
+                    panelWindow.hide();
+                }
+            }'''
+
+NEW_BLOCK = '''            onVisibleChanged: {
+                if (visible && !root.pin) {
+                    GlobalFocusGrab.addDismissable(panelWindow);
+                } else {
+                    GlobalFocusGrab.removeDismissable(panelWindow);
+                }
+            }
+            // Re-evaluate focus-grab membership when pin toggles (Ctrl+P)
+            Connections {
+                target: root
+                function onPinChanged() {
+                    if (panelWindow.visible && !root.pin) GlobalFocusGrab.addDismissable(panelWindow);
+                    else GlobalFocusGrab.removeDismissable(panelWindow);
+                }
+            }
+            Connections {
+                target: GlobalFocusGrab
+                function onDismissed() {
+                    if (!root.pin) panelWindow.hide(); // pinned flyout stays open when focus leaves
+                }
+            }'''
+
+def patch(path, subs):
+    s = open(path).read()
+    changed = False
+    for old, new, mark in subs:
+        if mark in s:
+            continue  # already patched
+        if old in s:
+            s = s.replace(old, new, 1); changed = True
+        else:
+            print("WARN: pattern not found in %s (%s)" % (os.path.basename(path), mark))
+    if changed:
+        open(path, "w").write(s)
+
+patch(sl, [
+    ("property bool pin: false",
+     "property bool pin: true // default pinned (desktop-manager: keep flyout docked)",
+     "property bool pin: true"),
+    (OLD_BLOCK, NEW_BLOCK, "function onPinChanged()"),
+])
+patch(gs, [
+    ("property bool sidebarLeftOpen: false",
+     "property bool sidebarLeftOpen: true // desktop-manager: open flyout on startup (paired with pinned SidebarLeft)",
+     "sidebarLeftOpen: true"),
+])
+print("flyout pin patch applied")
+PY
+  log "Flyout boots open + pinned (Ctrl+P toggles pin, Esc hides for the session)."
 fi
 
 log "Done. Log out and pick 'Hyprland (illogical-impulse)' at the login screen."

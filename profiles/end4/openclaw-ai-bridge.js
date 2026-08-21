@@ -15,7 +15,7 @@ const { execFile } = require('child_process');
 const HOST = '127.0.0.1';
 const PORT = parseInt(process.env.OPENCLAW_BRIDGE_PORT || '8787', 10);
 const SESSION_KEY = process.env.OPENCLAW_BRIDGE_SESSION || 'agent:main:ai-flyout';
-const AGENT_TIMEOUT = process.env.OPENCLAW_BRIDGE_TIMEOUT || '300';
+const AGENT_TIMEOUT = process.env.OPENCLAW_BRIDGE_TIMEOUT || '600';
 const MODEL_ID = 'openclaw';
 
 function lastUserMessage(messages) {
