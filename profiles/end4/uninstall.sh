@@ -12,6 +12,14 @@ II_CONFIG="$HOME/.config-ii"
 WRAPPER="$HOME/.local/bin/start-hypr-ii"
 SESSION="/usr/share/wayland-sessions/hyprland-ii.desktop"
 
+log "Stopping and removing the OpenClaw AI flyout bridge…"
+systemctl --user disable --now openclaw-ai-bridge.service 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/openclaw-ai-bridge.service"
+rm -f "$HOME/.local/bin/openclaw-ai-bridge.js"
+systemctl --user daemon-reload 2>/dev/null || true
+# The "OpenClaw (me)" model entry lives in ~/.config-ii/illogical-impulse/config.json,
+# which is moved aside below with the rest of the isolated tree.
+
 log "Removing the login session entry (sudo)…"
 sudo rm -f "$SESSION"
 

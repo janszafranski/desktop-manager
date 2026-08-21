@@ -129,5 +129,80 @@ if [[ -f "$KB" ]] && ! grep -q 'OpenClaw web UI' "$KB"; then
   log "Added SUPER+O bind → $KB"
 fi
 
+# --- 7. OpenClaw AI flyout bridge -------------------------------------------
+# end-4's left-edge AI flyout speaks raw OpenAI/Gemini HTTP; it can't reach the
+# OpenClaw agent directly. This bridge exposes a loopback OpenAI-compatible
+# endpoint that forwards to `openclaw agent`, so the flyout becomes the actual
+# OpenClaw agent (memory + persona), not a raw model. Skipped if openclaw/node
+# aren't present.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BRIDGE_SRC="$SCRIPT_DIR/openclaw-ai-bridge.js"
+BRIDGE_DST="$HOME/.local/bin/openclaw-ai-bridge.js"
+UNIT="$HOME/.config/systemd/user/openclaw-ai-bridge.service"
+if command -v openclaw >/dev/null 2>&1 && command -v node >/dev/null 2>&1 && [[ -f "$BRIDGE_SRC" ]]; then
+  log "Installing OpenClaw AI flyout bridge…"
+  install -Dm755 "$BRIDGE_SRC" "$BRIDGE_DST"
+
+  mkdir -p "$(dirname "$UNIT")"
+  cat > "$UNIT" <<EOF
+[Unit]
+Description=OpenClaw AI bridge (OpenAI-compatible endpoint for end4 AI flyout)
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/.local/bin/openclaw-ai-bridge.js
+Restart=on-failure
+RestartSec=3
+Environment=OPENCLAW_BRIDGE_PORT=8787
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable --now openclaw-ai-bridge.service 2>/dev/null || \
+    warn "Could not start the bridge service (no systemd --user session?). It'll start on next login."
+
+  # Register the "OpenClaw (me)" model in end-4's config and make it default.
+  # Idempotent: config hot-reloads (watchChanges), so no shell restart needed.
+  CFG="$II_CONFIG/illogical-impulse/config.json"
+  STATE="$HOME/.local/state/quickshell/states.json"
+  if command -v python3 >/dev/null 2>&1 && [[ -f "$CFG" ]]; then
+    CFG="$CFG" STATE="$STATE" python3 - <<'PY' || warn "Could not register OpenClaw model; add it via the flyout settings."
+import json, os
+cfg_path = os.environ["CFG"]
+cfg = json.load(open(cfg_path))
+models = cfg.setdefault("ai", {}).setdefault("extraModels", [])
+models = [m for m in models if m.get("model") != "openclaw"]  # idempotent
+models.append({
+    "api_format": "openai",
+    "description": "The actual OpenClaw agent — memory, persona, workspace — via local bridge (systemd: openclaw-ai-bridge).",
+    "endpoint": "http://127.0.0.1:8787/v1/chat/completions",
+    "icon": "spark-symbolic",
+    "key_id": "openclaw",
+    "model": "openclaw",
+    "name": "OpenClaw (me)",
+    "requires_key": False,
+})
+cfg["ai"]["extraModels"] = models
+json.dump(cfg, open(cfg_path, "w"), indent=2)
+
+state_path = os.environ["STATE"]
+try:
+    st = json.load(open(state_path))
+except Exception:
+    st = {}
+st.setdefault("ai", {})["model"] = "openclaw"
+os.makedirs(os.path.dirname(state_path), exist_ok=True)
+json.dump(st, open(state_path, "w"), indent=2)
+print("registered OpenClaw model + set as default")
+PY
+    log "OpenClaw flyout ready — select 'OpenClaw (me)' in the flyout (CTRL+SUPER+R to reload)."
+  fi
+  warn "Bridge is loopback-only (127.0.0.1:8787). Anything local that can POST to it can trigger agent turns."
+else
+  warn "openclaw or node not found — skipping AI flyout bridge."
+fi
+
 log "Done. Log out and pick 'Hyprland (illogical-impulse)' at the login screen."
 log "Your default session (Caelestia / KDE) is unchanged."
