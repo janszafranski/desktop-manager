@@ -381,6 +381,9 @@ _launch=Meta+Space
 [services][claude-code.desktop]
 _launch=Meta+C
 
+[services][floorp-fe0c47aa-eaaf-4a45-8cda-01aca864f927.desktop]
+_launch=Meta+Y
+
 [services][floorp.desktop]
 _launch=Meta+B
 

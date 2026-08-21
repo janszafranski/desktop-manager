@@ -30,6 +30,7 @@ awk '
           else if (svc=="caelestia-launcher")      action="App launcher"
           else if (svc=="openclaw-chat")           action="OpenClaw chat"
           else if (svc=="claude-code")             action="Claude Code"
+          else if (svc=="floorp-fe0c47aa-eaaf-4a45-8cda-01aca864f927") action="YouTube (webapp)"
           else if (svc!="")                        action="Launch " svc
           else                                     action="Launch"
       } else {
