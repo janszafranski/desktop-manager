@@ -67,6 +67,9 @@ CONFIG_ITEMS=(
   caelestia/shell.json
   # Hyprland (Caelestia session) Lua keybind/window config — Super+O OpenClaw etc.
   hypr/hyprland.lua
+  # Hyprland helper script: re-apply the pure-black AMOLED surface ramp to the
+  # Caelestia scheme (run after `caelestia scheme set` / wallpaper change).
+  hypr/scripts/blacken.sh
   # KDE keybindings popup widget (QuickShell): hot corner + Meta+/
   quickshell/kde-keybinds
 )
