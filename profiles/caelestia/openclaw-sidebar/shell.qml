@@ -1,9 +1,12 @@
 //@ pragma UseQApplication
 // OpenClaw sidebar — a standalone, pinnable left-docked chat panel that talks to
-// the OpenClaw agent via the local bridge (127.0.0.1:8787, OpenAI-compatible SSE).
+// the OpenClaw agent via the local bridge (127.0.0.1:8787).
 // Shell-agnostic: runs as its own Quickshell instance (`qs -c openclaw-sidebar`),
 // so it survives Caelestia/end4 package updates. Toggle over IPC:
 //   qs -c openclaw-sidebar ipc call sidebar toggle
+//
+// v2: recent-chats drawer (☰), per-session history load, new chat, session-scoped
+// sends — backed by bridge endpoints /sessions and /history.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -19,20 +22,32 @@ ShellRoot {
     property bool pinned: true            // pinned = reserve screen space (windows tile beside it)
     property int  panelWidth: 460         // matches end4; widen via IPC `widen`
     property bool busy: false
-    readonly property string endpoint: "http://127.0.0.1:8787/v1/chat/completions"
+    property int  elapsed: 0              // seconds the current turn has been running
+    readonly property string base: "http://127.0.0.1:8787"
+    property string currentSession: "agent:main:ai-flyout"   // active chat
+    property bool   sessionsOpen: false                       // recent-chats drawer open
+
+    Timer {
+        interval: 1000; repeat: true; running: root.busy
+        onTriggered: root.elapsed += 1
+    }
 
     // --- palette (Caelestia-ish: AMOLED black + catppuccin accents) ---
-    readonly property color colBg:      "#e6101018"   // semi-transparent so Hyprland blur frosts it
-    readonly property color colHeader:  "#f21a1a26"
+    readonly property color colBg:      "#c2101018"   // more transparent so Hyprland blur frosts it more
+    readonly property color colHeader:  "#cc1a1a26"
     readonly property color colUserBub: "#cb1e1e2e"
     readonly property color colAsstBub: "#00000000"
     readonly property color colAccent:  "#cba6f7"     // mauve
     readonly property color colText:    "#cdd6f4"
     readonly property color colSubtle:  "#9399b2"
     readonly property color colBorder:  "#2a2a3c"
-    readonly property color colInputBg: "#cc16161f"
+    readonly property color colInputBg: "#b316161f"
 
     ListModel { id: chatModel }
+    ListModel { id: sessionsModel }
+
+    // load the active session's transcript + the recent-chats list on startup
+    Component.onCompleted: { root.loadHistory(root.currentSession); root.loadSessions(); }
 
     IpcHandler {
         target: "sidebar"
@@ -40,13 +55,59 @@ ShellRoot {
         function show(): void   { root.shown = true }
         function hide(): void   { root.shown = false }
         function pin(): void    { root.pinned = !root.pinned }
+        function lock(): void   { root.shown = true; root.pinned = true }   // show + pin (CLI hand-off return)
         function widen(): void  { root.panelWidth = (root.panelWidth >= 620 ? 460 : 620) }
         function clear(): void  { chatModel.clear() }
+        function reload(): void { root.loadHistory(root.currentSession); root.loadSessions() }  // re-sync after CLI edits
     }
 
-    // Queue of user messages waiting to be sent. Input is never blocked; if a turn
-    // is already in flight, new messages queue and fire sequentially as it frees up
-    // (the agent session is sequential, so we must not send concurrently).
+    // ---- data layer (bridge /sessions, /history) --------------------------
+
+    function loadSessions() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", root.base + "/sessions");
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE || xhr.status !== 200) return;
+            try {
+                var d = JSON.parse(xhr.responseText);
+                sessionsModel.clear();
+                for (var i = 0; i < d.sessions.length; i++) {
+                    var s = d.sessions[i];
+                    sessionsModel.append({ "key": s.key, "title": s.title || s.key });
+                }
+            } catch (e) { /* ignore */ }
+        };
+        xhr.send();
+    }
+
+    function loadHistory(key) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", root.base + "/history?session=" + encodeURIComponent(key));
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE || xhr.status !== 200) return;
+            try {
+                var d = JSON.parse(xhr.responseText);
+                chatModel.clear();
+                for (var i = 0; i < d.messages.length; i++)
+                    chatModel.append({ "role": d.messages[i].role, "content": d.messages[i].content });
+            } catch (e) { /* ignore */ }
+        };
+        xhr.send();
+    }
+
+    function switchSession(key) {
+        root.currentSession = key;
+        root.sessionsOpen = false;
+        root.loadHistory(key);
+    }
+
+    function newChat() {
+        root.currentSession = "agent:main:flyout-" + Date.now();
+        chatModel.clear();
+        root.sessionsOpen = false;
+    }
+
+    // ---- send queue (input never blocks; sends run sequentially) -----------
     property var pending: []
 
     function sendMessage(text) {
@@ -61,11 +122,12 @@ ShellRoot {
         if (root.busy || root.pending.length === 0) return;
         var t = root.pending.shift();
         root.busy = true;
+        root.elapsed = 0;
         chatModel.append({ "role": "assistant", "content": "…" });
         var idx = chatModel.count - 1;
 
         var xhr = new XMLHttpRequest();
-        xhr.open("POST", root.endpoint);
+        xhr.open("POST", root.base + "/v1/chat/completions");
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.timeout = 620000;   // bridge agent turns can run up to ~600s
         xhr.onreadystatechange = function() {
@@ -91,10 +153,12 @@ ShellRoot {
                 out = "**Error " + xhr.status + "**\n\n" + xhr.responseText;
             }
             chatModel.set(idx, { "role": "assistant", "content": out.length ? out : "(no reply)" });
-            root.pumpQueue();   // send the next queued message, if any
+            root.loadSessions();   // refresh recent-chats (new session / title / order)
+            root.pumpQueue();      // send the next queued message, if any
         };
         xhr.send(JSON.stringify({
             "model": "openclaw",
+            "session": root.currentSession,
             "messages": [{ "role": "user", "content": t }],
             "stream": true
         }));
@@ -131,9 +195,17 @@ ShellRoot {
                     color: root.colHeader
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 14
+                        anchors.leftMargin: 10
                         anchors.rightMargin: 8
-                        spacing: 8
+                        spacing: 6
+                        // recent chats toggle
+                        ToolButton {
+                            text: "☰"
+                            onClicked: { root.sessionsOpen = !root.sessionsOpen; if (root.sessionsOpen) root.loadSessions(); }
+                            ToolTip.text: "Recent chats"; ToolTip.visible: hovered
+                            contentItem: Label { text: parent.text; color: root.sessionsOpen ? root.colAccent : root.colSubtle; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
+                            background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
+                        }
                         Rectangle { width: 8; height: 8; radius: 4; color: root.colAccent }
                         Label {
                             text: "OpenClaw"
@@ -144,15 +216,27 @@ ShellRoot {
                         }
                         Label {
                             visible: root.busy
-                            text: "thinking…" + (root.pending.length > 0 ? " · " + root.pending.length + " queued" : "")
+                            text: "thinking… " + root.elapsed + "s" + (root.pending.length > 0 ? " · " + root.pending.length + " queued" : "")
                             color: root.colSubtle
                             font.pixelSize: 12
                         }
-                        // widen
+                        // new chat
                         ToolButton {
-                            text: "⇔"
-                            onClicked: root.panelWidth = (root.panelWidth >= 620 ? 460 : 620)
-                            ToolTip.text: "Toggle width"; ToolTip.visible: hovered
+                            text: "✚"
+                            onClicked: root.newChat()
+                            ToolTip.text: "New chat"; ToolTip.visible: hovered
+                            contentItem: Label { text: parent.text; color: root.colSubtle; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
+                            background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
+                        }
+                        // pop the same conversation out to a terminal (CLI), then hide the flyout
+                        ToolButton {
+                            text: "↗"
+                            onClicked: {
+                                Quickshell.execDetached(["alacritty", "--title", "OpenClaw", "-e",
+                                                         "/home/jan/.local/bin/openclaw-cli-chat.sh"]);
+                                root.shown = false;
+                            }
+                            ToolTip.text: "Continue in terminal (CLI)"; ToolTip.visible: hovered
                             contentItem: Label { text: parent.text; color: root.colSubtle; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
                             background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
                         }
@@ -164,17 +248,64 @@ ShellRoot {
                             contentItem: Label { text: parent.text; color: root.pinned ? root.colAccent : root.colSubtle; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
                             background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
                         }
-                        // clear
-                        ToolButton {
-                            text: "🗑"
-                            onClicked: chatModel.clear()
-                            ToolTip.text: "Clear conversation"; ToolTip.visible: hovered
-                            contentItem: Label { text: parent.text; color: root.colSubtle; font.pixelSize: 14; horizontalAlignment: Text.AlignHCenter }
-                            background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
-                        }
                     }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: root.colBorder }
+
+                // ---------- recent-chats drawer ----------
+                Rectangle {
+                    Layout.fillWidth: true
+                    visible: root.sessionsOpen
+                    color: root.colHeader
+                    Layout.preferredHeight: root.sessionsOpen ? Math.min(sessionsList.contentHeight + 46, 300) : 0
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 6
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: "Recent chats"; color: root.colSubtle; font.pixelSize: 12; font.bold: true; Layout.fillWidth: true }
+                            ToolButton {
+                                text: "✚ New chat"
+                                onClicked: root.newChat()
+                                contentItem: Label { text: parent.text; color: root.colAccent; font.pixelSize: 12 }
+                                background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
+                            }
+                        }
+                        ListView {
+                            id: sessionsList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            model: sessionsModel
+                            spacing: 2
+                            boundsBehavior: Flickable.StopAtBounds
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            delegate: Rectangle {
+                                width: ListView.view ? ListView.view.width : 0
+                                implicitHeight: 34
+                                radius: 8
+                                color: model.key === root.currentSession ? root.colBorder : (sma.containsMouse ? "#1affffff" : "transparent")
+                                Label {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10; anchors.rightMargin: 10
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: model.title
+                                    color: model.key === root.currentSession ? root.colAccent : root.colText
+                                    font.pixelSize: 13
+                                    elide: Text.ElideRight
+                                }
+                                MouseArea {
+                                    id: sma
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: root.switchSession(model.key)
+                                }
+                            }
+                        }
+                    }
+                }
+                Rectangle { Layout.fillWidth: true; height: 1; color: root.colBorder; visible: root.sessionsOpen }
 
                 // ---------- message list ----------
                 ListView {

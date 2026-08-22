@@ -185,8 +185,9 @@ hl.bind(mod .. " + Period",  hl.dsp.exec_cmd("pkill fuzzel || caelestia emoji -p
 
 -- OpenClaw agent sidebar: standalone pinnable panel (qs -c openclaw-sidebar) that
 -- talks to the local bridge (127.0.0.1:8787) = the actual OpenClaw agent.
-hl.bind(mod .. " + O",       hl.dsp.exec_cmd("qs -c openclaw-sidebar ipc call sidebar toggle"), { description = "OpenClaw sidebar (toggle)" })
-hl.bind(mod .. " + ALT + O", hl.dsp.exec_cmd("alacritty --title OpenClaw -e openclaw chat"),      { description = "OpenClaw chat (terminal)" })
+hl.bind(mod .. " + O",         hl.dsp.exec_cmd("qs -c openclaw-sidebar ipc call sidebar toggle"), { description = "OpenClaw sidebar (toggle)" })
+hl.bind(mod .. " + ALT + O",   hl.dsp.exec_cmd("alacritty --title OpenClaw -e openclaw chat"),    { description = "OpenClaw chat (terminal)" })
+hl.bind(mod .. " + SHIFT + O", hl.dsp.exec_cmd("~/.local/bin/openclaw-dashboard.sh"),             { description = "OpenClaw web Control UI" })
 
 -- keyboard window resize (mouse-free; hold to repeat)
 hl.bind(mod .. " + Minus",         hl.dsp.exec_cmd("hyprctl dispatch resizeactive -60 0"), { repeating = true, description = "Shrink width" })
@@ -714,6 +715,14 @@ if [[ -f "$SB_SRC" ]]; then
   install -Dm644 "$SB_SRC" "$SB_DST"
   log "Wrote $SB_DST (OpenClaw sidebar; Super+O toggles)"
 fi
+
+# Helper scripts the panel/keybinds call: the ↗ CLI hand-off wrapper (opens the
+# CLI on the flyout session; /exit returns to the locked flyout) and the web
+# Control UI launcher (Super+Shift+O).
+for helper in openclaw-cli-chat.sh openclaw-dashboard.sh; do
+  [[ -f "$SCRIPT_DIR/$helper" ]] && install -Dm755 "$SCRIPT_DIR/$helper" "$HOME/.local/bin/$helper" \
+    && log "Wrote ~/.local/bin/$helper"
+done
 
 # Make the Caelestia bar persistent so it sits alongside the sidebar (its
 # exclusive zone auto-offsets the sidebar so the two don't overlap).

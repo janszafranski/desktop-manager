@@ -16,7 +16,11 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("caelestia shell -d")
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
     hl.exec_cmd("qs -c keybinds")  -- persistent keybind widget (hot corner + Super+/)
+    hl.exec_cmd("qs -c openclaw-sidebar")  -- pinnable left-docked OpenClaw agent panel (Super+O toggles)
 end)
+
+-- frost the OpenClaw sidebar (blur behind its semi-transparent surface)
+hl.layer_rule({ match = { namespace = "openclaw-sidebar" }, blur = true })
 
 -- --- look, feel and input ---
 hl.config({
@@ -54,7 +58,9 @@ hl.bind(mod .. " + Space",  hl.dsp.exec_cmd("caelestia shell drawers toggle laun
 hl.bind(mod .. " + Q", hl.dsp.window.close(), { description = "Close window" })
 hl.bind(mod .. " + E", hl.dsp.exec_cmd("dolphin"), { description = "File manager" })
 hl.bind(mod .. " + K", hl.dsp.exec_cmd("chromium --app=https://keep.google.com"), { description = "Google Keep" })
-hl.bind(mod .. " + O", hl.dsp.exec_cmd("alacritty --title OpenClaw -e openclaw chat"), { description = "OpenClaw chat" })
+hl.bind(mod .. " + O",       hl.dsp.exec_cmd("qs -c openclaw-sidebar ipc call sidebar toggle"), { description = "OpenClaw sidebar (toggle)" })
+hl.bind(mod .. " + ALT + O", hl.dsp.exec_cmd("alacritty --title OpenClaw -e openclaw chat"),      { description = "OpenClaw chat (terminal)" })
+hl.bind(mod .. " + SHIFT + O", hl.dsp.exec_cmd("~/.local/bin/openclaw-dashboard.sh"),             { description = "OpenClaw web Control UI" })
 hl.bind(mod .. " + Y", hl.dsp.exec_cmd("gtk-launch floorp-fe0c47aa-eaaf-4a45-8cda-01aca864f927.desktop"), { description = "YouTube (webapp)" })
 hl.bind(mod .. " + F", hl.dsp.window.fullscreen(), { description = "Fullscreen" })
 hl.bind(mod .. " + SHIFT + F", hl.dsp.exec_cmd("hyprctl dispatch fullscreen 1"), { description = "Maximise (keep bar)" })
