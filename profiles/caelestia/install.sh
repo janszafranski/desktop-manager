@@ -79,7 +79,11 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("caelestia shell -d")
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
     hl.exec_cmd("qs -c keybinds")  -- persistent keybind widget (hot corner + Super+/)
+    hl.exec_cmd("qs -c openclaw-sidebar")  -- pinnable left-docked OpenClaw agent panel (Super+O toggles)
 end)
+
+-- frost the OpenClaw sidebar (blur behind its semi-transparent surface)
+hl.layer_rule({ match = { namespace = "openclaw-sidebar" }, blur = true })
 
 -- --- look, feel and input ---
 hl.config({
@@ -178,6 +182,11 @@ hl.bind(mod .. " + B",       hl.dsp.exec_cmd("floorp"),                         
 hl.bind(mod .. " + C",       hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard"),    { description = "Clipboard history" })
 hl.bind(mod .. " + ALT + C", hl.dsp.exec_cmd("pkill fuzzel || caelestia clipboard -d"), { description = "Clipboard: delete an entry" })
 hl.bind(mod .. " + Period",  hl.dsp.exec_cmd("pkill fuzzel || caelestia emoji -p"),     { description = "Emoji / glyph picker" })
+
+-- OpenClaw agent sidebar: standalone pinnable panel (qs -c openclaw-sidebar) that
+-- talks to the local bridge (127.0.0.1:8787) = the actual OpenClaw agent.
+hl.bind(mod .. " + O",       hl.dsp.exec_cmd("qs -c openclaw-sidebar ipc call sidebar toggle"), { description = "OpenClaw sidebar (toggle)" })
+hl.bind(mod .. " + ALT + O", hl.dsp.exec_cmd("alacritty --title OpenClaw -e openclaw chat"),      { description = "OpenClaw chat (terminal)" })
 
 -- keyboard window resize (mouse-free; hold to repeat)
 hl.bind(mod .. " + Minus",         hl.dsp.exec_cmd("hyprctl dispatch resizeactive -60 0"), { repeating = true, description = "Shrink width" })
@@ -691,6 +700,73 @@ echo "Wallpaper: $wall  (black surfaces preserved)"
 WALLSET
 chmod +x "$HYPR/scripts/set-wallpaper.sh"
 log "Wrote $HYPR/scripts/set-wallpaper.sh (on-demand wallpaper switcher)"
+
+# --- 2f. OpenClaw agent sidebar (standalone pinnable panel) -------------------
+# A self-contained Quickshell panel (qs -c openclaw-sidebar), left-docked and
+# pinnable, that POSTs to the local OpenClaw bridge (127.0.0.1:8787) so it *is*
+# the OpenClaw agent (memory + persona). Shell-agnostic: independent of the
+# caelestia-shell package, so it survives Caelestia updates and is portable to
+# end4. Autostarted from hyprland.start above; Super+O toggles it.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SB_SRC="$SCRIPT_DIR/openclaw-sidebar/shell.qml"
+SB_DST="$HOME/.config/quickshell/openclaw-sidebar/shell.qml"
+if [[ -f "$SB_SRC" ]]; then
+  install -Dm644 "$SB_SRC" "$SB_DST"
+  log "Wrote $SB_DST (OpenClaw sidebar; Super+O toggles)"
+fi
+
+# Make the Caelestia bar persistent so it sits alongside the sidebar (its
+# exclusive zone auto-offsets the sidebar so the two don't overlap).
+CAELCONF="$HOME/.config/caelestia/shell.json"
+if command -v python3 >/dev/null 2>&1; then
+  mkdir -p "$(dirname "$CAELCONF")"
+  CAELCONF="$CAELCONF" python3 - <<'PY' || warn "Could not set bar.persistent; toggle it in Caelestia settings."
+import json, os
+p = os.environ["CAELCONF"]
+try:
+    d = json.load(open(p))
+except Exception:
+    d = {}
+d.setdefault("bar", {})["persistent"] = True
+json.dump(d, open(p, "w"), indent=4)
+print("set bar.persistent = true")
+PY
+fi
+
+# --- 2g. OpenClaw AI bridge (loopback OpenAI endpoint the sidebar talks to) ---
+# The sidebar speaks OpenAI-compatible HTTP; this bridge forwards to
+# `openclaw agent`, so the panel becomes the real agent, not a raw model. Same
+# bridge the end4 flyout uses — sharing one instance is fine (loopback-only).
+BRIDGE_SRC="$SCRIPT_DIR/openclaw-ai-bridge.js"
+BRIDGE_DST="$HOME/.local/bin/openclaw-ai-bridge.js"
+UNIT="$HOME/.config/systemd/user/openclaw-ai-bridge.service"
+if command -v openclaw >/dev/null 2>&1 && command -v node >/dev/null 2>&1 && [[ -f "$BRIDGE_SRC" ]]; then
+  log "Installing OpenClaw AI bridge…"
+  install -Dm755 "$BRIDGE_SRC" "$BRIDGE_DST"
+  mkdir -p "$(dirname "$UNIT")"
+  cat > "$UNIT" <<EOF
+[Unit]
+Description=OpenClaw AI bridge (OpenAI-compatible endpoint for the OpenClaw sidebar)
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/.local/bin/openclaw-ai-bridge.js
+Restart=on-failure
+RestartSec=3
+Environment=OPENCLAW_BRIDGE_PORT=8787
+Environment=OPENCLAW_BRIDGE_TIMEOUT=600
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable --now openclaw-ai-bridge.service 2>/dev/null || \
+    warn "Could not start the bridge service (no systemd --user session?). It'll start on next login."
+  warn "Bridge is loopback-only (127.0.0.1:8787). Anything local that can POST to it can trigger agent turns."
+else
+  warn "openclaw or node not found — skipping AI bridge (the sidebar needs it to reply)."
+fi
 
 # --- 3. SDDM session entry (needs root) --------------------------------------
 log "Creating the 'Caelestia' login session entry (sudo)…"
