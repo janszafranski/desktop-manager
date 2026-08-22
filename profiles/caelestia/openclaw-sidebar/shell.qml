@@ -46,8 +46,20 @@ ShellRoot {
     ListModel { id: chatModel }
     ListModel { id: sessionsModel }
 
-    // load the active session's transcript + the recent-chats list on startup
-    Component.onCompleted: { root.loadHistory(root.currentSession); root.loadSessions(); }
+    // On startup fetch history + recent chats. The bridge (systemd) may not be up
+    // yet at login, so retry a few times until data arrives, then stop.
+    property int bootTries: 0
+    Timer {
+        id: bootTimer
+        interval: 1200; repeat: true; running: true
+        onTriggered: {
+            root.bootTries += 1;
+            root.loadHistory(root.currentSession);
+            root.loadSessions();
+            if (sessionsModel.count > 0 || chatModel.count > 0 || root.bootTries >= 6)
+                bootTimer.running = false;
+        }
+    }
 
     IpcHandler {
         target: "sidebar"
