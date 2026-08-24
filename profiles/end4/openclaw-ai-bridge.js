@@ -19,13 +19,34 @@
 
 const http = require('http');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 
 const HOST = '127.0.0.1';
 const PORT = parseInt(process.env.OPENCLAW_BRIDGE_PORT || '8787', 10);
 const DEFAULT_SESSION = process.env.OPENCLAW_BRIDGE_SESSION || 'agent:main:ai-flyout';
 const AGENT_TIMEOUT = process.env.OPENCLAW_BRIDGE_TIMEOUT || '600';
 const MODEL_ID = 'openclaw';
+// How many times to retry a turn that failed for a transient reason (gateway
+// restart / OOM kill / provider failover mid-turn). The gateway auto-clears the
+// session after such a failure, so a fresh retry almost always succeeds.
+const AGENT_RETRIES = parseInt(process.env.OPENCLAW_BRIDGE_RETRIES || '1', 10);
+const RETRY_DELAY_MS = parseInt(process.env.OPENCLAW_BRIDGE_RETRY_DELAY_MS || '1500', 10);
+
+// Errors worth retrying: the gateway was restarted/killed or the provider failed
+// over mid-turn. Not user-visible content errors — those should surface as-is.
+const TRANSIENT_RE = /FailoverError|Claude CLI failed|gateway (restart|shutdown|restarting)|UNAVAILABLE|ECONNREFUSED|ECONNRESET|socket hang up|EPIPE|active run/i;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Real token-by-token streaming via the supported ACP bridge (`openclaw acp`),
+// unless disabled. Falls back to the one-shot execFile path automatically.
+const STREAM_ENABLED = (process.env.OPENCLAW_BRIDGE_STREAM || '1') !== '0';
+// Auto-approve tool permission requests during a turn to preserve parity with
+// the one-shot `openclaw agent` path (the flyout session is already tool-capable
+// and loopback-only). Set OPENCLAW_BRIDGE_ACP_APPROVE=0 to deny instead.
+const ACP_AUTO_APPROVE = (process.env.OPENCLAW_BRIDGE_ACP_APPROVE || '1') !== '0';
+const ACP_WORKSPACE =
+  process.env.OPENCLAW_BRIDGE_CWD || `${process.env.HOME || '/root'}/.openclaw/workspace`;
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -66,6 +87,141 @@ function runAgent(message, sessionKey) {
         }
       }
     );
+  });
+}
+
+// Run a turn, retrying once (by default) on transient failures — a gateway
+// restart, OOM kill, or provider failover that interrupted the in-flight turn.
+// The gateway clears the session after a failed reused turn, so the retry starts
+// clean and normally succeeds; this keeps the flyout from surfacing blips.
+async function runAgentResilient(message, sessionKey) {
+  let lastErr;
+  for (let attempt = 0; attempt <= AGENT_RETRIES; attempt++) {
+    try {
+      return await runAgent(message, sessionKey);
+    } catch (e) {
+      lastErr = e;
+      const transient = TRANSIENT_RE.test(e && e.message ? e.message : '');
+      if (!transient || attempt === AGENT_RETRIES) break;
+      console.log(
+        `[bridge] transient turn failure (attempt ${attempt + 1}/${AGENT_RETRIES + 1}), retrying in ${RETRY_DELAY_MS}ms: ${e.message.split('\n')[0]}`
+      );
+      await sleep(RETRY_DELAY_MS);
+    }
+  }
+  throw lastErr;
+}
+
+// Stream a turn through the ACP bridge, invoking onDelta(text) for each
+// agent_message_chunk as it arrives. Resolves with the number of characters
+// streamed. Rejects on spawn/protocol failure (caller falls back to one-shot).
+// `onDelta` is only ever called with visible assistant content — thinking
+// (agent_thought_chunk) and tool events are intentionally not forwarded.
+function runAgentStreaming(message, sessionKey, onDelta) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.stdin.end(); } catch (_) {}
+      try { child.kill(); } catch (_) {}
+      fn(arg);
+    };
+
+    const child = spawn('openclaw', ['acp', '--session', sessionKey], {
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    child.on('error', e => finish(reject, new Error('acp spawn failed: ' + e.message)));
+
+    const timer = setTimeout(
+      () => finish(reject, new Error('acp turn timeout')),
+      (parseInt(AGENT_TIMEOUT, 10) + 30) * 1000
+    );
+
+    let streamed = 0;
+    let nextId = 1;
+    const pending = new Map();
+    const send = obj => {
+      try { child.stdin.write(JSON.stringify(obj) + '\n'); } catch (_) {}
+    };
+    const rpc = (method, params) =>
+      new Promise((res, rej) => {
+        const id = nextId++;
+        pending.set(id, { res, rej });
+        send({ jsonrpc: '2.0', id, method, params });
+      });
+
+    let buf = '';
+    child.stdout.on('data', d => {
+      buf += d.toString();
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let o;
+        try { o = JSON.parse(line); } catch (_) { continue; }
+        // response to one of our requests
+        if (o.id != null && pending.has(o.id)) {
+          const p = pending.get(o.id);
+          pending.delete(o.id);
+          if (o.error) p.rej(new Error(JSON.stringify(o.error)));
+          else p.res(o.result);
+          continue;
+        }
+        // streaming notification
+        if (o.method === 'session/update' && o.params && o.params.update) {
+          const u = o.params.update;
+          if (u.sessionUpdate === 'agent_message_chunk' && u.content && typeof u.content.text === 'string') {
+            streamed += u.content.text.length;
+            try { onDelta(u.content.text); } catch (_) {}
+          }
+          continue;
+        }
+        // server -> client request (e.g. permission prompt): keep the turn moving
+        if (o.method && o.id != null) {
+          if (o.method === 'session/request_permission') {
+            const opts = (o.params && o.params.options) || [];
+            let pick = null;
+            if (ACP_AUTO_APPROVE) {
+              pick =
+                opts.find(x => /allow.*once|allow$|allow_once/i.test(x.optionId || '')) ||
+                opts.find(x => (x.kind || '').includes('allow')) ||
+                opts[0];
+            }
+            if (pick) send({ jsonrpc: '2.0', id: o.id, result: { outcome: { outcome: 'selected', optionId: pick.optionId } } });
+            else send({ jsonrpc: '2.0', id: o.id, result: { outcome: { outcome: 'cancelled' } } });
+          } else {
+            // unknown client method: reply "not supported" so the bridge doesn't stall
+            send({ jsonrpc: '2.0', id: o.id, error: { code: -32601, message: 'not supported' } });
+          }
+          continue;
+        }
+      }
+    });
+
+    child.on('exit', () => {
+      // if the process dies before we resolve, surface as an error to trigger fallback
+      finish(streamed > 0 ? resolve : reject, streamed > 0 ? streamed : new Error('acp exited before reply'));
+    });
+
+    (async () => {
+      try {
+        await rpc('initialize', {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+        });
+        const sess = await rpc('session/new', { cwd: ACP_WORKSPACE, mcpServers: [] });
+        await rpc('session/prompt', {
+          sessionId: sess.sessionId,
+          prompt: [{ type: 'text', text: message }],
+        });
+        finish(resolve, streamed);
+      } catch (e) {
+        finish(streamed > 0 ? resolve : reject, streamed > 0 ? streamed : e);
+      }
+    })();
   });
 }
 
@@ -208,12 +364,38 @@ const server = http.createServer((req, res) => {
         Connection: 'keep-alive',
         'Access-Control-Allow-Origin': '*',
       });
+      let streamedAny = false;
       try {
-        const reply = await runAgent(msg, sessionKey);
-        const parts = reply.match(/\S+\s*/g) || [reply];
-        for (const p of parts) sseChunk(res, p);
-      } catch (e) {
-        sseChunk(res, '**Bridge error**: ' + e.message);
+        if (STREAM_ENABLED) {
+          // Real token-by-token streaming via ACP.
+          const n = await runAgentStreaming(msg, sessionKey, delta => {
+            streamedAny = true;
+            sseChunk(res, delta);
+          });
+          if (!n) throw new Error('acp produced no output'); // fall back to one-shot
+        } else {
+          throw new Error('streaming disabled'); // jump straight to one-shot
+        }
+      } catch (streamErr) {
+        if (streamedAny) {
+          // Partial stream then failure mid-turn — can't safely restart without
+          // duplicating text. End the turn; the reply so far is already delivered.
+          const transient = TRANSIENT_RE.test(streamErr && streamErr.message ? streamErr.message : '');
+          if (transient) sseChunk(res, '\n\n_(connection interrupted — reply may be incomplete)_');
+        } else {
+          // Nothing streamed yet: fall back to the proven one-shot path (with retry).
+          try {
+            const reply = await runAgentResilient(msg, sessionKey);
+            const parts = reply.match(/\S+\s*/g) || [reply];
+            for (const p of parts) sseChunk(res, p);
+          } catch (e) {
+            const transient = TRANSIENT_RE.test(e && e.message ? e.message : '');
+            const note = transient
+              ? '**Bridge**: the gateway was busy or restarting and the turn was interrupted — try again in a moment.'
+              : '**Bridge error**: ' + e.message;
+            sseChunk(res, note);
+          }
+        }
       }
       res.write('data: [DONE]\n\n');
       res.end();
