@@ -21,11 +21,13 @@ ShellRoot {
     property bool shown: true
     property bool pinned: true            // pinned = reserve screen space (windows tile beside it)
     property int  panelWidth: 460         // matches end4; widen via IPC `widen`
+    property int  scallop: 18             // concave corner radius = Hyprland decoration:rounding
     property bool busy: false
     property int  elapsed: 0              // seconds the current turn has been running
     readonly property string base: "http://127.0.0.1:8787"
     property string currentSession: "agent:main:ai-flyout"   // active chat
     property bool   sessionsOpen: false                       // recent-chats drawer open
+    property string activity: ""                              // live tool/thinking status for the in-flight turn
 
     Timer {
         interval: 1000; repeat: true; running: root.busy
@@ -33,18 +35,92 @@ ShellRoot {
     }
 
     // --- palette (Caelestia-ish: AMOLED black + catppuccin accents) ---
-    readonly property color colBg:      "#c2101018"   // more transparent so Hyprland blur frosts it more
-    readonly property color colHeader:  "#cc1a1a26"
-    readonly property color colUserBub: "#cb1e1e2e"
+    readonly property color colBg:      "#ff000000"   // true black, fully opaque (Jan's call); blur disabled on this layer
+    readonly property color colHeader:  "#ff000000"   // true black (was navy #cc1a1a26)
+    readonly property color colUserBub: "#ff141414"   // near-black so user bubbles stay faintly visible (was navy #cb1e1e2e)
     readonly property color colAsstBub: "#00000000"
     readonly property color colAccent:  "#cba6f7"     // mauve
     readonly property color colText:    "#cdd6f4"
     readonly property color colSubtle:  "#9399b2"
-    readonly property color colBorder:  "#2a2a3c"
-    readonly property color colInputBg: "#b316161f"
+    readonly property color colBorder:  "#ff222222"   // neutral dark grey separators (was navy #2a2a3c)
+    readonly property color colInputBg: "#ff000000"   // true black (was navy #b316161f)
 
     ListModel { id: chatModel }
     ListModel { id: sessionsModel }
+
+    // Persist the last-selected session to DISK so a full relaunch (process death, login,
+    // caelestia restart) restores the chat you were on instead of resetting to the
+    // hardcoded default above. An in-memory property can't survive process restart, which
+    // is why the flyout kept reopening on the previous chat. (JsonAdapter <-> small file.)
+    FileView {
+        id: stateFile
+        path: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/quickshell/openclaw-sidebar.json"
+        watchChanges: false
+        JsonAdapter {
+            id: stateAdapter
+            property string lastSession: "agent:main:ai-flyout"
+        }
+        onLoaded: {
+            if (stateAdapter.lastSession && stateAdapter.lastSession.length) {
+                root.currentSession = stateAdapter.lastSession;
+                root.loadHistory(root.currentSession);
+            }
+        }
+        Component.onCompleted: reload()
+    }
+
+    // --- streaming chat turn ---
+    // QML's XMLHttpRequest buffers the whole response and won't expose partial
+    // text during LOADING, so SSE deltas can't render token-by-token through it.
+    // Instead we run `curl -N` via a Process and parse stdout line-by-line as it
+    // arrives (SplitParser), updating the message live.
+    property string streamBuf: ""
+    property int    curIdx: -1
+
+    Process {
+        id: chatProc
+        stdout: SplitParser {
+            splitMarker: "\n"
+            // A segment may hold several lines or a stray leading blank line, so scan
+            // every line for a `data:` payload rather than assuming one clean line.
+            onRead: function(seg) {
+                var lines = seg.split("\n");
+                var changed = false;
+                for (var i = 0; i < lines.length; i++) {
+                    var ln = lines[i];
+                    if (ln.indexOf("data:") !== 0) continue;
+                    var data = ln.replace(/^data:\s*/, "");
+                    if (data === "" || data === "[DONE]") continue;
+                    try {
+                        var j = JSON.parse(data);
+                        var d = j.choices && j.choices[0] ? j.choices[0].delta : null;
+                        if (!d) continue;
+                        // Real assistant text: append to the bubble and clear the activity line.
+                        if (typeof d.content === "string" && d.content.length) {
+                            root.streamBuf += d.content;
+                            root.activity = "";
+                            changed = true;
+                        // Tool/thinking activity (bridge-only field): show live, don't persist.
+                        } else if (typeof d.status === "string") {
+                            root.activity = d.status;
+                        }
+                    } catch (e) { /* partial line — completes on next read */ }
+                }
+                if (changed)
+                    chatModel.set(root.curIdx, { "role": "assistant", "content": root.streamBuf });
+            }
+        }
+        onExited: function(exitCode, exitStatus) {
+            root.busy = false;
+            root.activity = "";
+            if (root.curIdx >= 0 && root.streamBuf.length === 0)
+                chatModel.set(root.curIdx, { "role": "assistant",
+                    "content": exitCode === 0 ? "(no reply)"
+                        : "**Can't reach the bridge.** Is `openclaw-ai-bridge.service` running? (curl exit " + exitCode + ")" });
+            root.loadSessions();   // refresh recent-chats
+            root.pumpQueue();      // send next queued message, if any
+        }
+    }
 
     // On startup fetch history + recent chats. The bridge (systemd) may not be up
     // yet at login, so retry a few times until data arrives, then stop.
@@ -64,7 +140,7 @@ ShellRoot {
     IpcHandler {
         target: "sidebar"
         function toggle(): void { root.shown = !root.shown }
-        function show(): void   { root.shown = true }
+        function show(): void   { root.shown = true; if (!root.busy) root.loadHistory(root.currentSession) }  // always reopen on the current chat
         function hide(): void   { root.shown = false }
         function pin(): void    { root.pinned = !root.pinned }
         function lock(): void   { root.shown = true; root.pinned = true }   // show + pin (CLI hand-off return)
@@ -111,12 +187,16 @@ ShellRoot {
         root.currentSession = key;
         root.sessionsOpen = false;
         root.loadHistory(key);
+        stateAdapter.lastSession = key;   // persist so a relaunch reopens THIS chat
+        stateFile.writeAdapter();
     }
 
     function newChat() {
         root.currentSession = "agent:main:flyout-" + Date.now();
         chatModel.clear();
         root.sessionsOpen = false;
+        stateAdapter.lastSession = root.currentSession;
+        stateFile.writeAdapter();
     }
 
     // ---- send queue (input never blocks; sends run sequentially) -----------
@@ -136,64 +216,77 @@ ShellRoot {
         root.busy = true;
         root.elapsed = 0;
         chatModel.append({ "role": "assistant", "content": "…" });
-        var idx = chatModel.count - 1;
+        root.curIdx = chatModel.count - 1;
+        root.streamBuf = "";
+        root.activity = "";
 
-        var xhr = new XMLHttpRequest();
-        xhr.open("POST", root.base + "/v1/chat/completions");
-        xhr.setRequestHeader("Content-Type", "application/json");
-        xhr.timeout = 620000;   // bridge agent turns can run up to ~600s
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState !== XMLHttpRequest.DONE) return;
-            root.busy = false;
-            var out = "";
-            if (xhr.status === 200) {
-                var lines = xhr.responseText.split("\n");
-                for (var i = 0; i < lines.length; i++) {
-                    var ln = lines[i];
-                    if (ln.indexOf("data: ") !== 0) continue;
-                    var data = ln.substring(6);
-                    if (data === "[DONE]") continue;
-                    try {
-                        var j = JSON.parse(data);
-                        var d = j.choices && j.choices[0] ? j.choices[0].delta : null;
-                        if (d && d.content) out += d.content;
-                    } catch (e) { /* ignore keep-alive/partial lines */ }
-                }
-            } else if (xhr.status === 0) {
-                out = "**Can't reach the bridge.** Is `openclaw-ai-bridge.service` running?";
-            } else {
-                out = "**Error " + xhr.status + "**\n\n" + xhr.responseText;
-            }
-            chatModel.set(idx, { "role": "assistant", "content": out.length ? out : "(no reply)" });
-            root.loadSessions();   // refresh recent-chats (new session / title / order)
-            root.pumpQueue();      // send the next queued message, if any
-        };
-        xhr.send(JSON.stringify({
+        var payload = JSON.stringify({
             "model": "openclaw",
             "session": root.currentSession,
             "messages": [{ "role": "user", "content": t }],
             "stream": true
-        }));
+        });
+        // curl -N = unbuffered; payload passed as a single argv (no shell, no quoting issues)
+        chatProc.command = ["curl", "-N", "-s", "-X", "POST",
+            root.base + "/v1/chat/completions",
+            "-H", "Content-Type: application/json",
+            "-d", payload];
+        chatProc.running = true;
     }
 
     PanelWindow {
         id: win
         visible: root.shown
         color: "transparent"
-        implicitWidth: root.panelWidth
+        // extra `scallop` px on the right so the concave corner fillets can overhang the
+        // desktop and give IT rounded corners. exclusiveZone still reserves only panelWidth.
+        implicitWidth: root.panelWidth + root.scallop
 
         anchors { left: true; top: true; bottom: true }
         exclusiveZone: root.pinned ? root.panelWidth : 0
+        // input only over the real panel; the overhang strip stays click-through to the desktop
+        mask: Region { x: 0; y: 0; width: root.panelWidth; height: win.height }
 
         WlrLayershell.namespace: "openclaw-sidebar"
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
+        // --- panel body: square right edge; the two right corners are drawn as concave
+        //     fillets below so the adjacent desktop appears to have 18px rounded corners ---
         Rectangle {
-            anchors.fill: parent
+            id: bg
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+            width: root.panelWidth
             color: root.colBg
             border.color: root.colBorder
             border.width: 1
+
+            // top-right concave fillet (rounds the desktop's top-left corner)
+            Canvas {
+                width: root.scallop; height: root.scallop
+                x: bg.width; y: 0
+                onPaint: {
+                    var c = getContext("2d");
+                    c.clearRect(0, 0, width, height);
+                    c.fillStyle = root.colBg;
+                    c.fillRect(0, 0, width, height);
+                    c.globalCompositeOperation = "destination-out";
+                    c.beginPath(); c.arc(width, height, root.scallop, 0, 2 * Math.PI); c.fill();
+                }
+            }
+            // bottom-right concave fillet (rounds the desktop's bottom-left corner)
+            Canvas {
+                width: root.scallop; height: root.scallop
+                x: bg.width; y: bg.height - root.scallop
+                onPaint: {
+                    var c = getContext("2d");
+                    c.clearRect(0, 0, width, height);
+                    c.fillStyle = root.colBg;
+                    c.fillRect(0, 0, width, height);
+                    c.globalCompositeOperation = "destination-out";
+                    c.beginPath(); c.arc(width, 0, root.scallop, 0, 2 * Math.PI); c.fill();
+                }
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -205,6 +298,7 @@ ShellRoot {
                     Layout.fillWidth: true
                     implicitHeight: 48
                     color: root.colHeader
+                    topRightRadius: 18   // match the panel's scalloped top-right corner
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 10
@@ -366,12 +460,32 @@ ShellRoot {
                         }
                     }
                 }
+                // ---------- live activity (tool/thinking) ----------
+                Rectangle {
+                    Layout.fillWidth: true
+                    visible: root.busy && root.activity.length > 0
+                    color: root.colHeader
+                    implicitHeight: visible ? actLabel.implicitHeight + 12 : 0
+                    Label {
+                        id: actLabel
+                        anchors.fill: parent
+                        anchors.leftMargin: 14; anchors.rightMargin: 14
+                        anchors.topMargin: 6;  anchors.bottomMargin: 6
+                        text: root.activity
+                        color: root.colSubtle
+                        font.pixelSize: 12
+                        font.italic: true
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
                 Rectangle { Layout.fillWidth: true; height: 1; color: root.colBorder }
 
                 // ---------- input ----------
                 Rectangle {
                     Layout.fillWidth: true
                     color: root.colHeader
+                    bottomRightRadius: 18   // match the panel's scalloped bottom-right corner
                     implicitHeight: inputRow.implicitHeight + 16
                     RowLayout {
                         id: inputRow
