@@ -157,6 +157,18 @@ if [[ -f "$RULES" ]] && ! grep -q 'system-replica' "$RULES"; then
   log "Added float+center window rule → $RULES"
 fi
 
+# --- 6c. fast-open window "shudder" spring -----------------------------------
+# Replace end-4's windowsIn open animation (emphasizedDecel bezier, popin 80%) with a
+# fast spring that overshoots and oscillates on settle = a sudden bouncy/shuddering stop.
+# A bezier can only overshoot once; a spring wobbles. Appended AFTER the base defs so the
+# later hl.animation for windowsIn wins. Base file is end-4-tracked → reverts on reinstall.
+# NB: a spring leaf still needs a `speed` field or Hyprland silently drops the line.
+GEN="$II_CONFIG/hypr/hyprland/general.lua"
+if [[ -f "$GEN" ]] && ! grep -q 'desktop-manager: shudder' "$GEN"; then
+  printf '\n-- added by desktop-manager: shudder spring on window open\nhl.curve("shudder", { type = "spring", mass = 0.8, stiffness = 1100, dampening = 13 })\nhl.animation({ leaf = "windowsIn", enabled = true, speed = 4, spring = "shudder", style = "popin 70%" })\n' >> "$GEN"
+  log "Added window-open shudder spring → $GEN"
+fi
+
 # --- 7. OpenClaw AI flyout bridge -------------------------------------------
 # end-4's left-edge AI flyout speaks raw OpenAI/Gemini HTTP; it can't reach the
 # OpenClaw agent directly. This bridge exposes a loopback OpenAI-compatible

@@ -80,10 +80,16 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
     hl.exec_cmd("qs -c keybinds")  -- persistent keybind widget (hot corner + Super+/)
     hl.exec_cmd("qs -c openclaw-sidebar")  -- pinnable left-docked OpenClaw agent panel (Super+O toggles)
+    -- Re-apply the pure-black AMOLED surface ramp to Caelestia every login. caelestia
+    -- regenerates scheme.json (dark-grey #131317 surfaces) from the wallpaper, so without
+    -- this the bar/panels revert to grey. blacken.sh is idempotent; shell reads it live.
+    hl.exec_cmd("bash ~/.config/hypr/scripts/blacken.sh")
 end)
 
--- frost the OpenClaw sidebar (blur behind its semi-transparent surface)
-hl.layer_rule({ match = { namespace = "openclaw-sidebar" }, blur = true })
+-- OpenClaw sidebar: blur OFF. Kept solid (opaque black colBg) rather than frosted --
+-- on the Intel HD 630 iGPU blur on a full-height pinned layer isn't worth it, and the
+-- solid look matches the AMOLED bar. Flip blur = true (+ decoration.blur.enabled) to frost.
+hl.layer_rule({ match = { namespace = "openclaw-sidebar" }, blur = false })
 
 -- --- look, feel and input ---
 hl.config({
@@ -92,9 +98,18 @@ hl.config({
         gaps_out = 10,
         border_size = 2,
         layout = "dwindle",
+        ["col.active_border"]   = "rgba(000000ff)",  -- black window frames (AMOLED look)
+        ["col.inactive_border"] = "rgba(000000ff)",
     },
     decoration = {
         rounding = 18,
+        blur = {
+            enabled = false,  -- global blur off: size5/passes3 over 3440x1440 saturated the
+            size = 5,         -- HD 630 on every window open. Not the sluggishness cause (that
+            passes = 3,       -- was the animation config) but not worth the cost either.
+            xray = true,
+            new_optimizations = true,
+        },
     },
     input = {
         kb_layout = "${KBLAYOUT}",
@@ -109,7 +124,31 @@ hl.config({
         -- false -- true would blank the default wallpaper entirely.
         force_default_wallpaper = 2,
     },
+    animations = {
+        enabled = true,
+    },
 })
+
+-- --- animations: snappy speeds + a fast-open window "shudder" ---
+-- Without this Hyprland uses its compiled-in defaults (global speed 8 = a laggy 0.8s
+-- open on the plain bezier = no bounce), which reads as sluggish even on an idle GPU.
+-- windowsIn uses a SPRING (oscillates on settle) for the sudden bouncy/shuddering stop;
+-- a bezier can only overshoot once. Speed is duration in 1/10s (lower = faster).
+-- NB: a spring leaf still needs a `speed` field or Hyprland silently drops the line.
+hl.curve("shudder",  { type = "spring", mass = 0.8, stiffness = 1100, dampening = 13 })  -- underdamped ζ~0.22
+hl.curve("snapOut",  { type = "bezier", points = { {0.16, 1}, {0.3, 1} } })
+hl.curve("linear",   { type = "bezier", points = { {0, 0},    {1,   1} } })
+
+hl.animation({ leaf = "global",     enabled = true, speed = 5,   bezier = "default" })
+hl.animation({ leaf = "windows",    enabled = true, speed = 4,   bezier = "snapOut" })
+hl.animation({ leaf = "windowsIn",  enabled = true, speed = 4, spring = "shudder", style = "popin 70%" })
+hl.animation({ leaf = "windowsOut", enabled = true, speed = 2.5, bezier = "linear",  style = "popin 80%" })
+hl.animation({ leaf = "border",     enabled = true, speed = 5,   bezier = "default" })
+hl.animation({ leaf = "fade",       enabled = true, speed = 2.5, bezier = "snapOut" })
+hl.animation({ leaf = "fadeIn",     enabled = true, speed = 2.5, bezier = "snapOut" })
+hl.animation({ leaf = "fadeOut",    enabled = true, speed = 2,   bezier = "snapOut" })
+hl.animation({ leaf = "workspaces", enabled = true, speed = 3,   bezier = "snapOut", style = "slide" })
+hl.animation({ leaf = "layers",     enabled = true, speed = 3,   bezier = "snapOut", style = "fade" })
 
 -- --- keybinds (minimal but usable) ---
 -- NB: these binds are defined in Lua, so 'hyprctl binds' reports their
@@ -725,11 +764,13 @@ for helper in openclaw-cli-chat.sh openclaw-dashboard.sh; do
 done
 
 # Make the Caelestia bar persistent so it sits alongside the sidebar (its
-# exclusive zone auto-offsets the sidebar so the two don't overlap).
+# exclusive zone auto-offsets the sidebar so the two don't overlap). Also turn OFF
+# appearance.transparency so the bar/panels render solid (opaque), matching the
+# AMOLED black surfaces + the solid black sidebar (no frosted see-through).
 CAELCONF="$HOME/.config/caelestia/shell.json"
 if command -v python3 >/dev/null 2>&1; then
   mkdir -p "$(dirname "$CAELCONF")"
-  CAELCONF="$CAELCONF" python3 - <<'PY' || warn "Could not set bar.persistent; toggle it in Caelestia settings."
+  CAELCONF="$CAELCONF" python3 - <<'PY' || warn "Could not set bar.persistent/transparency; toggle them in Caelestia settings."
 import json, os
 p = os.environ["CAELCONF"]
 try:
@@ -737,8 +778,9 @@ try:
 except Exception:
     d = {}
 d.setdefault("bar", {})["persistent"] = True
+d.setdefault("appearance", {}).setdefault("transparency", {})["enabled"] = False
 json.dump(d, open(p, "w"), indent=4)
-print("set bar.persistent = true")
+print("set bar.persistent = true, appearance.transparency.enabled = false")
 PY
 fi
 

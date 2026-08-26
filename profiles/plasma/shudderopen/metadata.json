@@ -1,0 +1,15 @@
+{
+    "KPackageStructure": "KWin/Effect",
+    "KPlugin": {
+        "Id": "shudderopen",
+        "Name": "Shudder Open",
+        "Description": "Windows pop open fast with a bouncy overshoot (the KWin analogue of the Hyprland shudder spring).",
+        "Category": "Appearance",
+        "Authors": [
+            { "Name": "Jan (via OpenClaw)" }
+        ],
+        "EnabledByDefault": true
+    },
+    "X-Plasma-API": "javascript",
+    "X-KWin-Exclude-Listing": "false"
+}
