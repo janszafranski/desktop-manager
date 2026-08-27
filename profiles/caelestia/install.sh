@@ -755,6 +755,17 @@ if [[ -f "$SB_SRC" ]]; then
   log "Wrote $SB_DST (OpenClaw sidebar; Super+O toggles)"
 fi
 
+# Launcher-bar icons the sidebar shortcuts reference (Claude/OpenAI logos + Jan).
+# shell.qml seeds shortcuts.json at runtime pointing at ~/.config/.../icons/, so
+# these must exist there; the + button (bottom-right of the bar) manages the rest.
+SB_ICONS_SRC="$SCRIPT_DIR/openclaw-sidebar/icons"
+SB_ICONS_DST="$HOME/.config/quickshell/openclaw-sidebar/icons"
+if [[ -d "$SB_ICONS_SRC" ]]; then
+  mkdir -p "$SB_ICONS_DST"
+  cp -a "$SB_ICONS_SRC/." "$SB_ICONS_DST/"
+  log "Wrote launcher icons -> $SB_ICONS_DST"
+fi
+
 # Helper scripts the panel/keybinds call: the ↗ CLI hand-off wrapper (opens the
 # CLI on the flyout session; /exit returns to the locked flyout) and the web
 # Control UI launcher (Super+Shift+O).

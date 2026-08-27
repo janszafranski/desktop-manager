@@ -22,6 +22,8 @@ ShellRoot {
     property bool pinned: true            // pinned = reserve screen space (windows tile beside it)
     property int  panelWidth: 460         // matches end4; widen via IPC `widen`
     property int  scallop: 18             // concave corner radius = Hyprland decoration:rounding
+    property bool remapping: false        // startup restack: unmap→remap to jump above the bar
+    property int  restackCount: 0
     property bool busy: false
     property int  elapsed: 0              // seconds the current turn has been running
     readonly property string base: "http://127.0.0.1:8787"
@@ -67,6 +69,58 @@ ShellRoot {
             }
         }
         Component.onCompleted: reload()
+    }
+
+    // --- launcher shortcuts (buttons under the input; right-click → Preferences) ---
+    property var  shortcuts: []           // [{label, cmd}]  cmd runs via `sh -lc`
+    property bool prefsOpen: false
+
+    // Human-editable JSON on disk so shortcuts survive relaunch and can be hand-tweaked.
+    FileView {
+        id: scFile
+        path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/quickshell/openclaw-sidebar/shortcuts.json"
+        watchChanges: false
+        onLoaded: {
+            try {
+                var o = JSON.parse(scFile.text());
+                root.shortcuts = (o && o.shortcuts && o.shortcuts.length) ? o.shortcuts : null;
+                if (!root.shortcuts) root.seedShortcuts();
+            } catch (e) { root.seedShortcuts(); }
+        }
+        onLoadFailed: root.seedShortcuts()
+        Component.onCompleted: reload()
+    }
+
+    // icons live next to this config; terminal:true draws the icon in a "console" box
+    readonly property string iconDir: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/quickshell/openclaw-sidebar/icons/"
+    function seedShortcuts() {
+        // No native Linux Claude desktop app or `askgpt` binary exist → web app via xdg-open
+        // (respects the Floorp default) and tgpt (free, no key) for the GPT CLI.
+        root.shortcuts = [
+            { "label": "Claude CLI",  "cmd": "kitty claude",                 "icon": iconDir + "claude.svg", "terminal": true },
+            { "label": "Claude GUI",  "cmd": "xdg-open https://claude.ai",   "icon": iconDir + "claude.svg", "terminal": false },
+            { "label": "AskGPT CLI",  "cmd": "kitty tgpt -i",                "icon": iconDir + "openai.svg", "terminal": true },
+            { "label": "ChatGPT GUI", "cmd": "xdg-open https://chatgpt.com", "icon": iconDir + "openai.svg", "terminal": false },
+            { "label": "Jan",         "cmd": "jan",                          "icon": iconDir + "jan.png",    "terminal": false }
+        ];
+        root.saveShortcuts();
+    }
+    function saveShortcuts() {
+        scFile.setText(JSON.stringify({ "shortcuts": root.shortcuts }, null, 2));
+    }
+    function launch(cmd) {
+        if (cmd && cmd.trim().length) Quickshell.execDetached(["sh", "-lc", cmd]);
+    }
+    function addShortcut(label, cmd) {
+        if (!label.trim().length || !cmd.trim().length) return;
+        root.shortcuts = root.shortcuts.concat([{ "label": label.trim(), "cmd": cmd.trim() }]);
+        root.saveShortcuts();
+    }
+    function removeShortcut(i) {
+        var a = root.shortcuts.slice();
+        a.splice(i, 1);
+        root.shortcuts = a;
+        root.saveShortcuts();
     }
 
     // --- streaming chat turn ---
@@ -236,7 +290,7 @@ ShellRoot {
 
     PanelWindow {
         id: win
-        visible: root.shown
+        visible: root.shown && !root.remapping
         color: "transparent"
         // extra `scallop` px on the right so the concave corner fillets can overhang the
         // desktop and give IT rounded corners. exclusiveZone still reserves only panelWidth.
@@ -250,6 +304,26 @@ ShellRoot {
         WlrLayershell.namespace: "openclaw-sidebar"
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+
+        // Startup restack: the flyout autostarts before Caelestia's bar, and both live on the
+        // `top` layer where z-order = map order — so the bar maps last and overlays us. Briefly
+        // unmap→remap a couple of times over the first few seconds (after the bar has mapped) to
+        // jump back to the top of the layer. This is the automated version of "close and reopen".
+        Timer {
+            id: restackTimer
+            interval: 2500; running: true; repeat: true
+            onTriggered: {
+                root.remapping = true;
+                unmapTimer.restart();
+                root.restackCount++;
+                if (root.restackCount >= 2) running = false;   // fires at ~2.5s and ~5s
+            }
+        }
+        Timer {
+            id: unmapTimer
+            interval: 150; running: false; repeat: false
+            onTriggered: root.remapping = false
+        }
 
         // --- panel body: square right edge; the two right corners are drawn as concave
         //     fillets below so the adjacent desktop appears to have 18px rounded corners ---
@@ -485,7 +559,6 @@ ShellRoot {
                 Rectangle {
                     Layout.fillWidth: true
                     color: root.colHeader
-                    bottomRightRadius: 18   // match the panel's scalloped bottom-right corner
                     implicitHeight: inputRow.implicitHeight + 16
                     RowLayout {
                         id: inputRow
@@ -545,6 +618,199 @@ ShellRoot {
                                 color: parent.enabled ? (parent.down ? Qt.darker(root.colAccent, 1.2) : root.colAccent) : root.colBorder
                             }
                             Layout.preferredHeight: 40
+                        }
+                    }
+                }
+
+                // ---------- launcher bar (icons launch; the + on the right edits shortcuts) ----------
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: root.colHeader
+                    bottomRightRadius: 18   // now the panel's scalloped bottom-right corner
+                    implicitHeight: Math.max(launchFlow.implicitHeight, 38) + 12
+
+                    Flow {
+                        id: launchFlow
+                        anchors { left: parent.left; right: addBtn.left; verticalCenter: parent.verticalCenter }
+                        anchors.leftMargin: 8; anchors.rightMargin: 6
+                        spacing: 6
+
+                        Repeater {
+                            model: root.shortcuts
+                            delegate: Button {
+                                id: scBtn
+                                required property var modelData
+                                required property int index
+                                readonly property bool hasIcon: modelData.icon !== undefined && ("" + modelData.icon).length > 0
+                                readonly property bool isTerm: modelData.terminal === true
+                                onClicked: root.launch(modelData.cmd)
+                                ToolTip.text: modelData.label + " — " + modelData.cmd; ToolTip.visible: hovered; ToolTip.delay: 500
+                                padding: 0
+                                implicitWidth: 46; implicitHeight: 38
+                                contentItem: Item {
+                                    // text fallback for custom shortcuts that have no icon set
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: !scBtn.hasIcon
+                                        text: modelData.label; color: root.colText; font.pixelSize: 12
+                                    }
+                                    // plain GUI icon
+                                    Image {
+                                        anchors.centerIn: parent
+                                        visible: scBtn.hasIcon && !scBtn.isTerm
+                                        source: scBtn.hasIcon ? "file://" + modelData.icon : ""
+                                        sourceSize.width: 22; sourceSize.height: 22
+                                        width: 22; height: 22; smooth: true; mipmap: true
+                                    }
+                                    // CLI: same icon inside a bordered box that reads as a console
+                                    Rectangle {
+                                        anchors.centerIn: parent
+                                        visible: scBtn.hasIcon && scBtn.isTerm
+                                        width: 30; height: 26; radius: 4
+                                        color: "transparent"
+                                        border.color: root.colSubtle; border.width: 1
+                                        Image {
+                                            anchors.centerIn: parent
+                                            source: scBtn.hasIcon ? "file://" + modelData.icon : ""
+                                            sourceSize.width: 15; sourceSize.height: 15
+                                            width: 15; height: 15; smooth: true; mipmap: true
+                                        }
+                                        // tiny prompt glyph in the corner to sell the "terminal" read
+                                        Text {
+                                            anchors { left: parent.left; bottom: parent.bottom; leftMargin: 2 }
+                                            text: "›"; color: root.colSubtle; font.pixelSize: 10; font.bold: true
+                                        }
+                                    }
+                                }
+                                background: Rectangle {
+                                    radius: 8
+                                    color: scBtn.down ? Qt.darker(root.colAccent, 1.3)
+                                         : scBtn.hovered ? root.colBorder : "#ff141414"
+                                    border.color: root.colBorder; border.width: 1
+                                }
+                            }
+                        }
+                    }
+
+                    // add/edit shortcuts — pinned to the right edge of the bar
+                    Button {
+                        id: addBtn
+                        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                        anchors.rightMargin: 8
+                        implicitWidth: 34; implicitHeight: 34
+                        padding: 0
+                        onClicked: root.prefsOpen = true
+                        ToolTip.text: "Add / edit shortcuts"; ToolTip.visible: hovered; ToolTip.delay: 500
+                        contentItem: Label {
+                            text: "+"; color: root.colAccent
+                            font.pixelSize: 20; font.bold: true
+                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            radius: 8
+                            color: addBtn.down ? Qt.darker(root.colAccent, 1.3)
+                                 : addBtn.hovered ? root.colBorder : "#ff141414"
+                            border.color: root.colBorder; border.width: 1
+                        }
+                    }
+                }
+            }
+
+            // ---------- preferences overlay (manage launcher shortcuts) ----------
+            Rectangle {
+                anchors.fill: parent
+                visible: root.prefsOpen
+                z: 100
+                color: "#cc000000"          // scrim
+                MouseArea { anchors.fill: parent; onClicked: {} }   // swallow clicks to the scrim
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width - 32, root.panelWidth - 24)
+                    implicitHeight: prefsCol.implicitHeight + 28
+                    radius: 14
+                    color: root.colBg
+                    border.color: root.colBorder; border.width: 1
+
+                    ColumnLayout {
+                        id: prefsCol
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 10
+
+                        Label { text: "Launcher shortcuts"; color: root.colText; font.pixelSize: 15; font.bold: true }
+                        Label {
+                            text: "Left-click a button to launch. Command runs via sh -lc."
+                            color: root.colSubtle; font.pixelSize: 11
+                            Layout.fillWidth: true; wrapMode: Text.Wrap
+                        }
+
+                        Repeater {
+                            model: root.shortcuts
+                            delegate: RowLayout {
+                                required property var modelData
+                                required property int index
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    Label { text: modelData.label; color: root.colText; font.pixelSize: 13; font.bold: true }
+                                    Label {
+                                        text: modelData.cmd; color: root.colSubtle; font.pixelSize: 11
+                                        elide: Text.ElideRight; Layout.fillWidth: true
+                                    }
+                                }
+                                Button {
+                                    text: "✕"
+                                    onClicked: root.removeShortcut(index)
+                                    implicitWidth: 30; implicitHeight: 30
+                                    contentItem: Label { text: parent.text; color: root.colSubtle; font.pixelSize: 14; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                    background: Rectangle { radius: 6; color: parent.hovered ? "#ff3a1420" : "transparent"; border.color: root.colBorder; border.width: 1 }
+                                }
+                            }
+                        }
+
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: root.colBorder }
+
+                        // add form
+                        TextField {
+                            id: newLabel
+                            Layout.fillWidth: true
+                            placeholderText: "Label (e.g. Btop)"
+                            placeholderTextColor: root.colSubtle
+                            color: root.colText; font.pixelSize: 13
+                            background: Rectangle { radius: 8; color: root.colInputBg; border.color: newLabel.activeFocus ? root.colAccent : root.colBorder; border.width: 1 }
+                        }
+                        TextField {
+                            id: newCmd
+                            Layout.fillWidth: true
+                            placeholderText: "Command (e.g. kitty btop)"
+                            placeholderTextColor: root.colSubtle
+                            color: root.colText; font.pixelSize: 13
+                            background: Rectangle { radius: 8; color: root.colInputBg; border.color: newCmd.activeFocus ? root.colAccent : root.colBorder; border.width: 1 }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Button {
+                                text: "Add"
+                                enabled: newLabel.text.trim().length > 0 && newCmd.text.trim().length > 0
+                                onClicked: { root.addShortcut(newLabel.text, newCmd.text); newLabel.clear(); newCmd.clear(); }
+                                contentItem: Label { text: parent.text; color: parent.enabled ? "#11111b" : root.colSubtle; font.pixelSize: 13; font.bold: true; horizontalAlignment: Text.AlignHCenter }
+                                background: Rectangle { radius: 8; color: parent.enabled ? root.colAccent : root.colBorder }
+                                leftPadding: 16; rightPadding: 16; topPadding: 7; bottomPadding: 7
+                            }
+                            Item { Layout.fillWidth: true }
+                            Button {
+                                text: "Close"
+                                onClicked: root.prefsOpen = false
+                                contentItem: Label { text: parent.text; color: root.colText; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter }
+                                background: Rectangle { radius: 8; color: parent.hovered ? root.colBorder : "transparent"; border.color: root.colBorder; border.width: 1 }
+                                leftPadding: 16; rightPadding: 16; topPadding: 7; bottomPadding: 7
+                            }
                         }
                     }
                 }
