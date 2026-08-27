@@ -97,11 +97,13 @@ ShellRoot {
         // No native Linux Claude desktop app or `askgpt` binary exist → web app via xdg-open
         // (respects the Floorp default) and tgpt (free, no key) for the GPT CLI.
         root.shortcuts = [
-            { "label": "Claude CLI",  "cmd": "kitty claude",                 "icon": iconDir + "claude.svg", "terminal": true },
+            // GUIs first, then CLIs
             { "label": "Claude GUI",  "cmd": "xdg-open https://claude.ai",   "icon": iconDir + "claude.svg", "terminal": false },
-            { "label": "AskGPT CLI",  "cmd": "kitty tgpt -i",                "icon": iconDir + "openai.svg", "terminal": true },
             { "label": "ChatGPT GUI", "cmd": "xdg-open https://chatgpt.com", "icon": iconDir + "openai.svg", "terminal": false },
-            { "label": "Jan",         "cmd": "jan",                          "icon": iconDir + "jan.png",    "terminal": false }
+            { "label": "Jan GUI",     "cmd": "jan",                          "icon": iconDir + "jan.png",    "terminal": false },
+            { "label": "Claude CLI",  "cmd": "kitty claude",                 "icon": iconDir + "claude.svg", "terminal": true },
+            { "label": "AskGPT CLI",  "cmd": "kitty tgpt -i",                "icon": iconDir + "openai.svg", "terminal": true },
+            { "label": "Jan CLI",     "cmd": "kitty fish -C 'jan-cli --help'", "icon": iconDir + "jan.png",  "terminal": true }
         ];
         root.saveShortcuts();
     }

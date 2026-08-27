@@ -1,0 +1,3 @@
+#!/bin/sh
+# jan-bin ships jan-cli under /usr/lib/Jan/resources/bin but not on PATH
+exec /usr/lib/Jan/resources/bin/jan-cli "$@"

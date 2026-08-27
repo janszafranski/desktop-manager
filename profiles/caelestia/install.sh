@@ -769,7 +769,7 @@ fi
 # Helper scripts the panel/keybinds call: the ↗ CLI hand-off wrapper (opens the
 # CLI on the flyout session; /exit returns to the locked flyout) and the web
 # Control UI launcher (Super+Shift+O).
-for helper in openclaw-cli-chat.sh openclaw-dashboard.sh; do
+for helper in openclaw-cli-chat.sh openclaw-dashboard.sh jan-cli; do
   [[ -f "$SCRIPT_DIR/$helper" ]] && install -Dm755 "$SCRIPT_DIR/$helper" "$HOME/.local/bin/$helper" \
     && log "Wrote ~/.local/bin/$helper"
 done
