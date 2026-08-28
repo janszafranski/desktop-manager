@@ -37,8 +37,8 @@ ShellRoot {
     }
 
     // --- palette (Caelestia-ish: AMOLED black + catppuccin accents) ---
-    readonly property color colBg:      "#ff000000"   // true black, fully opaque (Jan's call); blur disabled on this layer
-    readonly property color colHeader:  "#ff000000"   // true black (was navy #cc1a1a26)
+    readonly property color colBg:      "#cc000000"   // black @ ~80% — transparent, blur stays off (perf); tune AA in #AArrggbb
+    readonly property color colHeader:  "#cc000000"   // match bg alpha
     readonly property color colUserBub: "#ff141414"   // near-black so user bubbles stay faintly visible (was navy #cb1e1e2e)
     readonly property color colAsstBub: "#00000000"
     readonly property color colAccent:  "#cba6f7"     // mauve
