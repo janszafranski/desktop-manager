@@ -533,15 +533,16 @@ class ReplicaWindow(Gtk.Window):
         actions.set_margin_start(11)
         actions.set_margin_end(11)
         self.dry = Gtk.CheckButton(label="Dry run (preview only, no changes)")
-        actions.pack_start(self.dry, False, False, 0)
 
         cancel = Gtk.Button(label="Cancel")
         cancel.connect("clicked", lambda *_: self.close())
         install = Gtk.Button(label="Install")
         install.get_style_context().add_class("suggested-action")
         install.connect("clicked", self.on_install)
+        # Cluster Dry run next to the buttons on the right (dry · cancel · install)
         actions.pack_end(install, False, False, 0)
         actions.pack_end(cancel, False, False, 0)
+        actions.pack_end(self.dry, False, False, 0)
         outer.pack_start(actions, False, False, 0)
         outer.pack_start(apps_frame, False, False, 0)
 
