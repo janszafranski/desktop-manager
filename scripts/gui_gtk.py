@@ -471,7 +471,7 @@ class ReplicaWindow(Gtk.Window):
             try:
                 self.set_icon_from_file(_icon)
                 _hpix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    _icon, 24, 24, True)
+                    _icon, 32, 32, True)
                 _himg = Gtk.Image.new_from_pixbuf(_hpix)
                 _himg.set_margin_start(4)
                 _himg.set_margin_end(4)
