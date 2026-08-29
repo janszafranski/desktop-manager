@@ -215,15 +215,17 @@ APPS = [
     },
     {
         "name": "Keyboard shortcuts",
-        "desc": "On-screen cheat-sheet of every keybinding. Opens with Super+/ "
-                "(or the top-left hot corner).",
+        "desc": "On-screen cheat-sheet of every keybinding (Quickshell widget). "
+                "Opens with Super+/ (or the top-left hot corner).",
+        "install": _p("profiles", "keybinds", "install.sh"),
         "launch": "bash $HOME/.config/hypr/scripts/keybinds-toggle.sh",
         "button": "Show",
     },
     {
         "name": "OpenClaw flyout",
-        "desc": "The OpenClaw AI assistant side panel — chat with your agent. "
-                "Toggle with Super+O.",
+        "desc": "The OpenClaw AI assistant side panel — chat with your agent via a "
+                "local bridge. Toggle with Super+O.",
+        "install": _p("profiles", "openclaw-flyout", "install.sh"),
         "launch": "qs -c openclaw-sidebar ipc call sidebar toggle",
         "button": "Toggle",
     },
