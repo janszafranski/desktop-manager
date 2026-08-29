@@ -35,9 +35,11 @@ const RETRY_DELAY_MS = parseInt(process.env.OPENCLAW_BRIDGE_RETRY_DELAY_MS || '1
 
 // Errors worth retrying: the gateway was restarted/killed or the provider failed
 // over mid-turn. Not user-visible content errors — those should surface as-is.
-const TRANSIENT_RE = /FailoverError|Claude CLI failed|gateway (restart|shutdown|restarting)|UNAVAILABLE|ECONNREFUSED|ECONNRESET|socket hang up|EPIPE|active run/i;
+const TRANSIENT_RE = /FailoverError|Claude CLI failed|gateway (restart|shutdown|restarting)|UNAVAILABLE|ECONNREFUSED|ECONNRESET|socket hang up|EPIPE|active run|Command failed|exited before reply|non-?zero exit|timed? ?out/i;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// First line of an error/message, for terse single-line journal logging.
+const firstLine = e => String((e && e.message) || e || '').split('\n')[0];
 
 // Real token-by-token streaming via the supported ACP bridge (`openclaw acp`),
 // unless disabled. Falls back to the one-shot execFile path automatically.
@@ -475,15 +477,20 @@ const server = http.createServer((req, res) => {
         if (streamedAny) {
           // Partial stream then failure mid-turn — can't safely restart without
           // duplicating text. End the turn; the reply so far is already delivered.
+          console.error('[bridge] stream failed after partial output:', firstLine(streamErr));
           const transient = TRANSIENT_RE.test(streamErr && streamErr.message ? streamErr.message : '');
           if (transient) sseChunk(res, '\n\n_(connection interrupted — reply may be incomplete)_');
         } else {
           // Nothing streamed yet: fall back to the proven one-shot path (with retry).
+          console.error('[bridge] streaming path yielded nothing, falling back to one-shot:', firstLine(streamErr));
           try {
             const reply = await runAgentResilient(msg, sessionKey);
             const parts = reply.match(/\S+\s*/g) || [reply];
             for (const p of parts) sseChunk(res, p);
           } catch (e) {
+            // Log the real failure — this path was previously silent, so hard
+            // turn failures never surfaced in the journal for diagnosis.
+            console.error('[bridge] one-shot turn failed:', firstLine(e));
             const transient = TRANSIENT_RE.test(e && e.message ? e.message : '');
             const note = transient
               ? '**Bridge**: the gateway was busy or restarting and the turn was interrupted — try again in a moment.'
