@@ -471,7 +471,7 @@ class ReplicaWindow(Gtk.Window):
             try:
                 self.set_icon_from_file(_icon)
                 _hpix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    _icon, 32, 32, True)
+                    _icon, 40, 40, True)
                 _himg = Gtk.Image.new_from_pixbuf(_hpix)
                 _himg.set_margin_start(4)
                 _himg.set_margin_end(4)
@@ -594,10 +594,15 @@ class ReplicaWindow(Gtk.Window):
         actions.pack_end(install, False, False, 0)
         actions.pack_end(cancel, False, False, 0)
         actions.pack_end(self.dry, False, False, 0)
+        for _w in (self.dry, cancel, install):
+            _w.set_valign(Gtk.Align.CENTER)
+        # Vertically centre the action row in the gap between the card grid and
+        # the Apps frame: equal space above and below (was 4px above / 10px
+        # below). outer spacing is 4, so a 3px top margin here + a matching 3px
+        # top margin on the Apps frame gives 7px on each side.
+        actions.set_margin_top(3)
         outer.pack_start(actions, False, False, 0)
-        # keep a little breathing room before the Apps frame (the grid→buttons
-        # gap above is deliberately tight per request)
-        apps_frame.set_margin_top(6)
+        apps_frame.set_margin_top(3)
         outer.pack_start(apps_frame, False, False, 0)
 
         self.connect("destroy", Gtk.main_quit)
