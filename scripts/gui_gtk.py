@@ -436,6 +436,21 @@ class ReplicaWindow(Gtk.Window):
         header.set_decoration_layout("icon:minimize,maximize,close")
         self.set_titlebar(header)
         self.set_title("Desktop Manager")
+        # App icon: set the window icon (taskbar / alt-tab) and also pack a small
+        # copy at the start of the header bar, since GTK3 CSD header bars don't
+        # render the window icon in the decoration-layout "icon:" slot themselves.
+        _icon = _p("icon.png")
+        if os.path.exists(_icon):
+            try:
+                self.set_icon_from_file(_icon)
+                _hpix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    _icon, 24, 24, True)
+                _himg = Gtk.Image.new_from_pixbuf(_hpix)
+                _himg.set_margin_start(4)
+                _himg.set_margin_end(4)
+                header.pack_start(_himg)
+            except Exception:
+                pass
 
         # appearance selector — System / Light / Dark, remembered across runs.
         # "System" follows the desktop's colour-scheme preference.
