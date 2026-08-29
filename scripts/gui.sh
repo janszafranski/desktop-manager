@@ -31,9 +31,10 @@ _render_preview() {
   if   command -v magick  >/dev/null 2>&1; then mg=magick
   elif command -v convert >/dev/null 2>&1; then mg=convert
   else echo "$src"; return 0; fi
-  if [[ ! -f "$out" || "$src" -nt "$out" ]]; then
-    "$mg" "$src" -resize "$geom" "$out" 2>/dev/null || { echo "$src"; return 0; }
-  fi
+  # Always regenerate from the source preview. The old "only if source is newer"
+  # cache could leave a stale/wrong thumbnail (e.g. a Hello Kitty image) on
+  # card 1 that never refreshed even though preview.png was correct.
+  "$mg" "$src" -resize "$geom" "$out" 2>/dev/null || { echo "$src"; return 0; }
   echo "$out"
 }
 
