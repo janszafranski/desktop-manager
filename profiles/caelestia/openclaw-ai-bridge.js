@@ -20,6 +20,7 @@
 const http = require('http');
 const fs = require('fs');
 const { execFile, spawn } = require('child_process');
+const net = require('net');
 
 const HOST = '127.0.0.1';
 const PORT = parseInt(process.env.OPENCLAW_BRIDGE_PORT || '8787', 10);
@@ -47,6 +48,57 @@ const STREAM_ENABLED = (process.env.OPENCLAW_BRIDGE_STREAM || '1') !== '0';
 const ACP_AUTO_APPROVE = (process.env.OPENCLAW_BRIDGE_ACP_APPROVE || '1') !== '0';
 const ACP_WORKSPACE =
   process.env.OPENCLAW_BRIDGE_CWD || `${process.env.HOME || '/root'}/.openclaw/workspace`;
+
+// ---- OpenClaw gateway auto-start -------------------------------------------
+// If a turn arrives while the gateway is down, probe its port and start it —
+// preferring the systemd --user unit (openclaw-gateway.service), falling back to
+// `openclaw gateway start` — then wait for it to accept connections. So the
+// flyout brings OpenClaw up on its own. Disable with OPENCLAW_BRIDGE_AUTOSTART_GATEWAY=0.
+const GATEWAY_HOST = process.env.OPENCLAW_GATEWAY_HOST || '127.0.0.1';
+const GATEWAY_PORT = parseInt(process.env.OPENCLAW_GATEWAY_PORT || '18789', 10);
+const GATEWAY_WAIT_MS = parseInt(process.env.OPENCLAW_BRIDGE_GATEWAY_WAIT || '30000', 10);
+const AUTOSTART_GATEWAY = (process.env.OPENCLAW_BRIDGE_AUTOSTART_GATEWAY || '1') !== '0';
+let gatewayStarting = null; // de-dupes concurrent starts
+
+function portOpen(host, port, timeoutMs = 800) {
+  return new Promise(resolve => {
+    const sock = new net.Socket();
+    let settled = false;
+    const done = v => { if (!settled) { settled = true; sock.destroy(); resolve(v); } };
+    sock.setTimeout(timeoutMs);
+    sock.once('connect', () => done(true));
+    sock.once('timeout', () => done(false));
+    sock.once('error', () => done(false));
+    sock.connect(port, host);
+  });
+}
+
+function startGateway() {
+  return new Promise(res => {
+    execFile('systemctl', ['--user', 'start', 'openclaw-gateway.service'], { timeout: 30000 }, err => {
+      if (err) execFile('openclaw', ['gateway', 'start'], { timeout: 30000 }, () => res());
+      else res();
+    });
+  }).then(async () => {
+    const deadline = Date.now() + GATEWAY_WAIT_MS;
+    while (Date.now() < deadline) {
+      if (await portOpen(GATEWAY_HOST, GATEWAY_PORT)) { console.log('[bridge] gateway is up'); return true; }
+      await sleep(700);
+    }
+    console.log('[bridge] gateway did not come up within ' + GATEWAY_WAIT_MS + 'ms');
+    return false;
+  });
+}
+
+// Ensure the gateway is up before a turn. onStarting() fires once if we have to
+// boot it (so the flyout can show a status line). Resolves true when reachable.
+async function ensureGatewayUp(onStarting) {
+  if (await portOpen(GATEWAY_HOST, GATEWAY_PORT)) return true;
+  if (onStarting) { try { onStarting(); } catch (_) {} }
+  console.log('[bridge] gateway down — starting it');
+  if (!gatewayStarting) gatewayStarting = startGateway().finally(() => { gatewayStarting = null; });
+  return gatewayStarting;
+}
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -112,12 +164,15 @@ async function runAgentResilient(message, sessionKey) {
   throw lastErr;
 }
 
-// Stream a turn through the ACP bridge, invoking onDelta(text) for each
-// agent_message_chunk as it arrives. Resolves with the number of characters
-// streamed. Rejects on spawn/protocol failure (caller falls back to one-shot).
-// `onDelta` is only ever called with visible assistant content — thinking
-// (agent_thought_chunk) and tool events are intentionally not forwarded.
-function runAgentStreaming(message, sessionKey, onDelta) {
+// Stream a turn through the ACP bridge, invoking onEvent({kind,text}) for each
+// update as it arrives:
+//   kind 'content' — visible assistant text. Counts toward the streamed total, so
+//                    the one-shot fallback only fires on a genuinely empty turn.
+//   kind 'status'  — live tool/thinking activity (thinking summaries + tool-call
+//                    titles). Shown transiently by the client and never persisted.
+// Resolves with the number of *content* chars streamed. Rejects on spawn/protocol
+// failure (caller falls back to one-shot).
+function runAgentStreaming(message, sessionKey, onEvent) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (fn, arg) => {
@@ -173,10 +228,23 @@ function runAgentStreaming(message, sessionKey, onDelta) {
         // streaming notification
         if (o.method === 'session/update' && o.params && o.params.update) {
           const u = o.params.update;
-          if (u.sessionUpdate === 'agent_message_chunk' && u.content && typeof u.content.text === 'string') {
+          const su = u.sessionUpdate;
+          const emit = ev => { try { onEvent(ev); } catch (_) {} };
+          if (su === 'agent_message_chunk' && u.content && typeof u.content.text === 'string') {
             streamed += u.content.text.length;
-            try { onDelta(u.content.text); } catch (_) {}
+            emit({ kind: 'content', text: u.content.text });
+          } else if (su === 'agent_thought_chunk' && u.content && typeof u.content.text === 'string') {
+            // thinking: collapse whitespace, cap length — a live "what it's mulling" line
+            const t = u.content.text.replace(/\s+/g, ' ').trim();
+            if (t) emit({ kind: 'status', text: '\u{1F4AD} ' + t.slice(0, 160) });
+          } else if (su === 'tool_call') {
+            // a tool started: show its human title (falls back to kind/id)
+            const label = (u.title || u.kind || u.toolCallId || 'tool')
+              .toString().replace(/\s+/g, ' ').trim().slice(0, 120);
+            emit({ kind: 'status', text: '\u{2699} ' + label });
           }
+          // tool_call_update (completed/failed) intentionally not surfaced — the next
+          // tool_call or the assistant text replaces the activity line on its own.
           continue;
         }
         // server -> client request (e.g. permission prompt): keep the turn moving
@@ -302,6 +370,19 @@ function sseChunk(res, content) {
   res.write('data: ' + JSON.stringify(payload) + '\n\n');
 }
 
+// Transient tool/thinking activity, carried in a non-standard `delta.status`
+// field. Clients that only read `delta.content` (e.g. the stock end4 flyout,
+// generic OpenAI clients) ignore it harmlessly; the sidebar renders it live.
+function sseStatus(res, status) {
+  const payload = {
+    id: 'chatcmpl-openclaw',
+    object: 'chat.completion.chunk',
+    model: MODEL_ID,
+    choices: [{ index: 0, delta: { status }, finish_reason: null }],
+  };
+  res.write('data: ' + JSON.stringify(payload) + '\n\n');
+}
+
 // ---- server ----------------------------------------------------------------
 
 const server = http.createServer((req, res) => {
@@ -365,12 +446,26 @@ const server = http.createServer((req, res) => {
         'Access-Control-Allow-Origin': '*',
       });
       let streamedAny = false;
+      // make sure OpenClaw itself is running before attempting a turn
+      if (AUTOSTART_GATEWAY) {
+        const up = await ensureGatewayUp(() => sseStatus(res, '⚙ starting OpenClaw…'));
+        if (!up) {
+          sseChunk(res, "**Bridge**: the OpenClaw gateway isn't running and could not be started automatically. Start it with `systemctl --user start openclaw-gateway` and try again.");
+          res.write('data: [DONE]\n\n');
+          res.end();
+          return;
+        }
+      }
       try {
         if (STREAM_ENABLED) {
           // Real token-by-token streaming via ACP.
-          const n = await runAgentStreaming(msg, sessionKey, delta => {
-            streamedAny = true;
-            sseChunk(res, delta);
+          const n = await runAgentStreaming(msg, sessionKey, ev => {
+            if (ev.kind === 'content') {
+              streamedAny = true;
+              sseChunk(res, ev.text);
+            } else {
+              sseStatus(res, ev.text);   // live tool/thinking activity line
+            }
           });
           if (!n) throw new Error('acp produced no output'); // fall back to one-shot
         } else {
