@@ -273,7 +273,8 @@ def show_enlarged(parent, path):
 class Card(Gtk.Frame):
     """One selectable desktop configuration: radio + thumbnail + options."""
 
-    THUMB_W = 190  # card thumbnail width (px)
+    THUMB_W = 190          # card thumbnail width (px)
+    THUMB_H = 107          # card thumbnail height (px) — 16:9, matches the previews
 
     def __init__(self, cfg, group, image_override, image_full=None):
         super().__init__()
@@ -375,10 +376,20 @@ class Card(Gtk.Frame):
                 box.pack_start(cb, False, False, 0)
 
     def _set_thumb(self, path):
-        """Load `path` scaled to the card width into the (swappable) thumbnail."""
+        """Load `path` into a fixed THUMB_W×THUMB_H box (center-crop to fill), so
+        every card's thumbnail is the same size regardless of the source image's
+        aspect — e.g. card 1's live ultrawide desktop screenshot matches the 16:9
+        profile previews instead of coming out short and wide."""
         try:
-            pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                path, self.THUMB_W, -1, True)
+            src = GdkPixbuf.Pixbuf.new_from_file(path)
+            w, h = src.get_width(), src.get_height()
+            # scale so the image fills the box, then center-crop the overflow
+            scale = max(self.THUMB_W / w, self.THUMB_H / h)
+            sw, sh = max(1, round(w * scale)), max(1, round(h * scale))
+            scaled = src.scale_simple(sw, sh, GdkPixbuf.InterpType.BILINEAR)
+            ox, oy = (sw - self.THUMB_W) // 2, (sh - self.THUMB_H) // 2
+            pix = GdkPixbuf.Pixbuf.new_subpixbuf(
+                scaled, ox, oy, self.THUMB_W, self.THUMB_H)
             self._thumb_img.set_from_pixbuf(pix)
             self._thumb_full = path
         except Exception:
