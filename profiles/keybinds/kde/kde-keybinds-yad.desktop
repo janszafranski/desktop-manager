@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Keybindings List (fallback)
+Comment=Show the KDE keybindings as a plain list
+Exec=/home/jan/.config/quickshell/kde-keybinds/keybinds-yad.sh
+NoDisplay=true
+Terminal=false

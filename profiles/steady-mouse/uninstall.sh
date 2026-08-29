@@ -15,6 +15,7 @@ fi
 log "Removing files"
 rm -f "$BIN/tremor-filter.py" "$BIN/tremor-gui.py" "$BIN/steady-toggle.sh"
 rm -f "$APPS/steady-mouse.desktop"
+rm -f "$HOME/.config/autostart/steady-mouse-daemon.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" 2>/dev/null || true
 
 # strip the guarded block from the Hyprland-Lua config

@@ -14,6 +14,7 @@ rm -f "$HOME/.local/bin/openclaw-ai-bridge.js" \
       "$HOME/.local/bin/openclaw-dashboard.sh" \
       "$HOME/.config/systemd/user/openclaw-ai-bridge.service"
 rm -rf "$HOME/.config/quickshell/openclaw-sidebar"
+rm -f "$HOME/.config/autostart/openclaw-sidebar.desktop"
 command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload || true
 
 LUA="$HOME/.config/hypr/hyprland.lua"

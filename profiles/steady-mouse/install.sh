@@ -1,56 +1,59 @@
 #!/usr/bin/env bash
-# install.sh — install "Steady Mouse", a hand-tremor mouse filter (SteadyMouse-style)
-# for Linux / Wayland. Userspace: NO root for normal use (needs the 'input' group).
-#
-# Deploys the daemon + GTK control panel + app launcher, installs python-evdev,
-# and (on a Hyprland-Lua setup) adds a float rule, a Super+Shift+M toggle and
-# autostart. Re-runnable / idempotent. Run as your normal user.
+# install.sh — Steady Mouse: a SteadyMouse-style hand-tremor filter for Linux.
+# The daemon works on ANY desktop (it filters at the evdev/uinput input layer,
+# so X11 or Wayland, KDE or Hyprland). Userspace: NO root (needs the 'input'
+# group). On Hyprland it also adds a Super+Shift+M toggle + float rule + autostart;
+# on KDE/GNOME/other it uses XDG autostart and points you at the keybind setting.
 set -euo pipefail
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 log()  { printf '\033[1;36m::\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 [[ ${EUID:-$(id -u)} -eq 0 ]] && die "Run as your normal user, not root."
 
-BIN="$HOME/.local/bin"
-APPS="$HOME/.local/share/applications"
-CFGDIR="$HOME/.config/tremor-filter"
+detect_de() {
+  local d="${XDG_CURRENT_DESKTOP:-}:${DESKTOP_SESSION:-}"
+  if [[ "$d" == *[Hh]yprland* ]] || pgrep -x Hyprland >/dev/null 2>&1; then echo hyprland
+  elif [[ "$d" == *KDE* || "$d" == *plasma* ]] || [[ -n "${KDE_FULL_SESSION:-}" ]] \
+       || pgrep -x plasmashell >/dev/null 2>&1; then echo kde
+  else echo other; fi
+}
 
-# --- 1. deploy files ---------------------------------------------------------
+BIN="$HOME/.local/bin"; APPS="$HOME/.local/share/applications"; CFGDIR="$HOME/.config/tremor-filter"
+
+# --- 1. deploy files (desktop-agnostic) --------------------------------------
 log "Deploying app files"
 mkdir -p "$BIN" "$APPS" "$CFGDIR"
 install -m755 "$SELF/tremor-filter.py" "$SELF/tremor-gui.py" "$SELF/steady-toggle.sh" "$BIN/"
 install -m644 "$SELF/steady-mouse.desktop" "$APPS/steady-mouse.desktop"
-# preserve the user's existing tuning if they already have a config
 [[ -f "$CFGDIR/config.json" ]] || install -m644 "$SELF/config.json" "$CFGDIR/config.json"
 command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" 2>/dev/null || true
 
 # --- 2. python-evdev ---------------------------------------------------------
-if python3 -c "import evdev" 2>/dev/null; then
-  log "python-evdev already present"
+if python3 -c "import evdev" 2>/dev/null; then log "python-evdev already present"
 else
   log "Installing python-evdev (user site)"
   python3 -m pip install --user --break-system-packages --quiet evdev \
     || warn "Could not pip-install evdev — install 'python-evdev' via your package manager."
 fi
 
-# --- 3. permissions note -----------------------------------------------------
+# --- 3. permissions ----------------------------------------------------------
 if ! id -nG "$USER" | tr ' ' '\n' | grep -qx input; then
   warn "You are not in the 'input' group — needed for /dev/uinput and /dev/input."
   warn "Run:  sudo usermod -aG input \"$USER\"   then log out and back in."
 fi
 
-# --- 4. Hyprland integration (idempotent) ------------------------------------
-LUA="$HOME/.config/hypr/hyprland.lua"
-MARK_A="-- >>> steady-mouse (desktop-manager) >>>"
-MARK_B="-- <<< steady-mouse (desktop-manager) <<<"
-if [[ -f "$LUA" ]] && grep -q "hl\." "$LUA"; then
-  if grep -qF "$MARK_A" "$LUA"; then
-    log "Hyprland (Lua) rules already present — skipping"
-  else
-    log "Adding Hyprland float rule, Super+Shift+M toggle and autostart"
-    cat >> "$LUA" <<EOF
+# --- 4. desktop integration --------------------------------------------------
+DE="$(detect_de)"; log "Desktop environment: $DE"
+if [[ "$DE" == hyprland ]]; then
+  LUA="$HOME/.config/hypr/hyprland.lua"
+  MARK_A="-- >>> steady-mouse (desktop-manager) >>>"
+  MARK_B="-- <<< steady-mouse (desktop-manager) <<<"
+  if [[ -f "$LUA" ]] && grep -q "hl\." "$LUA"; then
+    if grep -qF "$MARK_A" "$LUA"; then log "Hyprland rules already present — skipping"
+    else
+      log "Adding Hyprland float rule, Super+Shift+M toggle and autostart"
+      cat >> "$LUA" <<EOF
 
 $MARK_A
 hl.window_rule({ name = "float-steady-mouse", match = { class = "ai.openclaw.steadymouse" }, float = true })
@@ -58,13 +61,30 @@ hl.bind(mod .. " + SHIFT + M", hl.dsp.exec_cmd("~/.local/bin/steady-toggle.sh"),
 hl.exec_cmd("python3 $HOME/.local/bin/tremor-filter.py")  -- autostart (single-instance guarded)
 $MARK_B
 EOF
-    command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
+      command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
+    fi
+  else
+    warn "Hyprland detected but no Lua config — add manually:"
+    warn '  exec-once = python3 ~/.local/bin/tremor-filter.py'
+    warn '  bind = SUPER SHIFT, M, exec, ~/.local/bin/steady-toggle.sh'
   fi
 else
-  warn "No Hyprland-Lua config found. To integrate manually add:"
-  warn '  exec-once = python3 ~/.local/bin/tremor-filter.py       # autostart'
-  warn '  bind = SUPER SHIFT, M, exec, ~/.local/bin/steady-toggle.sh   # toggle'
-  warn '  windowrulev2 = float, class:^(ai.openclaw.steadymouse)$'
+  # universal XDG autostart (honoured by KDE, GNOME, most DEs)
+  install -Dm644 /dev/stdin "$HOME/.config/autostart/steady-mouse-daemon.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Steady Mouse (tremor filter)
+Exec=python3 $HOME/.local/bin/tremor-filter.py
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+EOF
+  log "Added XDG autostart for the daemon"
+  if [[ "$DE" == kde ]]; then
+    warn "KDE: to bind the on/off toggle, add a Custom Shortcut in"
+    warn "  System Settings → Shortcuts → Add Command:  $HOME/.local/bin/steady-toggle.sh"
+  else
+    warn "Bind  $HOME/.local/bin/steady-toggle.sh  to a hotkey in your DE for quick on/off."
+  fi
 fi
 
 # --- 5. start it now ---------------------------------------------------------
@@ -74,7 +94,7 @@ setsid -f python3 "$BIN/tremor-filter.py" >/tmp/tremor-filter.log 2>&1 || true
 cat <<'DONE'
 
 Steady Mouse installed.
-  • Launch the tuning panel from your app menu ("Steady Mouse"), or run: tremor-gui.py
-  • Toggle on/off:  Super+Shift+M
-  • Tune:           the panel's sliders (Smoothing / Responsiveness / Click freeze / …)
+  • Launch the tuning panel from your app menu ("Steady Mouse") or: tremor-gui.py
+  • Toggle: Super+Shift+M (Hyprland) or the hotkey you bind (KDE/other)
+  • Works on any desktop — the filter runs at the input layer.
 DONE

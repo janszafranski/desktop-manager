@@ -9,6 +9,14 @@ warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 [[ ${EUID:-$(id -u)} -eq 0 ]] && die "Run as your normal user, not root."
 
+detect_de() {
+  local d="${XDG_CURRENT_DESKTOP:-}:${DESKTOP_SESSION:-}"
+  if [[ "$d" == *[Hh]yprland* ]] || pgrep -x Hyprland >/dev/null 2>&1; then echo hyprland
+  elif [[ "$d" == *KDE* || "$d" == *plasma* ]] || [[ -n "${KDE_FULL_SESSION:-}" ]] \
+       || pgrep -x plasmashell >/dev/null 2>&1; then echo kde
+  else echo other; fi
+}
+
 # --- prerequisites (warn, don't fail) ----------------------------------------
 command -v node    >/dev/null 2>&1 || warn "Node.js not found — needed for the bridge (install 'nodejs')."
 command -v qs      >/dev/null 2>&1 || warn "Quickshell (qs) not found — needed for the panel (install 'quickshell')."
@@ -32,14 +40,16 @@ if command -v systemctl >/dev/null 2>&1; then
     || warn "Could not enable the bridge service (no user systemd session?). Start it later with: systemctl --user enable --now openclaw-ai-bridge"
 fi
 
-# --- Hyprland integration ----------------------------------------------------
-LUA="$HOME/.config/hypr/hyprland.lua"
-MARK_A="-- >>> openclaw-flyout (desktop-manager) >>>"
-MARK_B="-- <<< openclaw-flyout (desktop-manager) <<<"
-if [[ -f "$LUA" ]] && grep -q "hl\." "$LUA"; then
-  if grep -qF "$MARK_A" "$LUA"; then
-    log "Hyprland rules already present — skipping"
-  else
+# --- desktop integration -----------------------------------------------------
+# The panel is a Quickshell layer-shell surface → needs a WAYLAND session
+# (Hyprland or KDE-Wayland; it won't map on X11).
+DE="$(detect_de)"; log "Desktop environment: $DE"
+[[ "${XDG_SESSION_TYPE:-}" == x11 ]] && warn "X11 session — the panel needs Wayland; it may not appear."
+if [[ "$DE" == hyprland ]]; then
+  LUA="$HOME/.config/hypr/hyprland.lua"
+  MARK_A="-- >>> openclaw-flyout (desktop-manager) >>>"
+  MARK_B="-- <<< openclaw-flyout (desktop-manager) <<<"
+  if [[ -f "$LUA" ]] && grep -q "hl\." "$LUA" && ! grep -qF "$MARK_A" "$LUA"; then
     log "Adding Super+O toggle, autostart and blur rule"
     cat >> "$LUA" <<EOF
 
@@ -50,11 +60,22 @@ hl.layer_rule({ name = "openclaw-flyout-noblur", match = { namespace = "openclaw
 $MARK_B
 EOF
     command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
+  else
+    log "Hyprland rules already present or no Lua config — skipping"
   fi
 else
-  warn "No Hyprland-Lua config found. Add manually:"
-  warn '  exec-once = qs -c openclaw-sidebar'
-  warn '  bind = SUPER, O, exec, qs -c openclaw-sidebar ipc call sidebar toggle'
+  # KDE / other: XDG autostart for the panel + a note for the toggle shortcut
+  install -Dm644 /dev/stdin "$HOME/.config/autostart/openclaw-sidebar.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=OpenClaw flyout
+Exec=qs -c openclaw-sidebar
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+EOF
+  log "Added XDG autostart for the panel"
+  warn "To bind Super+O: System Settings → Shortcuts → Add Command:"
+  warn "  qs -c openclaw-sidebar ipc call sidebar toggle"
 fi
 
 command -v qs >/dev/null 2>&1 && { log "Launching the panel"; setsid -f qs -c openclaw-sidebar >/dev/null 2>&1 || true; }

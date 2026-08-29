@@ -1,10 +1,12 @@
 # Steady Mouse — hand-tremor mouse filter
 
-A SteadyMouse-style tremor filter for Linux / Wayland (Hyprland). Runs in
+A SteadyMouse-style tremor filter for Linux — works on **any desktop** (X11 or
+Wayland, KDE or Hyprland), because it filters at the input layer. Runs in
 userspace (no root): it grabs the physical mouse via `evdev`, applies an
 adaptive **One Euro** low-pass filter (smooths tremor at slow speeds, stays
 low-lag on deliberate moves) plus click-steadying, and emits a filtered virtual
-mouse via `uinput`.
+mouse via `uinput`. On Hyprland it adds a Super+Shift+M toggle + autostart; on
+KDE/GNOME/other it uses XDG autostart (bind the toggle in your DE's settings).
 
 ## Install
 Via the Desktop Manager GUI → **Steady Mouse** card → *Install the app*, or:
