@@ -344,24 +344,31 @@ class Card(Gtk.Frame):
             self.choices = cfg.get("choices")
             self.choice_combo = None
             if self.choices:
-                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                # Stack the label above the combo (rather than side-by-side) so
+                # the label's text column lines up with the radio-option labels
+                # above it, while the combo still gets the full card width and
+                # can show its selected item ("Kitty on pink") without being
+                # squeezed into an ellipsis by the indent.
+                col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                # Indent to match the radio-option labels (which sit past their
+                # indicator), not the flush-left radio circles.
+                col.set_margin_start(22)
                 _cl = Gtk.Label(label=cfg.get("choice_label", "Option:"))
                 _cl.set_xalign(0.0)
-                row.pack_start(_cl, False, False, 0)
+                col.pack_start(_cl, False, False, 0)
                 combo = Gtk.ComboBoxText()
                 for ch in self.choices:
                     combo.append(ch["value"], ch["label"])
                 combo.set_active(0)
                 combo.connect("changed", self._on_choice_changed)
-                # Ellipsize long option labels and give the combo a modest
-                # width so its longest entry can't force the whole card (and
-                # thus every homogeneous column) wider than the thumbnail.
+                # Ellipsize very long option labels so they can't force the card
+                # (and thus every homogeneous column) wider than the thumbnail.
                 for cell in combo.get_cells():
                     cell.set_property("ellipsize", Pango.EllipsizeMode.END)
                 combo.set_size_request(90, -1)
                 self.choice_combo = combo
-                row.pack_start(combo, True, True, 0)
-                box.pack_start(row, False, False, 0)
+                col.pack_start(combo, False, False, 0)
+                box.pack_start(col, False, False, 0)
         else:
             # per-card stage checkboxes. Wrap their labels so a long line
             # (e.g. "Install packages (pacman + AUR, needs sudo)") doesn't
