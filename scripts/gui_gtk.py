@@ -424,7 +424,7 @@ class Card(Gtk.Frame):
 class ReplicaWindow(Gtk.Window):
     # Fixed height (px) of the scrollable card-grid viewport — sized to show the
     # current two rows fully; extra rows scroll rather than growing the window.
-    GRID_VIEWPORT_H = 690
+    GRID_VIEWPORT_H = 680
 
     def __init__(self, image_override, image_full=None):
         super().__init__()
@@ -521,6 +521,9 @@ class ReplicaWindow(Gtk.Window):
         # than an overlay that hides until hovered.
         grid_scroll.set_overlay_scrolling(False)
         grid_scroll.add(grid)
+        # Fixed viewport sized to the current two rows so the scrollbar track
+        # ends at the base of the cards (no overhang). Extra rows added later
+        # exceed this and scroll, keeping the window size.
         grid_scroll.set_min_content_height(self.GRID_VIEWPORT_H)
         grid_scroll.set_max_content_height(self.GRID_VIEWPORT_H)
         grid_scroll.set_propagate_natural_height(False)
