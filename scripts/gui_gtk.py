@@ -106,7 +106,7 @@ CONFIGS = [
     {
         "kind": "install",
         "key": "current",
-        "name": "Current desktop",
+        "name": "KDE Plasma",
         "desc": "KDE Plasma 6 · Nordic-bluish · Krohnkite tiling · Alacritty",
         "image": None,
     },
@@ -435,6 +435,10 @@ class Card(Gtk.Frame):
 
 
 class ReplicaWindow(Gtk.Window):
+    # Fixed height (px) of the scrollable card-grid viewport — sized to show the
+    # current two rows fully; extra rows scroll rather than growing the window.
+    GRID_VIEWPORT_H = 710
+
     def __init__(self, image_override, image_full=None):
         super().__init__()
         self.result = None
@@ -518,7 +522,22 @@ class ReplicaWindow(Gtk.Window):
             card.radio.set_active(i == 0)
             grid.attach(card, i % COLUMNS, i // COLUMNS, 1, 1)
             self.cards.append(card)
-        outer.pack_start(grid, False, False, 0)
+        # Put the card grid in a fixed-height scroll area so the window keeps its
+        # size as more thumbnail rows are added: extra rows scroll instead of
+        # growing the window. The vertical scrollbar is always shown as a track
+        # (line) with a proportional thumb — full now (all rows fit), shrinking
+        # with every extra row added.
+        grid_scroll = Gtk.ScrolledWindow()
+        grid_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.ALWAYS)
+        # Disable overlay scrolling so the bar is a permanent visible track with
+        # a proportional thumb (full now, shrinking as rows are added), rather
+        # than an overlay that hides until hovered.
+        grid_scroll.set_overlay_scrolling(False)
+        grid_scroll.add(grid)
+        grid_scroll.set_min_content_height(self.GRID_VIEWPORT_H)
+        grid_scroll.set_max_content_height(self.GRID_VIEWPORT_H)
+        grid_scroll.set_propagate_natural_height(False)
+        outer.pack_start(grid_scroll, False, False, 0)
 
         # --- Apps: launchers for this desktop's bundled tools -----------------
         apps_frame = Gtk.Frame(label="Apps")
