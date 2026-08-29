@@ -6,7 +6,7 @@ On/off switch + live sliders. Changes apply instantly (writes config + SIGHUP to
 import json, os, signal, subprocess, sys
 import gi
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, GLib, Gdk
 
 HOME = os.path.expanduser("~")
 DAEMON = f"{HOME}/.local/bin/tremor-filter.py"
@@ -80,6 +80,12 @@ class SteadyApp(Gtk.Application):
         self.switch.set_active(daemon_pid() is not None)
         self.switch.connect("state-set", self.on_switch)
         head.append(title); head.append(self.switch)
+        close = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        close.set_valign(Gtk.Align.CENTER)
+        close.add_css_class("flat")
+        close.set_tooltip_text("Close")
+        close.connect("clicked", lambda *_: win.close())
+        head.append(close)
         box.append(head)
         self.status = Gtk.Label(); self.status.set_xalign(0.0)
         box.append(self.status)
@@ -110,6 +116,10 @@ class SteadyApp(Gtk.Application):
 
         GLib.timeout_add_seconds(1, self.poll)
         self.refresh_status()
+        key = Gtk.EventControllerKey()
+        key.connect("key-pressed",
+                    lambda _c, kv, *_: win.close() if kv == Gdk.KEY_Escape else False)
+        win.add_controller(key)
         win.present()
 
     def on_switch(self, sw, state):
