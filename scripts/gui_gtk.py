@@ -615,7 +615,14 @@ def main():
     ap.add_argument("--image-full", default=None, help="full-res image for enlarge")
     args = ap.parse_args()
 
-    win = ReplicaWindow(args.image, args.image_full)
+    # Fall back to the repo's captured-desktop preview if no --image was passed
+    # (e.g. run directly rather than via gui.sh), so card 1 always has a thumbnail.
+    image = args.image or next(
+        (p for p in (_p(".preview-thumb.png"), _p("preview.png")) if os.path.exists(p)), None)
+    image_full = args.image_full or (
+        _p("preview.png") if os.path.exists(_p("preview.png")) else None)
+
+    win = ReplicaWindow(image, image_full)
     win.show_all()
     Gtk.main()
 
