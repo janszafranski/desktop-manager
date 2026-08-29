@@ -355,6 +355,10 @@ class Card(Gtk.Frame):
                 col.set_margin_start(22)
                 _cl = Gtk.Label(label=cfg.get("choice_label", "Option:"))
                 _cl.set_xalign(0.0)
+                # Nudge the label right by the combo's internal text inset so
+                # "Background:" lines up with the selected item ("Kitty on pink")
+                # shown in the box below it.
+                _cl.set_margin_start(12)
                 col.pack_start(_cl, False, False, 0)
                 combo = Gtk.ComboBoxText()
                 for ch in self.choices:
