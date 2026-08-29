@@ -296,11 +296,14 @@ class Card(Gtk.Frame):
         # thumbnail — a flat button; click enlarges the full-res image. Held as
         # instance state so a profile's chooser (below) can swap it live.
         self._thumb_img = Gtk.Image()
-        self._thumb_full = image_full or cfg.get("image_full") \
+        full_img = image_full or cfg.get("image_full") \
             or image_override or cfg.get("image")
+        self._thumb_full = full_img
         init_img = image_override or cfg.get("image")
         if init_img:
-            self._set_thumb(init_img)
+            # render the (possibly downscaled) thumbnail, but enlarge to the
+            # full-res image, not the thumbnail source.
+            self._set_thumb(init_img, full=full_img)
             btn = Gtk.Button()
             btn.set_relief(Gtk.ReliefStyle.NONE)
             # Mouse-only (click to enlarge); don't let it take keyboard focus,
@@ -375,7 +378,7 @@ class Card(Gtk.Frame):
                 self.checks[sid] = cb
                 box.pack_start(cb, False, False, 0)
 
-    def _set_thumb(self, path):
+    def _set_thumb(self, path, full=None):
         """Load `path` into a fixed THUMB_W×THUMB_H box (center-crop to fill), so
         every card's thumbnail is the same size regardless of the source image's
         aspect — e.g. card 1's live ultrawide desktop screenshot matches the 16:9
@@ -391,7 +394,7 @@ class Card(Gtk.Frame):
             pix = GdkPixbuf.Pixbuf.new_subpixbuf(
                 scaled, ox, oy, self.THUMB_W, self.THUMB_H)
             self._thumb_img.set_from_pixbuf(pix)
-            self._thumb_full = path
+            self._thumb_full = full if full is not None else path
         except Exception:
             pass
 
