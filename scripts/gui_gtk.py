@@ -308,6 +308,9 @@ class Card(Gtk.Frame):
             self._set_thumb(init_img)
             btn = Gtk.Button()
             btn.set_relief(Gtk.ReliefStyle.NONE)
+            # Mouse-only (click to enlarge); don't let it take keyboard focus,
+            # or the first card's thumbnail draws a focus frame the others lack.
+            btn.set_can_focus(False)
             btn.set_image(self._thumb_img)
             btn.set_always_show_image(True)
             btn.set_tooltip_text("Click to enlarge")
