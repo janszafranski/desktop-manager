@@ -20,7 +20,7 @@ import sys
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gdk, GdkPixbuf, GLib  # noqa: E402
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango  # noqa: E402
 
 # Stable app id / WM_CLASS so window rules and the .desktop icon can match it.
 GLib.set_prgname("system-replica")
@@ -355,15 +355,28 @@ class Card(Gtk.Frame):
                     combo.append(ch["value"], ch["label"])
                 combo.set_active(0)
                 combo.connect("changed", self._on_choice_changed)
+                # Ellipsize long option labels and give the combo a modest
+                # width so its longest entry can't force the whole card (and
+                # thus every homogeneous column) wider than the thumbnail.
+                for cell in combo.get_cells():
+                    cell.set_property("ellipsize", Pango.EllipsizeMode.END)
+                combo.set_size_request(90, -1)
                 self.choice_combo = combo
                 row.pack_start(combo, True, True, 0)
                 box.pack_start(row, False, False, 0)
         else:
-            # per-card stage checkboxes
+            # per-card stage checkboxes. Wrap their labels so a long line
+            # (e.g. "Install packages (pacman + AUR, needs sudo)") doesn't
+            # force the card — and thus the whole grid — wider than the thumb.
             self.checks = {}
             for sid, label, default in STAGES:
                 cb = Gtk.CheckButton(label=label)
                 cb.set_active(default)
+                lbl = cb.get_child()
+                if isinstance(lbl, Gtk.Label):
+                    lbl.set_line_wrap(True)
+                    lbl.set_max_width_chars(28)
+                    lbl.set_xalign(0.0)
                 self.checks[sid] = cb
                 box.pack_start(cb, False, False, 0)
 
@@ -498,6 +511,9 @@ class ReplicaWindow(Gtk.Window):
             desc.set_markup(f"<small>{GLib.markup_escape_text(app['desc'])}</small>")
             desc.set_xalign(0.0)
             desc.set_line_wrap(True)
+            # Cap so the (single-column) app descriptions don't stretch the
+            # window wider than the card grid above them.
+            desc.set_max_width_chars(52)
             text.pack_start(name, False, False, 0)
             text.pack_start(desc, False, False, 0)
             row.pack_start(text, True, True, 0)
