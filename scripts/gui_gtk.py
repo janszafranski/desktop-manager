@@ -483,7 +483,7 @@ class ReplicaWindow(Gtk.Window):
         appearance.connect("changed", self.on_mode_changed)
         header.pack_end(appearance)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.set_border_width(12)
         self.add(outer)
 
@@ -558,6 +558,9 @@ class ReplicaWindow(Gtk.Window):
         actions.pack_end(cancel, False, False, 0)
         actions.pack_end(self.dry, False, False, 0)
         outer.pack_start(actions, False, False, 0)
+        # keep a little breathing room before the Apps frame (the grid→buttons
+        # gap above is deliberately tight per request)
+        apps_frame.set_margin_top(6)
         outer.pack_start(apps_frame, False, False, 0)
 
         self.connect("destroy", Gtk.main_quit)
