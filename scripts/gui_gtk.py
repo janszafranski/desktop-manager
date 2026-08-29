@@ -192,12 +192,6 @@ STAGES = [
     ("services", "Enable systemd --user services",              False),
 ]
 
-INTRO = (
-    "Pick a configuration below and tick which parts to apply, then click Install. "
-    "Any existing files are backed up before they are overwritten. Turn on Dry run "
-    "to preview exactly what would change without touching anything."
-)
-
 # --- bundled apps listed below the cards -----------------------------------
 # Launchers for the custom tools that ship with this desktop. Commands run
 # through the shell with $VARS expanded; keybind hints are shown in the text.
@@ -472,24 +466,8 @@ class ReplicaWindow(Gtk.Window):
         outer.set_border_width(12)
         self.add(outer)
 
-        # --- intro paragraph (app icon on the left) ---------------------------
-        intro_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        icon_path = _p("icon.png")
-        if os.path.exists(icon_path):
-            try:
-                ipix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    icon_path, 64, 64, True)
-                logo = Gtk.Image.new_from_pixbuf(ipix)
-                logo.set_valign(Gtk.Align.START)
-                intro_row.pack_start(logo, False, False, 0)
-            except Exception:
-                pass
-        intro = Gtk.Label(label=INTRO)
-        intro.set_line_wrap(True)
-        intro.set_xalign(0.0)
-        intro.set_max_width_chars(64)
-        intro_row.pack_start(intro, True, True, 0)
-        outer.pack_start(intro_row, False, False, 0)
+        # Intro blurb and its logo removed — the app icon lives in the title bar
+        # and the cards are self-explanatory, keeping the top compact.
 
         # --- grid of configuration cards -------------------------------------
         grid = Gtk.Grid(column_spacing=10, row_spacing=10)
