@@ -282,7 +282,7 @@ def show_enlarged(parent, path):
 class Card(Gtk.Frame):
     """One selectable desktop configuration: radio + thumbnail + options."""
 
-    THUMB_W = 340  # card thumbnail width (px)
+    THUMB_W = 230  # card thumbnail width (px)
 
     def __init__(self, cfg, group, image_override, image_full=None):
         super().__init__()
@@ -291,8 +291,8 @@ class Card(Gtk.Frame):
         self.kind = cfg.get("kind", "install")
         self.cfg = cfg
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_border_width(12)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        box.set_border_width(8)
         self.add(box)
 
         # selector + title
@@ -323,6 +323,8 @@ class Card(Gtk.Frame):
         desc.set_markup(f"<small>{GLib.markup_escape_text(cfg['desc'])}</small>")
         desc.set_halign(Gtk.Align.START)
         desc.set_line_wrap(True)
+        desc.set_max_width_chars(30)   # cap natural width so the card tracks the thumbnail
+        desc.set_xalign(0.0)
         box.pack_start(desc, False, False, 0)
 
         box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
@@ -409,7 +411,7 @@ class ReplicaWindow(Gtk.Window):
         # fixed size, but stay resizable / maximizable from the title bar.
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.set_resizable(True)
-        self.set_default_size(600, 640)
+        self.set_default_size(500, 540)
         self.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
         self.set_border_width(0)
 
@@ -438,8 +440,8 @@ class ReplicaWindow(Gtk.Window):
         appearance.connect("changed", self.on_mode_changed)
         header.pack_end(appearance)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-        outer.set_border_width(18)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        outer.set_border_width(12)
         self.add(outer)
 
         # --- intro paragraph (app icon on the left) ---------------------------
@@ -462,7 +464,7 @@ class ReplicaWindow(Gtk.Window):
         outer.pack_start(intro_row, False, False, 0)
 
         # --- grid of configuration cards -------------------------------------
-        grid = Gtk.Grid(column_spacing=14, row_spacing=14)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
         grid.set_column_homogeneous(True)
         self.cards = []
         group = None
