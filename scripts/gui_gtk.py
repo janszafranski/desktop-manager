@@ -282,7 +282,7 @@ def show_enlarged(parent, path):
 class Card(Gtk.Frame):
     """One selectable desktop configuration: radio + thumbnail + options."""
 
-    THUMB_W = 230  # card thumbnail width (px)
+    THUMB_W = 190  # card thumbnail width (px)
 
     def __init__(self, cfg, group, image_override, image_full=None):
         super().__init__()
@@ -292,7 +292,7 @@ class Card(Gtk.Frame):
         self.cfg = cfg
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        box.set_border_width(8)
+        box.set_border_width(5)
         self.add(box)
 
         # selector + title
@@ -323,7 +323,7 @@ class Card(Gtk.Frame):
         desc.set_markup(f"<small>{GLib.markup_escape_text(cfg['desc'])}</small>")
         desc.set_halign(Gtk.Align.START)
         desc.set_line_wrap(True)
-        desc.set_max_width_chars(30)   # cap natural width so the card tracks the thumbnail
+        desc.set_max_width_chars(24)   # cap natural width so the card tracks the thumbnail
         desc.set_xalign(0.0)
         box.pack_start(desc, False, False, 0)
 
@@ -347,9 +347,9 @@ class Card(Gtk.Frame):
             self.choice_combo = None
             if self.choices:
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                row.pack_start(
-                    Gtk.Label(label=cfg.get("choice_label", "Option:")),
-                    False, False, 0)
+                _cl = Gtk.Label(label=cfg.get("choice_label", "Option:"))
+                _cl.set_xalign(0.0)
+                row.pack_start(_cl, False, False, 0)
                 combo = Gtk.ComboBoxText()
                 for ch in self.choices:
                     combo.append(ch["value"], ch["label"])
@@ -375,7 +375,7 @@ class Card(Gtk.Frame):
                 lbl = cb.get_child()
                 if isinstance(lbl, Gtk.Label):
                     lbl.set_line_wrap(True)
-                    lbl.set_max_width_chars(28)
+                    lbl.set_max_width_chars(24)
                     lbl.set_xalign(0.0)
                 self.checks[sid] = cb
                 box.pack_start(cb, False, False, 0)
@@ -490,7 +490,7 @@ class ReplicaWindow(Gtk.Window):
             card.radio.set_active(i == 0)
             grid.attach(card, i % COLUMNS, i // COLUMNS, 1, 1)
             self.cards.append(card)
-        outer.pack_start(grid, True, True, 0)
+        outer.pack_start(grid, False, False, 0)
 
         # --- Apps: launchers for this desktop's bundled tools -----------------
         apps_frame = Gtk.Frame(label="Apps")
