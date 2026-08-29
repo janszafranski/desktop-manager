@@ -499,12 +499,6 @@ class ReplicaWindow(Gtk.Window):
             text.pack_start(name, False, False, 0)
             text.pack_start(desc, False, False, 0)
             row.pack_start(text, True, True, 0)
-            if app.get("launch"):
-                lb = Gtk.Button(label=app.get("button", "Open"))
-                lb.set_valign(Gtk.Align.CENTER)
-                lb.connect("clicked",
-                           lambda _b, cmd=app["launch"]: self._launch_app(cmd))
-                row.pack_end(lb, False, False, 0)
             if app.get("install"):
                 ib = Gtk.Button(label="Install")
                 ib.get_style_context().add_class("suggested-action")
@@ -513,9 +507,8 @@ class ReplicaWindow(Gtk.Window):
                            lambda _b, s=app["install"]: self._install_app(s))
                 row.pack_end(ib, False, False, 0)
             apps_box.pack_start(row, False, False, 0)
-        outer.pack_start(apps_frame, False, False, 0)
 
-        # --- action row -------------------------------------------------------
+        # --- action row (kept above the Apps list) ---------------------------
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.dry = Gtk.CheckButton(label="Dry run (preview only, no changes)")
         actions.pack_start(self.dry, False, False, 0)
@@ -528,6 +521,7 @@ class ReplicaWindow(Gtk.Window):
         actions.pack_end(install, False, False, 0)
         actions.pack_end(cancel, False, False, 0)
         outer.pack_start(actions, False, False, 0)
+        outer.pack_start(apps_frame, False, False, 0)
 
         self.connect("destroy", Gtk.main_quit)
 
