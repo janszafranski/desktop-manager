@@ -106,7 +106,7 @@ CONFIGS = [
     {
         "kind": "install",
         "key": "current",
-        "name": "KDE Plasma",
+        "name": "KDE Plasma (default)",
         "desc": "KDE Plasma 6 · Nordic-bluish · Krohnkite tiling · Alacritty",
         "image": None,
     },
