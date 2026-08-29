@@ -509,7 +509,11 @@ class ReplicaWindow(Gtk.Window):
             apps_box.pack_start(row, False, False, 0)
 
         # --- action row (kept above the Apps list) ---------------------------
+        # Inset to match the Apps frame's content padding (border_width 10 + the
+        # frame's ~1px line) so the master Install lines up with the per-app ones.
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        actions.set_margin_start(11)
+        actions.set_margin_end(11)
         self.dry = Gtk.CheckButton(label="Dry run (preview only, no changes)")
         actions.pack_start(self.dry, False, False, 0)
 
