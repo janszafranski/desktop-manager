@@ -344,22 +344,9 @@ class Card(Gtk.Frame):
             self.choices = cfg.get("choices")
             self.choice_combo = None
             if self.choices:
-                # Stack the label above the combo (rather than side-by-side) so
-                # the label's text column lines up with the radio-option labels
-                # above it, while the combo still gets the full card width and
-                # can show its selected item ("Kitty on pink") without being
-                # squeezed into an ellipsis by the indent.
-                col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-                # Indent to match the radio-option labels (which sit past their
-                # indicator), not the flush-left radio circles.
-                col.set_margin_start(22)
-                _cl = Gtk.Label(label=cfg.get("choice_label", "Option:"))
-                _cl.set_xalign(0.0)
-                # Nudge the label right by the combo's internal text inset so
-                # "Background:" lines up with the selected item ("Kitty on pink")
-                # shown in the box below it.
-                _cl.set_margin_start(12)
-                col.pack_start(_cl, False, False, 0)
+                # No label — the single option list is self-explanatory. The
+                # pulldown spans the full thumbnail width so it lines up with the
+                # preview above it.
                 combo = Gtk.ComboBoxText()
                 for ch in self.choices:
                     combo.append(ch["value"], ch["label"])
@@ -369,14 +356,10 @@ class Card(Gtk.Frame):
                 # (and thus every homogeneous column) wider than the thumbnail.
                 for cell in combo.get_cells():
                     cell.set_property("ellipsize", Pango.EllipsizeMode.END)
-                combo.set_size_request(90, -1)
-                # Shift the whole pulldown right so its selected text ("Kitty on
-                # pink") sits directly under the label text — the "K" below the
-                # "B" of "Background:".
-                combo.set_margin_start(2)
+                combo.set_size_request(self.THUMB_W, -1)
+                combo.set_halign(Gtk.Align.CENTER)
                 self.choice_combo = combo
-                col.pack_start(combo, False, False, 0)
-                box.pack_start(col, False, False, 0)
+                box.pack_start(combo, False, False, 0)
         else:
             # per-card stage checkboxes. Wrap their labels so a long line
             # (e.g. "Install packages (pacman + AUR, needs sudo)") doesn't
@@ -441,7 +424,7 @@ class Card(Gtk.Frame):
 class ReplicaWindow(Gtk.Window):
     # Fixed height (px) of the scrollable card-grid viewport — sized to show the
     # current two rows fully; extra rows scroll rather than growing the window.
-    GRID_VIEWPORT_H = 710
+    GRID_VIEWPORT_H = 690
 
     def __init__(self, image_override, image_full=None):
         super().__init__()
