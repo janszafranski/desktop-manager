@@ -491,8 +491,18 @@ class ReplicaWindow(Gtk.Window):
         outer.set_border_width(12)
         self.add(outer)
 
-        # Intro blurb and its logo removed — the app icon lives in the title bar
-        # and the cards are self-explanatory, keeping the top compact.
+        # Description blurb: the icon now lives in the title bar (moved out of
+        # here), and the original first paragraph is dropped — only this second
+        # paragraph remains, with no logo beside it.
+        intro = Gtk.Label(
+            label="Pick a configuration below and tick which parts to apply, "
+                  "then click Install. Any existing files are backed up before "
+                  "they are overwritten. Turn on Dry run to preview exactly what "
+                  "would change without touching anything.")
+        intro.set_line_wrap(True)
+        intro.set_xalign(0.0)
+        intro.set_max_width_chars(66)
+        outer.pack_start(intro, False, False, 0)
 
         # --- grid of configuration cards -------------------------------------
         grid = Gtk.Grid(column_spacing=10, row_spacing=10)
