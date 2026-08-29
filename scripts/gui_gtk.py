@@ -193,9 +193,6 @@ STAGES = [
 ]
 
 INTRO = (
-    "This installer reproduces a captured desktop setup on the current machine — "
-    "shell, terminal, editor, GTK/Qt theming and the KDE Plasma / KWin configuration, "
-    "along with the bundled Nordic themes, cursors and wallpapers.\n\n"
     "Pick a configuration below and tick which parts to apply, then click Install. "
     "Any existing files are backed up before they are overwritten. Turn on Dry run "
     "to preview exactly what would change without touching anything."
