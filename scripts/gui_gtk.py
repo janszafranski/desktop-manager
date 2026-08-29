@@ -15,6 +15,7 @@ Usage: gui_gtk.py [--image PATH]   # PATH = preview thumbnail for the first card
 """
 import argparse
 import os
+import subprocess
 import sys
 
 import gi
@@ -180,6 +181,19 @@ CONFIGS = [
         "apply_label": "Install the theme",
         "revert_label": "Uninstall it",
     },
+    {
+        "kind": "profile",
+        "key": "steady-mouse",
+        "name": "Steady Mouse",
+        "desc": "Hand-tremor mouse filter (SteadyMouse-style): smooths the shake and "
+                "steadies clicks. Userspace, no root. Adds a tuning panel, a "
+                "Super+Shift+M toggle and autostart.",
+        "image": _p("profiles", "steady-mouse", "preview.png"),
+        "apply": _p("profiles", "steady-mouse", "install.sh"),
+        "revert": _p("profiles", "steady-mouse", "uninstall.sh"),
+        "apply_label": "Install the app",
+        "revert_label": "Uninstall it",
+    },
 ]
 
 # stage checkboxes offered on the "install" card: (id, label, default-on).
@@ -199,6 +213,33 @@ INTRO = (
     "Any existing files are backed up before they are overwritten. Turn on Dry run "
     "to preview exactly what would change without touching anything."
 )
+
+# --- bundled apps listed below the cards -----------------------------------
+# Launchers for the custom tools that ship with this desktop. Commands run
+# through the shell with $VARS expanded; keybind hints are shown in the text.
+APPS = [
+    {
+        "name": "Steady Mouse",
+        "desc": "Hand-tremor mouse filter — smooths the shake and steadies clicks. "
+                "Toggle anytime with Super+Shift+M.",
+        "launch": "python3 $HOME/.local/bin/tremor-gui.py",
+        "button": "Open panel",
+    },
+    {
+        "name": "Keyboard shortcuts",
+        "desc": "On-screen cheat-sheet of every keybinding. Opens with Super+/ "
+                "(or the top-left hot corner).",
+        "launch": "bash $HOME/.config/hypr/scripts/keybinds-toggle.sh",
+        "button": "Show",
+    },
+    {
+        "name": "OpenClaw flyout",
+        "desc": "The OpenClaw AI assistant side panel — chat with your agent. "
+                "Toggle with Super+O.",
+        "launch": "qs -c openclaw-sidebar ipc call sidebar toggle",
+        "button": "Toggle",
+    },
+]
 
 COLUMNS = 3  # cards per row in the grid
 
@@ -446,6 +487,36 @@ class ReplicaWindow(Gtk.Window):
             self.cards.append(card)
         outer.pack_start(grid, True, True, 0)
 
+        # --- Apps: launchers for this desktop's bundled tools -----------------
+        apps_frame = Gtk.Frame(label="Apps")
+        apps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        apps_box.set_border_width(10)
+        apps_frame.add(apps_box)
+        for i, app in enumerate(APPS):
+            if i:
+                apps_box.pack_start(
+                    Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
+                    False, False, 0)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            name = Gtk.Label()
+            name.set_markup(f"<b>{GLib.markup_escape_text(app['name'])}</b>")
+            name.set_xalign(0.0)
+            desc = Gtk.Label()
+            desc.set_markup(f"<small>{GLib.markup_escape_text(app['desc'])}</small>")
+            desc.set_xalign(0.0)
+            desc.set_line_wrap(True)
+            text.pack_start(name, False, False, 0)
+            text.pack_start(desc, False, False, 0)
+            row.pack_start(text, True, True, 0)
+            btn = Gtk.Button(label=app.get("button", "Open"))
+            btn.set_valign(Gtk.Align.CENTER)
+            btn.connect("clicked",
+                        lambda _b, cmd=app["launch"]: self._launch_app(cmd))
+            row.pack_end(btn, False, False, 0)
+            apps_box.pack_start(row, False, False, 0)
+        outer.pack_start(apps_frame, False, False, 0)
+
         # --- action row -------------------------------------------------------
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.dry = Gtk.CheckButton(label="Dry run (preview only, no changes)")
@@ -485,6 +556,14 @@ class ReplicaWindow(Gtk.Window):
             if c.radio.get_active():
                 return c
         return self.cards[0]
+
+    def _launch_app(self, cmd):
+        """Launch a bundled app command detached from this GUI."""
+        try:
+            subprocess.Popen(os.path.expandvars(cmd), shell=True,
+                             start_new_session=True)
+        except Exception:
+            pass
 
     def _warn(self, text):
         dlg = Gtk.MessageDialog(
