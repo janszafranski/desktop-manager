@@ -181,19 +181,6 @@ CONFIGS = [
         "apply_label": "Install the theme",
         "revert_label": "Uninstall it",
     },
-    {
-        "kind": "profile",
-        "key": "steady-mouse",
-        "name": "Steady Mouse",
-        "desc": "Hand-tremor mouse filter (SteadyMouse-style): smooths the shake and "
-                "steadies clicks. Userspace, no root. Adds a tuning panel, a "
-                "Super+Shift+M toggle and autostart.",
-        "image": _p("profiles", "steady-mouse", "preview.png"),
-        "apply": _p("profiles", "steady-mouse", "install.sh"),
-        "revert": _p("profiles", "steady-mouse", "uninstall.sh"),
-        "apply_label": "Install the app",
-        "revert_label": "Uninstall it",
-    },
 ]
 
 # stage checkboxes offered on the "install" card: (id, label, default-on).
@@ -221,7 +208,8 @@ APPS = [
     {
         "name": "Steady Mouse",
         "desc": "Hand-tremor mouse filter — smooths the shake and steadies clicks. "
-                "Toggle anytime with Super+Shift+M.",
+                "Userspace, no root. Toggle with Super+Shift+M.",
+        "install": _p("profiles", "steady-mouse", "install.sh"),
         "launch": "python3 $HOME/.local/bin/tremor-gui.py",
         "button": "Open panel",
     },
@@ -509,11 +497,19 @@ class ReplicaWindow(Gtk.Window):
             text.pack_start(name, False, False, 0)
             text.pack_start(desc, False, False, 0)
             row.pack_start(text, True, True, 0)
-            btn = Gtk.Button(label=app.get("button", "Open"))
-            btn.set_valign(Gtk.Align.CENTER)
-            btn.connect("clicked",
-                        lambda _b, cmd=app["launch"]: self._launch_app(cmd))
-            row.pack_end(btn, False, False, 0)
+            if app.get("launch"):
+                lb = Gtk.Button(label=app.get("button", "Open"))
+                lb.set_valign(Gtk.Align.CENTER)
+                lb.connect("clicked",
+                           lambda _b, cmd=app["launch"]: self._launch_app(cmd))
+                row.pack_end(lb, False, False, 0)
+            if app.get("install"):
+                ib = Gtk.Button(label="Install")
+                ib.get_style_context().add_class("suggested-action")
+                ib.set_valign(Gtk.Align.CENTER)
+                ib.connect("clicked",
+                           lambda _b, s=app["install"]: self._install_app(s))
+                row.pack_end(ib, False, False, 0)
             apps_box.pack_start(row, False, False, 0)
         outer.pack_start(apps_frame, False, False, 0)
 
@@ -564,6 +560,12 @@ class ReplicaWindow(Gtk.Window):
                              start_new_session=True)
         except Exception:
             pass
+
+    def _install_app(self, script):
+        """Install a bundled app: hand its script to gui.sh to run in a terminal."""
+        self.result = ("profile", script,
+                       "--dry-run" if self.dry.get_active() else "")
+        self.close()
 
     def _warn(self, text):
         dlg = Gtk.MessageDialog(
