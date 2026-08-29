@@ -370,6 +370,10 @@ class Card(Gtk.Frame):
                 for cell in combo.get_cells():
                     cell.set_property("ellipsize", Pango.EllipsizeMode.END)
                 combo.set_size_request(90, -1)
+                # Shift the whole pulldown right so its selected text ("Kitty on
+                # pink") sits directly under the label text — the "K" below the
+                # "B" of "Background:".
+                combo.set_margin_start(2)
                 self.choice_combo = combo
                 col.pack_start(combo, False, False, 0)
                 box.pack_start(col, False, False, 0)
