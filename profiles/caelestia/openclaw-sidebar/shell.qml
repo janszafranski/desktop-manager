@@ -101,6 +101,7 @@ ShellRoot {
             { "label": "Claude GUI",  "cmd": "xdg-open https://claude.ai",   "icon": iconDir + "claude.svg", "terminal": false },
             { "label": "ChatGPT GUI", "cmd": "xdg-open https://chatgpt.com", "icon": iconDir + "openai.svg", "terminal": false },
             { "label": "Jan GUI",     "cmd": "jan",                          "icon": iconDir + "jan.png",    "terminal": false },
+            { "label": "NotebookLM",  "cmd": "xdg-open https://notebooklm.google.com", "icon": iconDir + "gemini.svg", "terminal": false },
             { "label": "Claude CLI",  "cmd": "kitty claude",                 "icon": iconDir + "claude.svg", "terminal": true },
             { "label": "AskGPT CLI",  "cmd": "kitty tgpt -i",                "icon": iconDir + "openai.svg", "terminal": true },
             { "label": "Jan CLI",     "cmd": "kitty fish -C 'jan-cli --help'", "icon": iconDir + "jan.png",  "terminal": true }
