@@ -20,7 +20,7 @@ ShellRoot {
     // --- state ---
     property bool shown: true
     property bool pinned: true            // pinned = reserve screen space (windows tile beside it)
-    property int  panelWidth: 460         // matches end4; widen via IPC `widen`
+    property int  panelWidth: 480         // fits 8 launcher buttons + `+` on one row; widen via IPC `widen`
     property int  scallop: 18             // concave corner radius = Hyprland decoration:rounding
     property bool remapping: false        // startup restack: unmap→remap to jump above the bar
     property int  restackCount: 0
@@ -201,7 +201,7 @@ ShellRoot {
         function hide(): void   { root.shown = false }
         function pin(): void    { root.pinned = !root.pinned }
         function lock(): void   { root.shown = true; root.pinned = true }   // show + pin (CLI hand-off return)
-        function widen(): void  { root.panelWidth = (root.panelWidth >= 620 ? 460 : 620) }
+        function widen(): void  { root.panelWidth = (root.panelWidth >= 620 ? 480 : 620) }
         function clear(): void  { chatModel.clear() }
         function reload(): void { root.loadHistory(root.currentSession); root.loadSessions() }  // re-sync after CLI edits
     }
