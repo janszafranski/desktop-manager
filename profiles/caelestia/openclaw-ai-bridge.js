@@ -436,6 +436,17 @@ const server = http.createServer((req, res) => {
         const parsed = JSON.parse(body);
         msg = lastUserMessage(parsed.messages);
         if (parsed.session && typeof parsed.session === 'string') sessionKey = parsed.session;
+        // Continuity pin: the flyout client mints a throwaway `agent:main:flyout-<ts>`
+        // session on (re)launch, which orphans the running conversation onto a fresh
+        // key with no history — the "it had no idea what I was talking about" bug.
+        // Coerce those ephemeral instance keys back to the stable default so the
+        // flyout is one continuous brain. Deliberate drawer switches to *named*
+        // sessions (anything not matching this pattern) are still honoured.
+        if (/^agent:main:flyout-\d+$/.test(sessionKey)) {
+          if (sessionKey !== DEFAULT_SESSION)
+            console.error(`[bridge] pinned ephemeral ${sessionKey} -> ${DEFAULT_SESSION}`);
+          sessionKey = DEFAULT_SESSION;
+        }
       } catch (_) {
         /* fall through */
       }

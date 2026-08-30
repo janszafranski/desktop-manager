@@ -17,10 +17,18 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
     hl.exec_cmd("qs -c keybinds")  -- persistent keybind widget (hot corner + Super+/)
     hl.exec_cmd("qs -c openclaw-sidebar")  -- pinnable left-docked OpenClaw agent panel (Super+O toggles)
+    -- Re-apply the pure-black AMOLED surface ramp to Caelestia every login. caelestia
+    -- regenerates scheme.json (dark-grey #131317 surfaces) from the wallpaper, so without
+    -- this the bar/panels revert to grey. blacken.sh is idempotent; shell reads it live.
+    hl.exec_cmd("bash ~/.config/hypr/scripts/blacken.sh")
+    hl.exec_cmd("python3 /home/jan/.local/bin/tremor-filter.py")  -- steady-mouse tremor filter (autostart ON; SUPER+SHIFT+M toggles, run tremor-gui.py to tune)
 end)
 
--- frost the OpenClaw sidebar (blur behind its semi-transparent surface)
-hl.layer_rule({ match = { namespace = "openclaw-sidebar" }, blur = true })
+-- OpenClaw sidebar: blur OFF. On the Intel HD 630 iGPU a full-height, always-pinned
+-- blurred layer surface drags the whole compositor's frame pacing (loses the app-open
+-- bounce, sluggish motion). The panel is near-opaque (colBg alpha) so it looks clean
+-- without frost. Flip blur = true to restore frost if you ever move to a real GPU.
+hl.layer_rule({ match = { namespace = "openclaw-sidebar" }, blur = false })
 
 -- --- look, feel and input ---
 hl.config({
@@ -29,9 +37,23 @@ hl.config({
         gaps_out = 10,
         border_size = 2,
         layout = "dwindle",
+        ["col.active_border"]   = "rgba(000000ff)",  -- black window frames (Jan's call)
+        ["col.inactive_border"] = "rgba(000000ff)",
     },
     decoration = {
         rounding = 18,
+        blur = {
+            enabled = false,      -- OFF globally (2026-08-26). size5/passes3 over 3440x1440 on
+                                  -- the HD 630 iGPU saturated the GPU on every window open ->
+                                  -- dropped the app-open animation + sluggish launches. Even the
+                                  -- Caelestia bar/panel frost cost too much. Jan's call: kill it.
+                                  -- Flip to true (+ size 3 / passes 1 for a light, cheap frost)
+                                  -- only on a real GPU.
+            size = 5,
+            passes = 3,
+            xray = true,          -- blur samples the wallpaper, not windows behind
+            new_optimizations = true,
+        },
     },
     input = {
         kb_layout = "us",
@@ -46,7 +68,35 @@ hl.config({
         -- false -- true would blank the default wallpaper entirely.
         force_default_wallpaper = 2,
     },
+    animations = {
+        enabled = true,
+    },
 })
+
+-- --- animations (2026-08-26) ---
+-- The minimal config previously defined NO curves/animations, so Hyprland fell back
+-- to its compiled-in defaults (global speed 8 = a laggy 0.8s window open, plain
+-- `default` bezier = zero overshoot). That read as "sluggish + no bounce" even though
+-- the machine is idle/HW-accelerated. Fix = snappier speeds + an easeOutBack overshoot
+-- curve on windowsIn for a real pop. Speed is duration in 1/10s (lower = faster).
+-- "shudder" = an underdamped SPRING (mass/stiffness/dampening), not a bezier. A bezier can
+-- only overshoot ONCE over a fixed duration (= a slow single lob). A spring with high
+-- stiffness + low dampening snaps open fast and then OSCILLATES a few times before settling
+-- = the sudden bouncy/shuddering stop Jan wants. Damping ratio ~0.25 (underdamped) here.
+hl.curve("shudder",  { type = "spring", mass = 0.8, stiffness = 1100, dampening = 13 })  -- fast rise (high stiffness/low mass), underdamped ζ~0.22 = sharp multi-wobble shudder
+hl.curve("snapOut",  { type = "bezier", points = { {0.16, 1},    {0.3,  1} } })  -- fast, smooth settle (no overshoot)
+hl.curve("linear",   { type = "bezier", points = { {0, 0},       {1,    1} } })
+
+hl.animation({ leaf = "global",     enabled = true, speed = 5,   bezier = "default" })
+hl.animation({ leaf = "windows",    enabled = true, speed = 4,   bezier = "snapOut" })
+hl.animation({ leaf = "windowsIn",  enabled = true, speed = 4, spring = "shudder", style = "popin 70%" })  -- fast snap + shudder (spring governs timing; speed field still required by parser)
+hl.animation({ leaf = "windowsOut", enabled = true, speed = 2.5, bezier = "linear",  style = "popin 80%" })
+hl.animation({ leaf = "border",     enabled = true, speed = 5,   bezier = "default" })
+hl.animation({ leaf = "fade",       enabled = true, speed = 2.5, bezier = "snapOut" })
+hl.animation({ leaf = "fadeIn",     enabled = true, speed = 2.5, bezier = "snapOut" })
+hl.animation({ leaf = "fadeOut",    enabled = true, speed = 2,   bezier = "snapOut" })
+hl.animation({ leaf = "workspaces", enabled = true, speed = 3,   bezier = "snapOut", style = "slide" })
+hl.animation({ leaf = "layers",     enabled = true, speed = 3,   bezier = "snapOut", style = "fade" })
 
 -- --- keybinds (minimal but usable) ---
 -- NB: because these binds are defined in Lua, `hyprctl binds` reports their
@@ -144,9 +194,13 @@ hl.bind("CTRL + " .. mod .. " + ALT + R",   hl.dsp.exec_cmd("qs -c caelestia kil
 -- with the plain yad window as a fallback (Super+Shift+/)
 hl.bind(mod .. " + slash",         hl.dsp.exec_cmd("~/.config/hypr/scripts/keybinds-toggle.sh"), { description = "Keybindings (this widget)" })
 hl.bind(mod .. " + SHIFT + slash", hl.dsp.exec_cmd("~/.config/hypr/scripts/keybinds.sh"),        { description = "Keybindings (fallback list)" })
+hl.bind(mod .. " + SHIFT + M",     hl.dsp.exec_cmd("~/.local/bin/steady-toggle.sh"),             { description = "Toggle steady mouse (tremor filter)" })
 
 -- float the yad fallback window like a proper overlay
 hl.window_rule({ name = "float-keybinds", match = { class = "yad" }, float = true })
 
 -- float the Desktop Manager (system-replica) GUI instead of tiling it fullscreen
 hl.window_rule({ name = "float-desktop-manager", match = { class = "system-replica" }, float = true })
+
+-- float the Steady Mouse (tremor filter) control panel, centred like the others
+hl.window_rule({ name = "float-steady-mouse", match = { class = "ai.openclaw.steadymouse" }, float = true })
