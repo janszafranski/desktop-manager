@@ -7,15 +7,21 @@ log()  { printf '\033[1;36m::\033[0m %s\n' "$*"; }
 
 BIN="$HOME/.local/bin"; APPS="$HOME/.local/share/applications"
 
-# stop a running daemon
+# stop a running daemon + tray
 if [[ -f "$HOME/.config/tremor-filter/pid" ]]; then
   kill "$(cat "$HOME/.config/tremor-filter/pid")" 2>/dev/null || true
 fi
+for pid in $(pgrep -f 'python3 .*tremor-tray.py' 2>/dev/null); do
+  grep -q python3 "/proc/$pid/cmdline" 2>/dev/null && kill "$pid" 2>/dev/null || true
+done
 
 log "Removing files"
-rm -f "$BIN/tremor-filter.py" "$BIN/tremor-gui.py" "$BIN/steady-toggle.sh"
+rm -f "$BIN/tremor-filter.py" "$BIN/tremor-gui.py" "$BIN/tremor-tray.py" \
+      "$BIN/steady-autostart.py" "$BIN/steady-toggle.sh"
 rm -f "$APPS/steady-mouse.desktop"
-rm -f "$HOME/.config/autostart/steady-mouse-daemon.desktop"
+rm -rf "$HOME/.local/share/steady-mouse"
+rm -f "$HOME/.config/autostart/steady-mouse.desktop" \
+      "$HOME/.config/autostart/steady-mouse-daemon.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" 2>/dev/null || true
 
 # strip the guarded block from the Hyprland-Lua config

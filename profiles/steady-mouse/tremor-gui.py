@@ -50,6 +50,76 @@ def signal_reload():
         try: os.kill(pid, signal.SIGHUP)
         except Exception: pass
 
+# --- startup / tray / help --------------------------------------------------
+TRAY      = f"{HOME}/.local/bin/tremor-tray.py"
+LAUNCHER  = f"{HOME}/.local/bin/steady-autostart.py"
+PREFS     = f"{HOME}/.config/tremor-filter/gui.json"
+AUTOSTART = f"{HOME}/.config/autostart/steady-mouse.desktop"
+DOCS_URL  = "https://github.com/janszafranski/desktop-manager/blob/master/profiles/steady-mouse/DOCUMENTATION.md"
+PREF_DEFAULTS = {"autostart": True, "tray": True}
+
+def load_prefs():
+    p = dict(PREF_DEFAULTS)
+    try:
+        with open(PREFS) as f: p.update(json.load(f))
+    except Exception: pass
+    return p
+
+def save_prefs(p):
+    os.makedirs(os.path.dirname(PREFS), exist_ok=True)
+    with open(PREFS, "w") as f: json.dump(p, f, indent=2)
+
+def is_hyprland():
+    d = f"{os.environ.get('XDG_CURRENT_DESKTOP','')}:{os.environ.get('DESKTOP_SESSION','')}".lower()
+    if "hyprland" in d: return True
+    try: return subprocess.run(["pgrep","-x","Hyprland"], capture_output=True).returncode == 0
+    except Exception: return False
+
+def set_xdg_autostart(enabled):
+    """Non-Hyprland desktops: (de)register the launcher as XDG autostart.
+    On Hyprland the launcher runs from hyprland.lua, so this is a no-op."""
+    if is_hyprland(): return
+    if enabled:
+        os.makedirs(os.path.dirname(AUTOSTART), exist_ok=True)
+        with open(AUTOSTART, "w") as f:
+            f.write("[Desktop Entry]\nType=Application\nName=Steady Mouse\n"
+                    f"Exec=python3 {LAUNCHER}\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n")
+    else:
+        try: os.remove(AUTOSTART)
+        except FileNotFoundError: pass
+
+def tray_pid():
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit(): continue
+        try:
+            with open(f"/proc/{pid}/cmdline") as f:
+                if "tremor-tray.py" in f.read(): return int(pid)
+        except Exception: pass
+    return None
+
+def start_tray():
+    if tray_pid() is None:
+        subprocess.Popen([sys.executable, TRAY], start_new_session=True,
+                         stdout=open("/tmp/tremor-tray.log", "w"), stderr=subprocess.STDOUT)
+
+def stop_tray():
+    pid = tray_pid()
+    if pid:
+        try: os.kill(pid, signal.SIGTERM)
+        except Exception: pass
+
+def open_help(*_):
+    subprocess.Popen(["xdg-open", DOCS_URL], start_new_session=True)
+
+def switch_row(label_text, sub, active, handler):
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+    lbl = Gtk.Label(); lbl.set_xalign(0.0); lbl.set_hexpand(True); lbl.set_wrap(True)
+    lbl.set_markup(f"<b>{label_text}</b>\n<span alpha='60%' size='small'>{sub}</span>")
+    sw = Gtk.Switch(); sw.set_valign(Gtk.Align.CENTER)
+    sw.set_active(active); sw.connect("state-set", handler)
+    row.append(lbl); row.append(sw)
+    return row, sw
+
 SLIDERS = [
     # key,       label,               min, max,  step,  digits, suffix
     ("smooth",   "Smoothing",         0.0, 0.95, 0.05,  2,      "  (higher = steadier)"),
@@ -66,8 +136,13 @@ class SteadyApp(Gtk.Application):
 
     def do_activate(self):
         self.cfg = load_cfg()
+        self.prefs = load_prefs()
+        if not os.path.exists(PREFS):        # first run — defaults ON, so enable both
+            save_prefs(self.prefs)
+            set_xdg_autostart(self.prefs.get("autostart", True))
+            if self.prefs.get("tray", True): start_tray()
         win = Gtk.ApplicationWindow(application=self, title="Steady Mouse")
-        win.set_default_size(460, 520)
+        win.set_default_size(460, 600)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         for m in ("top", "bottom", "start", "end"): getattr(box, f"set_margin_{m}")(20)
         win.set_child(box)
@@ -87,8 +162,6 @@ class SteadyApp(Gtk.Application):
         close.connect("clicked", lambda *_: win.close())
         head.append(close)
         box.append(head)
-        self.status = Gtk.Label(); self.status.set_xalign(0.0)
-        box.append(self.status)
         box.append(Gtk.Separator())
 
         # sliders
@@ -109,10 +182,39 @@ class SteadyApp(Gtk.Application):
         btn = Gtk.Button(label="Reset to defaults"); btn.connect("clicked", self.on_reset)
         btn.set_margin_top(8); box.append(btn)
 
+        # startup & tray options
+        sep = Gtk.Separator(); sep.set_margin_top(4); box.append(sep)
+        row1, self.sw_autostart = switch_row(
+            "Launch at startup", "Run Steady Mouse automatically when you log in.",
+            self.prefs.get("autostart", True), self.on_autostart)
+        box.append(row1)
+        row2, self.sw_tray = switch_row(
+            "Show tray icon", "A mouse in the system tray — filled when on, outline when off.",
+            self.prefs.get("tray", True), self.on_tray)
+        box.append(row2)
+
+        # Help — compact bordered box, right-aligned inline with the tip text
+        help_css = Gtk.CssProvider()
+        _css = ".sm-help{padding:1px 12px;min-height:0}"
+        try: help_css.load_from_string(_css)
+        except Exception:
+            try: help_css.load_from_data(_css.encode())
+            except Exception: pass
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), help_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        tip_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        tip_row.set_margin_top(4)
         hint = Gtk.Label(); hint.set_xalign(0.0); hint.set_wrap(True)
+        hint.set_hexpand(True); hint.set_valign(Gtk.Align.CENTER)
         hint.set_markup("<span alpha='65%'>Tip: leave it ON while you slide — changes apply live. "
                         "SUPER+SHIFT+M also toggles it.</span>")
-        box.append(hint)
+        help_btn = Gtk.Button(label="Help")
+        help_btn.add_css_class("sm-help")
+        help_btn.set_valign(Gtk.Align.CENTER)
+        help_btn.set_tooltip_text("Open the full documentation")
+        help_btn.connect("clicked", open_help)
+        tip_row.append(hint); tip_row.append(help_btn)
+        box.append(tip_row)
 
         GLib.timeout_add_seconds(1, self.poll)
         self.refresh_status()
@@ -141,10 +243,20 @@ class SteadyApp(Gtk.Application):
             self.scales[key].set_value(float(DEFAULTS[key]))
         save_cfg(self.cfg); signal_reload()
 
+    def on_autostart(self, _sw, state):
+        self.prefs["autostart"] = bool(state); save_prefs(self.prefs)
+        set_xdg_autostart(bool(state))
+        return False
+
+    def on_tray(self, _sw, state):
+        self.prefs["tray"] = bool(state); save_prefs(self.prefs)
+        if state: start_tray()
+        else: stop_tray()
+        return False
+
     def refresh_status(self):
         on = daemon_pid() is not None
         self.syncing = True; self.switch.set_active(on); self.syncing = False
-        self.status.set_markup(f"<span alpha='70%'>Status: <b>{'ON' if on else 'off'}</b></span>")
         return False
 
     def poll(self):

@@ -20,13 +20,18 @@ detect_de() {
 }
 
 BIN="$HOME/.local/bin"; APPS="$HOME/.local/share/applications"; CFGDIR="$HOME/.config/tremor-filter"
+SHARE="$HOME/.local/share/steady-mouse"
 
 # --- 1. deploy files (desktop-agnostic) --------------------------------------
 log "Deploying app files"
-mkdir -p "$BIN" "$APPS" "$CFGDIR"
-install -m755 "$SELF/tremor-filter.py" "$SELF/tremor-gui.py" "$SELF/steady-toggle.sh" "$BIN/"
+mkdir -p "$BIN" "$APPS" "$CFGDIR" "$SHARE/icons"
+install -m755 "$SELF/tremor-filter.py" "$SELF/tremor-gui.py" "$SELF/tremor-tray.py" \
+              "$SELF/steady-autostart.py" "$SELF/steady-toggle.sh" "$BIN/"
 install -m644 "$SELF/steady-mouse.desktop" "$APPS/steady-mouse.desktop"
+install -m644 "$SELF/assets/icons/"steady-mouse-*.svg "$SELF/assets/icons/"steady-mouse-*.png "$SHARE/icons/"
 [[ -f "$CFGDIR/config.json" ]] || install -m644 "$SELF/config.json" "$CFGDIR/config.json"
+# GUI prefs — both toggles default ON
+[[ -f "$CFGDIR/gui.json" ]] || printf '{\n  "autostart": true,\n  "tray": true\n}\n' > "$CFGDIR/gui.json"
 command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" 2>/dev/null || true
 
 # --- 2. python-evdev ---------------------------------------------------------
@@ -35,6 +40,16 @@ else
   log "Installing python-evdev (user site)"
   python3 -m pip install --user --break-system-packages --quiet evdev \
     || warn "Could not pip-install evdev — install 'python-evdev' via your package manager."
+fi
+
+# --- 2b. tray dependency (Ayatana AppIndicator, for the system-tray icon) -----
+if python3 -c "import gi; gi.require_version('AyatanaAppIndicator3','0.1')" 2>/dev/null; then
+  log "Ayatana AppIndicator present (tray icon supported)"
+else
+  warn "Tray icon needs libayatana-appindicator + its GObject typelib:"
+  warn "  Arch:   sudo pacman -S --needed libayatana-appindicator"
+  warn "  Debian/Ubuntu: sudo apt install gir1.2-ayatanaappindicator3-0.1"
+  warn "  (the app still works without it — just no tray icon)"
 fi
 
 # --- 3. permissions ----------------------------------------------------------
@@ -58,7 +73,7 @@ if [[ "$DE" == hyprland ]]; then
 $MARK_A
 hl.window_rule({ name = "float-steady-mouse", match = { class = "ai.openclaw.steadymouse" }, float = true })
 hl.bind(mod .. " + SHIFT + M", hl.dsp.exec_cmd("~/.local/bin/steady-toggle.sh"), { description = "Toggle steady mouse (tremor filter)" })
-hl.exec_cmd("python3 $HOME/.local/bin/tremor-filter.py")  -- autostart (single-instance guarded)
+hl.exec_cmd("python3 $HOME/.local/bin/steady-autostart.py")  -- autostart daemon + tray per GUI toggles (single-instance guarded)
 $MARK_B
 EOF
       command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
@@ -70,15 +85,15 @@ EOF
   fi
 else
   # universal XDG autostart (honoured by KDE, GNOME, most DEs)
-  install -Dm644 /dev/stdin "$HOME/.config/autostart/steady-mouse-daemon.desktop" <<EOF
+  install -Dm644 /dev/stdin "$HOME/.config/autostart/steady-mouse.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Steady Mouse (tremor filter)
-Exec=python3 $HOME/.local/bin/tremor-filter.py
+Name=Steady Mouse
+Exec=python3 $HOME/.local/bin/steady-autostart.py
 X-GNOME-Autostart-enabled=true
 NoDisplay=true
 EOF
-  log "Added XDG autostart for the daemon"
+  log "Added XDG autostart (daemon + tray, per GUI toggles)"
   if [[ "$DE" == kde ]]; then
     warn "KDE: to bind the on/off toggle, add a Custom Shortcut in"
     warn "  System Settings → Shortcuts → Add Command:  $HOME/.local/bin/steady-toggle.sh"
@@ -88,8 +103,8 @@ EOF
 fi
 
 # --- 5. start it now ---------------------------------------------------------
-log "Starting Steady Mouse"
-setsid -f python3 "$BIN/tremor-filter.py" >/tmp/tremor-filter.log 2>&1 || true
+log "Starting Steady Mouse (daemon + tray, per GUI toggles)"
+setsid -f python3 "$BIN/steady-autostart.py" >/tmp/steady-autostart.log 2>&1 || true
 
 cat <<'DONE'
 
