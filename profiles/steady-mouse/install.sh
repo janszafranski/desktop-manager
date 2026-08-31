@@ -29,6 +29,12 @@ install -m755 "$SELF/tremor-filter.py" "$SELF/tremor-gui.py" "$SELF/tremor-tray.
               "$SELF/steady-autostart.py" "$SELF/steady-toggle.sh" "$BIN/"
 install -m644 "$SELF/steady-mouse.desktop" "$APPS/steady-mouse.desktop"
 install -m644 "$SELF/assets/icons/"steady-mouse-*.svg "$SELF/assets/icons/"steady-mouse-*.png "$SHARE/icons/"
+# build the local help doc from DOCUMENTATION.md (single source of truth)
+if bash "$SELF/build-help.sh" "$SHARE/help.html" >/dev/null 2>&1; then
+  log "Built local help doc (~/.local/share/steady-mouse/help.html)"
+else
+  warn "No markdown converter (pandoc / python-markdown) — Help button will use the online docs instead."
+fi
 [[ -f "$CFGDIR/config.json" ]] || install -m644 "$SELF/config.json" "$CFGDIR/config.json"
 # GUI prefs — both toggles default ON
 [[ -f "$CFGDIR/gui.json" ]] || printf '{\n  "autostart": true,\n  "tray": true\n}\n' > "$CFGDIR/gui.json"

@@ -1,9 +1,10 @@
 # Desktop Manager
 
-Small app to load/restore saved **themes** for **KDE** and **SDDM**, with spots
-for **Hyprland**, plus a few **standalone apps** to make your Linux experience
-easier — a self-contained snapshot of this machine's look & configuration, with
-scripts to reproduce it on a fresh **CachyOS / Arch** install.
+Small app to load/restore saved **themes** for **KDE** and **SDDM**, with
+**rices** for **Hyprland** (Caelestia, end4), plus a few **standalone apps** to
+make your Linux experience easier — a self-contained snapshot of this machine's
+look & configuration, with scripts to reproduce it on a fresh **CachyOS / Arch**
+install.
 
 Base setup captured: KDE Plasma 6 (Wayland) with the **Nordic / Nordic-bluish**
 theme, **Krohnkite** tiling, **Alacritty** (Nord), **Fish** + Zsh (CachyOS

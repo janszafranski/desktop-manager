@@ -25,8 +25,10 @@ Requires membership of the **`input`** group (for `/dev/uinput` + `/dev/input`):
   *Click freeze*, *Double-click block*, *Dead zone*. Changes apply live.
 - **Startup & tray toggles** (panel, both **on** by default): *Launch at startup*
   and *Show tray icon*.
-- **Help:** the **?** button (bottom-right of the panel, or the tray menu) opens
-  the [full documentation](DOCUMENTATION.md).
+- **Help:** the **Help** button (bottom-right of the panel, or the tray menu)
+  opens the full manual. A local copy (`help.html`) is installed for **offline**
+  use, with a link to the [latest version on GitHub](DOCUMENTATION.md); it falls
+  back to the online doc if the local copy is missing.
 
 ## Files
 | file | role |
@@ -40,7 +42,9 @@ Requires membership of the **`input`** group (for `/dev/uinput` + `/dev/input`):
 | `config.json`        | daemon defaults (device empty = auto-detect) |
 | `gui.json`           | GUI prefs — `autostart` / `tray` (both default true) |
 | `assets/icons/`      | tray icons (`steady-mouse-on/off.{svg,png}`) |
-| `DOCUMENTATION.md`   | full user documentation (opened by the **?** help button) |
+| `DOCUMENTATION.md`   | full user manual — single source for the local help doc |
+| `build-help.sh`      | generates local `help.html` from `DOCUMENTATION.md` (pandoc / python-markdown) |
+| `assets/help-*.html` | style + "updates on GitHub" banner injected into `help.html` |
 
 The tray icon needs **`libayatana-appindicator`** (Arch) /
 `gir1.2-ayatanaappindicator3-0.1` (Debian). Without it the app still works —

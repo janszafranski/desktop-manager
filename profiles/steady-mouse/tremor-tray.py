@@ -20,6 +20,7 @@ DAEMON  = f"{HOME}/.local/bin/tremor-filter.py"
 GUI     = f"{HOME}/.local/bin/tremor-gui.py"
 PIDFILE = f"{HOME}/.config/tremor-filter/pid"
 ICONDIR = f"{HOME}/.local/share/steady-mouse/icons"
+HELP_LOCAL = f"{HOME}/.local/share/steady-mouse/help.html"
 DOCS_URL = "https://github.com/janszafranski/desktop-manager/blob/master/profiles/steady-mouse/DOCUMENTATION.md"
 ICON_ON, ICON_OFF = "steady-mouse-on", "steady-mouse-off"
 
@@ -117,8 +118,9 @@ class Tray:
             pass
 
     def open_help(self):
+        target = HELP_LOCAL if os.path.exists(HELP_LOCAL) else DOCS_URL
         try:
-            subprocess.Popen(["xdg-open", DOCS_URL], start_new_session=True)
+            subprocess.Popen(["xdg-open", target], start_new_session=True)
         except Exception:
             pass
 

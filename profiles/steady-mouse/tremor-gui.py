@@ -55,6 +55,7 @@ TRAY      = f"{HOME}/.local/bin/tremor-tray.py"
 LAUNCHER  = f"{HOME}/.local/bin/steady-autostart.py"
 PREFS     = f"{HOME}/.config/tremor-filter/gui.json"
 AUTOSTART = f"{HOME}/.config/autostart/steady-mouse.desktop"
+HELP_LOCAL = f"{HOME}/.local/share/steady-mouse/help.html"
 DOCS_URL  = "https://github.com/janszafranski/desktop-manager/blob/master/profiles/steady-mouse/DOCUMENTATION.md"
 PREF_DEFAULTS = {"autostart": True, "tray": True}
 
@@ -109,7 +110,8 @@ def stop_tray():
         except Exception: pass
 
 def open_help(*_):
-    subprocess.Popen(["xdg-open", DOCS_URL], start_new_session=True)
+    target = HELP_LOCAL if os.path.exists(HELP_LOCAL) else DOCS_URL
+    subprocess.Popen(["xdg-open", target], start_new_session=True)
 
 def switch_row(label_text, sub, active, handler):
     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
