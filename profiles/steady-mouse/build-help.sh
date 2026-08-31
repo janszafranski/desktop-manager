@@ -39,13 +39,13 @@ PY
 
 # 2. convert to standalone HTML
 if command -v pandoc >/dev/null 2>&1; then
-  pandoc "$TMP" -s --metadata title="Steady Mouse — Help" \
+  pandoc "$TMP" -s --metadata title="Shakefree Mouse — Help" \
     --include-in-header "$HDR" --include-before-body "$BAN" -o "$OUT"
 elif command -v markdown_py >/dev/null 2>&1; then
   {
     echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    echo '<title>Steady Mouse — Help</title>'
+    echo '<title>Shakefree Mouse — Help</title>'
     cat "$HDR"
     echo '</head><body>'
     cat "$BAN"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall.sh — remove Steady Mouse (files + Hyprland integration). Keeps your
+# uninstall.sh — remove Shakefree Mouse (files + Hyprland integration). Keeps your
 # ~/.config/tremor-filter tuning unless you delete it yourself. Run as your user.
 set -euo pipefail
 log()  { printf '\033[1;36m::\033[0m %s\n' "$*"; }

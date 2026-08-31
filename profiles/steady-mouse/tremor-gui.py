@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Steady Mouse control panel (GTK4) for the tremor-filter daemon.
+Shakefree Mouse control panel (GTK4) for the tremor-filter daemon.
 On/off switch + live sliders. Changes apply instantly (writes config + SIGHUP to daemon).
 """
 import json, os, signal, subprocess, sys
@@ -83,7 +83,7 @@ def set_xdg_autostart(enabled):
     if enabled:
         os.makedirs(os.path.dirname(AUTOSTART), exist_ok=True)
         with open(AUTOSTART, "w") as f:
-            f.write("[Desktop Entry]\nType=Application\nName=Steady Mouse\n"
+            f.write("[Desktop Entry]\nType=Application\nName=Shakefree Mouse\n"
                     f"Exec=python3 {LAUNCHER}\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n")
     else:
         try: os.remove(AUTOSTART)
@@ -143,7 +143,7 @@ class SteadyApp(Gtk.Application):
             save_prefs(self.prefs)
             set_xdg_autostart(self.prefs.get("autostart", True))
             if self.prefs.get("tray", True): start_tray()
-        win = Gtk.ApplicationWindow(application=self, title="Steady Mouse")
+        win = Gtk.ApplicationWindow(application=self, title="Shakefree Mouse")
         win.set_default_size(460, 600)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         for m in ("top", "bottom", "start", "end"): getattr(box, f"set_margin_{m}")(20)
@@ -151,7 +151,7 @@ class SteadyApp(Gtk.Application):
 
         # header: title + on/off switch
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        title = Gtk.Label(); title.set_markup("<span size='xx-large' weight='bold'>Steady Mouse</span>")
+        title = Gtk.Label(); title.set_markup("<span size='xx-large' weight='bold'>Shakefree Mouse</span>")
         title.set_hexpand(True); title.set_xalign(0.0)
         self.switch = Gtk.Switch(); self.switch.set_valign(Gtk.Align.CENTER)
         self.switch.set_active(daemon_pid() is not None)
@@ -187,7 +187,7 @@ class SteadyApp(Gtk.Application):
         # startup & tray options
         sep = Gtk.Separator(); sep.set_margin_top(4); box.append(sep)
         row1, self.sw_autostart = switch_row(
-            "Launch at startup", "Run Steady Mouse automatically when you log in.",
+            "Launch at startup", "Run Shakefree Mouse automatically when you log in.",
             self.prefs.get("autostart", True), self.on_autostart)
         box.append(row1)
         row2, self.sw_tray = switch_row(

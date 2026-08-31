@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Steady Mouse
+Name=Shakefree Mouse
 GenericName=Tremor Filter
 Comment=Hand-tremor mouse filter — smooths shake and steadies clicks
 Exec=sh -c 'exec python3 "$HOME/.local/bin/tremor-gui.py"'

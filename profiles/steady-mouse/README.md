@@ -1,6 +1,6 @@
-# Steady Mouse — hand-tremor mouse filter
+# Shakefree Mouse — hand-tremor mouse filter
 
-<p align="center"><img src="assets/screenshot.png" alt="Steady Mouse control panel" width="380"></p>
+<p align="center"><img src="assets/screenshot.png" alt="Shakefree Mouse control panel" width="380"></p>
 
 A SteadyMouse-style tremor filter for Linux — works on **any desktop** (X11 or
 Wayland, KDE or Hyprland), because it filters at the input layer. Runs in
@@ -11,7 +11,7 @@ mouse via `uinput`. On Hyprland it adds a Super+Shift+M toggle + autostart; on
 KDE/GNOME/other it uses XDG autostart (bind the toggle in your DE's settings).
 
 ## Install
-Via the Desktop Manager GUI → **Steady Mouse** card → *Install the app*, or:
+Via the Desktop Manager GUI → **Shakefree Mouse** card → *Install the app*, or:
 ```bash
 ./install.sh
 ```
@@ -19,7 +19,7 @@ Requires membership of the **`input`** group (for `/dev/uinput` + `/dev/input`):
 `sudo usermod -aG input "$USER"` then log out/in.
 
 ## Use
-- **Launch panel:** app menu → "Steady Mouse" (or run `tremor-gui.py`)
+- **Launch panel:** app menu → "Shakefree Mouse" (or run `tremor-gui.py`)
 - **Toggle on/off:** `Super+Shift+M`, the panel switch, or the tray icon
 - **Tray icon:** a mouse in the system tray — **filled = on, outline = off**;
   click it to toggle, open Settings, or Help

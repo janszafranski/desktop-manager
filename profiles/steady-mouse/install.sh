@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Steady Mouse: a SteadyMouse-style hand-tremor filter for Linux.
+# install.sh — Shakefree Mouse: a SteadyMouse-style hand-tremor filter for Linux.
 # The daemon works on ANY desktop (it filters at the evdev/uinput input layer,
 # so X11 or Wayland, KDE or Hyprland). Userspace: NO root (needs the 'input'
 # group). On Hyprland it also adds a Super+Shift+M toggle + float rule + autostart;
@@ -78,7 +78,7 @@ if [[ "$DE" == hyprland ]]; then
 
 $MARK_A
 hl.window_rule({ name = "float-steady-mouse", match = { class = "ai.openclaw.steadymouse" }, float = true })
-hl.bind(mod .. " + SHIFT + M", hl.dsp.exec_cmd("~/.local/bin/steady-toggle.sh"), { description = "Toggle steady mouse (tremor filter)" })
+hl.bind(mod .. " + SHIFT + M", hl.dsp.exec_cmd("~/.local/bin/steady-toggle.sh"), { description = "Toggle shakefree mouse (tremor filter)" })
 hl.exec_cmd("python3 $HOME/.local/bin/steady-autostart.py")  -- autostart daemon + tray per GUI toggles (single-instance guarded)
 $MARK_B
 EOF
@@ -94,7 +94,7 @@ else
   install -Dm644 /dev/stdin "$HOME/.config/autostart/steady-mouse.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Steady Mouse
+Name=Shakefree Mouse
 Exec=python3 $HOME/.local/bin/steady-autostart.py
 X-GNOME-Autostart-enabled=true
 NoDisplay=true
@@ -109,13 +109,13 @@ EOF
 fi
 
 # --- 5. start it now ---------------------------------------------------------
-log "Starting Steady Mouse (daemon + tray, per GUI toggles)"
+log "Starting Shakefree Mouse (daemon + tray, per GUI toggles)"
 setsid -f python3 "$BIN/steady-autostart.py" >/tmp/steady-autostart.log 2>&1 || true
 
 cat <<'DONE'
 
-Steady Mouse installed.
-  • Launch the tuning panel from your app menu ("Steady Mouse") or: tremor-gui.py
+Shakefree Mouse installed.
+  • Launch the tuning panel from your app menu ("Shakefree Mouse") or: tremor-gui.py
   • Toggle: Super+Shift+M (Hyprland) or the hotkey you bind (KDE/other)
   • Works on any desktop — the filter runs at the input layer.
 DONE

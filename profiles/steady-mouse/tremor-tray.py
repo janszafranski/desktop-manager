@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Steady Mouse tray applet — persistent system-tray (StatusNotifierItem) indicator
+Shakefree Mouse tray applet — persistent system-tray (StatusNotifierItem) indicator
 for the tremor-filter daemon.
 
 Icon: a small mouse — FILLED WHITE when the filter is ON, OUTLINE (empty) when OFF.
@@ -58,10 +58,10 @@ class Tray:
             "steady-mouse", ICON_ON,
             AppIndicator3.IndicatorCategory.APPLICATION_STATUS, ICONDIR)
         self.ind.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-        self.ind.set_title("Steady Mouse")
+        self.ind.set_title("Shakefree Mouse")
 
         self.menu = Gtk.Menu()
-        self.item_toggle = Gtk.CheckMenuItem(label="Steady Mouse active")
+        self.item_toggle = Gtk.CheckMenuItem(label="Shakefree Mouse active")
         self.item_toggle.connect("toggled", self.on_toggle)
         self.menu.append(self.item_toggle)
         self.menu.append(Gtk.SeparatorMenuItem())
@@ -103,11 +103,11 @@ class Tray:
         on = daemon_pid() is not None
         if on != self._last:
             self.ind.set_icon_full(ICON_ON if on else ICON_OFF,
-                                   "Steady Mouse " + ("on" if on else "off"))
+                                   "Shakefree Mouse " + ("on" if on else "off"))
             self._last = on
         self._syncing = True
         self.item_toggle.set_active(on)
-        self.item_toggle.set_label("Steady Mouse active" if on else "Steady Mouse off")
+        self.item_toggle.set_label("Shakefree Mouse active" if on else "Shakefree Mouse off")
         self._syncing = False
         return True
 

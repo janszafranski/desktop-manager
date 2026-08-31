@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Steady Mouse startup launcher — invoked once at login (from Hyprland's
+Shakefree Mouse startup launcher — invoked once at login (from Hyprland's
 hyprland.lua, or XDG autostart on other desktops). It reads the GUI prefs
 and starts the pieces the user has enabled:
 

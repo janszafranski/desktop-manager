@@ -1,8 +1,8 @@
-# Steady Mouse — Full Documentation
+# Shakefree Mouse — Full Documentation
 
-<p align="center"><img src="https://raw.githubusercontent.com/janszafranski/desktop-manager/master/profiles/steady-mouse/assets/screenshot.png" alt="Steady Mouse control panel" width="380"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/janszafranski/desktop-manager/master/profiles/steady-mouse/assets/screenshot.png" alt="Shakefree Mouse control panel" width="380"></p>
 
-A hand‑tremor mouse filter for **Linux**. Steady Mouse smooths shaky pointer
+A hand‑tremor mouse filter for **Linux**. Shakefree Mouse smooths shaky pointer
 motion and steadies clicks, so people with hand tremor (essential tremor,
 Parkinson's, MS, cerebral palsy, RSI, or just a caffeine‑jittery day) can point
 and click accurately. It is the spiritual counterpart of the well‑known Windows
@@ -39,7 +39,7 @@ code with it.
 
 ## How it works
 
-Steady Mouse grabs your physical mouse via **evdev** (`/dev/input`), runs the
+Shakefree Mouse grabs your physical mouse via **evdev** (`/dev/input`), runs the
 motion through an adaptive filter, and emits a *new*, smoothed virtual mouse via
 **uinput**. The compositor sees only the smoothed pointer.
 
@@ -73,7 +73,7 @@ the whole desktop uniformly — no per‑app support needed.
 
 ## Installation
 
-Via the Desktop Manager GUI → **Steady Mouse** card → *Install the app*, or from
+Via the Desktop Manager GUI → **Shakefree Mouse** card → *Install the app*, or from
 this folder:
 
 ```bash
@@ -91,7 +91,7 @@ The installer is desktop‑aware:
 
 ## Permissions
 
-Steady Mouse needs read access to `/dev/input/*` and write access to
+Shakefree Mouse needs read access to `/dev/input/*` and write access to
 `/dev/uinput`. Both are owned by the **`input`** group:
 
 ```bash
@@ -110,7 +110,7 @@ There are four equivalent ways:
 | Method | Where |
 |--------|-------|
 | The main switch | top‑right of the control panel |
-| The tray icon | click it → **Steady Mouse active** |
+| The tray icon | click it → **Shakefree Mouse active** |
 | Keyboard | `Super+Shift+M` (Hyprland; bind your own on other DEs) |
 | Command line | `~/.local/bin/steady-toggle.sh` |
 
@@ -120,10 +120,10 @@ The filter starts and stops instantly; nothing needs a restart.
 
 ## The tray icon
 
-When enabled, Steady Mouse shows a small **mouse** in your system tray:
+When enabled, Shakefree Mouse shows a small **mouse** in your system tray:
 
-- **Filled (solid white)** — the filter is **ON**.
-- **Outline (empty)** — the filter is **OFF**.
+- <img src="assets/icons/steady-mouse-on.png" width="20" align="absmiddle"> **Filled (solid white)** — the filter is **ON**.
+- <img src="assets/icons/steady-mouse-off.png" width="20" align="absmiddle"> **Outline (empty)** — the filter is **OFF**.
 
 Clicking it opens a menu: toggle the filter, open **Settings…** (the panel),
 open **Help** (this document), or **Quit tray** (removes the icon without
@@ -139,7 +139,7 @@ supports the freedesktop SNI standard.
 
 Two switches in the control panel, **both ON by default**:
 
-- **Launch at startup** — run Steady Mouse automatically when you log in.
+- **Launch at startup** — run Shakefree Mouse automatically when you log in.
 - **Show tray icon** — show (or hide) the tray mouse.
 
 These are remembered in `~/.config/tremor-filter/gui.json` and honoured by the
@@ -269,7 +269,7 @@ tuning in `~/.config/tremor-filter/` is kept unless you delete it yourself.
 
 SteadyMouse (steadymouse.com) is a mature Windows application that pioneered
 approachable tremor filtering, including motion smoothing, click steadying, and
-"warp" assistance. Steady Mouse for Linux is an **independent reimplementation of
+"warp" assistance. Shakefree Mouse for Linux is an **independent reimplementation of
 the same *ideas*** — motion smoothing (via a One Euro filter), click freeze, and
 double‑click suppression — built natively on evdev/uinput. It does not use
 SteadyMouse's code and is not affiliated with it; credit for popularising the
