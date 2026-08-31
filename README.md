@@ -12,6 +12,28 @@ Base setup captured: KDE Plasma 6 (Wayland) with the **Nordic / Nordic-bluish**
 theme, **Krohnkite** tiling, **Alacritty** (Nord), **Fish** + Zsh (CachyOS
 configs), **Micro** (Catppuccin), and the GTK/Qt theming to match.
 
+## Standalone apps
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="profiles/steady-mouse"><img src="profiles/steady-mouse/assets/screenshot.png" alt="Steady Mouse" height="240"></a><br>
+      <b><a href="profiles/steady-mouse">Steady Mouse</a></b><br>
+      <sub>tremor-smoothing filter + tray</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="profiles/openclaw-flyout"><img src="profiles/openclaw-flyout/assets/screenshot.png" alt="OpenClaw flyout" height="240"></a><br>
+      <b><a href="profiles/openclaw-flyout">OpenClaw flyout</a></b><br>
+      <sub>AI assistant side panel</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="profiles/keybinds"><img src="profiles/keybinds/assets/screenshot.png" alt="Keybinds cheat-sheet" height="240"></a><br>
+      <b><a href="profiles/keybinds">Keybinds</a></b><br>
+      <sub>on-screen shortcut cheat-sheet</sub>
+    </td>
+  </tr>
+</table>
+
 ## Layout
 
 ```
