@@ -1,5 +1,7 @@
 # OpenClaw flyout — AI assistant side panel
 
+<p align="center"><img src="assets/screenshot.png" alt="OpenClaw flyout side panel" width="300"></p>
+
 A pinnable Quickshell side panel (`qs -c openclaw-sidebar`, **Super+O**) that
 chats with your OpenClaw agent through a local OpenAI-compatible bridge on
 `127.0.0.1:8787` (a Node service run via systemd --user).
