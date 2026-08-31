@@ -1,5 +1,7 @@
 # Steady Mouse — hand-tremor mouse filter
 
+<p align="center"><img src="assets/screenshot.png" alt="Steady Mouse control panel" width="380"></p>
+
 A SteadyMouse-style tremor filter for Linux — works on **any desktop** (X11 or
 Wayland, KDE or Hyprland), because it filters at the input layer. Runs in
 userspace (no root): it grabs the physical mouse via `evdev`, applies an

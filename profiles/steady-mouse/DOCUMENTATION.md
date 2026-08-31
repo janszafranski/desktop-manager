@@ -1,5 +1,7 @@
 # Steady Mouse — Full Documentation
 
+<p align="center"><img src="https://raw.githubusercontent.com/janszafranski/desktop-manager/master/profiles/steady-mouse/assets/screenshot.png" alt="Steady Mouse control panel" width="380"></p>
+
 A hand‑tremor mouse filter for **Linux**. Steady Mouse smooths shaky pointer
 motion and steadies clicks, so people with hand tremor (essential tremor,
 Parkinson's, MS, cerebral palsy, RSI, or just a caffeine‑jittery day) can point

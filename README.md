@@ -6,6 +6,8 @@ make your Linux experience easier — a self-contained snapshot of this machine'
 look & configuration, with scripts to reproduce it on a fresh **CachyOS / Arch**
 install.
 
+<p align="center"><img src="assets/desktop-manager-gui.png" alt="Desktop Manager GUI — theme cards and standalone apps" width="620"></p>
+
 Base setup captured: KDE Plasma 6 (Wayland) with the **Nordic / Nordic-bluish**
 theme, **Krohnkite** tiling, **Alacritty** (Nord), **Fish** + Zsh (CachyOS
 configs), **Micro** (Catppuccin), and the GTK/Qt theming to match.

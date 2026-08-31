@@ -1,5 +1,7 @@
 # Keyboard shortcuts — on-screen cheat-sheet
 
+<p align="center"><img src="assets/screenshot.png" alt="Keybindings cheat-sheet" width="420"></p>
+
 A Quickshell widget (`qs -c keybinds`) that lists every Hyprland keybinding,
 opened with **Super+/** (or the top-left hot corner).
 
