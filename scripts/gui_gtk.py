@@ -200,9 +200,10 @@ APPS = [
         "name": "Shakefree Mouse",
         "desc": "Hand-tremor mouse filter — smooths the shake and steadies clicks. "
                 "Userspace, no root. Toggle with Super+Shift+M. "
-                "Also published standalone on the AUR (paru -S shakefree-mouse).",
-        "install": _p("profiles", "steady-mouse", "install.sh"),
-        "launch": "python3 $HOME/.local/bin/tremor-gui.py",
+                "Own project now: github.com/janszafranski/shakefree-mouse (AUR: shakefree-mouse); "
+                "this just installs the package.",
+        "install": _p("profiles", "shakefree-mouse", "install.sh"),
+        "launch": "shakefree-mouse",
         "button": "Open panel",
     },
     {
