@@ -197,9 +197,10 @@ STAGES = [
 # through the shell with $VARS expanded; keybind hints are shown in the text.
 APPS = [
     {
-        "name": "Steady Mouse",
+        "name": "Shakefree Mouse",
         "desc": "Hand-tremor mouse filter — smooths the shake and steadies clicks. "
-                "Userspace, no root. Toggle with Super+Shift+M.",
+                "Userspace, no root. Toggle with Super+Shift+M. "
+                "Also published standalone on the AUR (paru -S shakefree-mouse).",
         "install": _p("profiles", "steady-mouse", "install.sh"),
         "launch": "python3 $HOME/.local/bin/tremor-gui.py",
         "button": "Open panel",

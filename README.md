@@ -17,9 +17,9 @@ configs), **Micro** (Catppuccin), and the GTK/Qt theming to match.
 <table>
   <tr>
     <td align="center" valign="top" width="33%">
-      <a href="profiles/steady-mouse"><img src="profiles/steady-mouse/assets/screenshot.png" alt="Steady Mouse" height="240"></a><br>
-      <b><a href="profiles/steady-mouse">Steady Mouse</a></b><br>
-      <sub>tremor-smoothing filter + tray</sub>
+      <a href="profiles/steady-mouse"><img src="profiles/steady-mouse/assets/screenshot.png" alt="Shakefree Mouse" height="240"></a><br>
+      <b><a href="profiles/steady-mouse">Shakefree Mouse</a></b><br>
+      <sub>tremor-smoothing filter + tray · <a href="https://github.com/janszafranski/shakefree-mouse">standalone / AUR</a></sub>
     </td>
     <td align="center" valign="top" width="33%">
       <a href="profiles/openclaw-flyout"><img src="profiles/openclaw-flyout/assets/screenshot.png" alt="OpenClaw flyout" height="240"></a><br>
