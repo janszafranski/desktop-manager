@@ -22,6 +22,15 @@ ShellRoot {
     property bool pinned: true            // pinned = reserve screen space (windows tile beside it)
     property int  panelWidth: 480         // fits 8 launcher buttons + `+` on one row; widen via IPC `widen`
     property int  scallop: 18             // concave corner radius = Hyprland decoration:rounding
+    property int  edgeGap: 10             // = Hyprland general:gaps_out; the negative win.margins
+                                          // that cancel the gap make win 2*edgeGap taller than the
+                                          // screen, so bg.top sits edgeGap ABOVE the visible top and
+                                          // bg.bottom edgeGap BELOW the visible bottom.
+    property int  scallopInset: 10        // fillet offset from bg's top/bottom edge. 10 (== edgeGap)
+                                          // lands the curves symmetrically: top strip 0-9px, bottom
+                                          // strip 1430-1439px, both exactly edgeGap from the true
+                                          // corners (confirmed good). LARGER = inward (top down /
+                                          // bottom up), smaller = outward. 18 sat top-low/bottom-high.
     property bool remapping: false        // startup restack: unmap→remap to jump above the bar
     property int  restackCount: 0
     property bool busy: false
@@ -39,6 +48,10 @@ ShellRoot {
     // --- palette (Caelestia-ish: AMOLED black + catppuccin accents) ---
     readonly property color colBg:      "#cc000000"   // black @ ~80% — transparent, blur stays off (perf); tune AA in #AArrggbb
     readonly property color colHeader:  "#cc000000"   // match bg alpha
+    // scallop fillets must be FULLY opaque — their job is to be a solid black
+    // corner-filler. If they inherit colBg's 80% alpha, the desktop behind bleeds
+    // through and the concave wedge looks like "a pale curve behind a normal one".
+    readonly property color colScallop: "#ff000000"   // solid black, always
     readonly property color colUserBub: "#ff141414"   // near-black so user bubbles stay faintly visible (was navy #cb1e1e2e)
     readonly property color colAsstBub: "#00000000"
     readonly property color colAccent:  "#cba6f7"     // mauve
@@ -300,6 +313,13 @@ ShellRoot {
         implicitWidth: root.panelWidth + root.scallop
 
         anchors { left: true; top: true; bottom: true }
+        // Cancel Hyprland's gaps_out (10px). Hyprland insets anchored layer-shell
+        // surfaces by general:gaps_out, so the panel was placed at x=60 y=10 h=1420 —
+        // leaving a 10px wallpaper strip ABOVE, BELOW, and to the LEFT of the dark
+        // boxes (the "transparent layer showing past the boxes"). Negative margins on
+        // the three anchored edges pull the surface back flush to the screen edges.
+        // If gaps_out changes, match it here.
+        margins { top: -10; bottom: -10; left: -10 }
         exclusiveZone: root.pinned ? root.panelWidth : 0
         // input only over the real panel; the overhang strip stays click-through to the desktop
         mask: Region { x: 0; y: 0; width: root.panelWidth; height: win.height }
@@ -335,30 +355,37 @@ ShellRoot {
             anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
             width: root.panelWidth
             color: root.colBg
-            border.color: root.colBorder
-            border.width: 1
+            // no border: the 1px grey edge showed as a pale line along the bottom/right
+            // against the desktop. Shape is defined by the solid bars + scallop fillets.
+            border.width: 0
 
-            // top-right concave fillet (rounds the desktop's top-left corner)
+            // top-right concave fillet (rounds the desktop's top-left corner).
+            // Runs from the panel's TOP edge (y:0) down through the scallopInset strip
+            // to the curve, so no wallpaper shows between the top strip and the arc.
+            // Top `scallopInset` px = solid black filler; bottom `scallop` px = the arc.
             Canvas {
-                width: root.scallop; height: root.scallop
+                width: root.scallop; height: root.scallopInset + root.scallop
                 x: bg.width; y: 0
                 onPaint: {
                     var c = getContext("2d");
                     c.clearRect(0, 0, width, height);
-                    c.fillStyle = root.colBg;
+                    c.fillStyle = root.colScallop;
                     c.fillRect(0, 0, width, height);
                     c.globalCompositeOperation = "destination-out";
+                    // arc centred at the fillet's bottom-right → carves the concave corner
                     c.beginPath(); c.arc(width, height, root.scallop, 0, 2 * Math.PI); c.fill();
                 }
             }
-            // bottom-right concave fillet (rounds the desktop's bottom-left corner)
+            // bottom-right concave fillet (rounds the desktop's bottom-left corner).
+            // Runs up to the panel's BOTTOM edge; top `scallop` px = arc, bottom
+            // `scallopInset` px = solid filler covering the strip to the edge.
             Canvas {
-                width: root.scallop; height: root.scallop
-                x: bg.width; y: bg.height - root.scallop
+                width: root.scallop; height: root.scallopInset + root.scallop
+                x: bg.width; y: bg.height - (root.scallopInset + root.scallop)
                 onPaint: {
                     var c = getContext("2d");
                     c.clearRect(0, 0, width, height);
-                    c.fillStyle = root.colBg;
+                    c.fillStyle = root.colScallop;
                     c.fillRect(0, 0, width, height);
                     c.globalCompositeOperation = "destination-out";
                     c.beginPath(); c.arc(width, 0, root.scallop, 0, 2 * Math.PI); c.fill();
@@ -371,11 +398,17 @@ ShellRoot {
                 spacing: 0
 
                 // ---------- header ----------
+                // Solid black (not 80% colHeader): the header is the top strip against the
+                // screen edge; at 80% the window/desktop behind bled through as grey.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 48
-                    color: root.colHeader
-                    topRightRadius: 18   // match the panel's scalloped top-right corner
+                    color: root.colScallop
+                    // NO topRightRadius: the header sits inside `bg` whose right edge is
+                    // square; the visible rounded corner is drawn by the external scallop
+                    // Canvas. A radius here punched an 18px quarter-circle notch out of the
+                    // header's own corner, exposing bg's 80%-alpha fill behind it = the grey
+                    // line "at the top, curving to the left". Keep the strip a full square.
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 10
@@ -387,6 +420,17 @@ ShellRoot {
                             onClicked: { root.sessionsOpen = !root.sessionsOpen; if (root.sessionsOpen) root.loadSessions(); }
                             ToolTip.text: "Recent chats"; ToolTip.visible: hovered
                             contentItem: Label { text: parent.text; color: root.sessionsOpen ? root.colAccent : root.colSubtle; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
+                            background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
+                        }
+                        // close: fully QUIT the flyout process — not just hide it.
+                        // (Placed next to the hamburger by request. Qt.quit() tears the
+                        //  qs -c openclaw-sidebar process down cleanly; a stuck panel used
+                        //  to need a PC reboot to clear.)
+                        ToolButton {
+                            text: "✕"
+                            onClicked: Qt.quit()
+                            ToolTip.text: "Quit flyout (fully close the process)"; ToolTip.visible: hovered
+                            contentItem: Label { text: parent.text; color: root.colSubtle; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
                             background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
                         }
                         Rectangle { width: 8; height: 8; radius: 4; color: root.colAccent }
@@ -423,6 +467,16 @@ ShellRoot {
                             contentItem: Label { text: parent.text; color: root.colSubtle; font.pixelSize: 16; horizontalAlignment: Text.AlignHCenter }
                             background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
                         }
+                        // collapse: tuck the flyout away (reopens on the same chat; stays pinned so re-show reserves space)
+                        // ❮ (U+276E) renders visually chunkier than the ↗ arrow at the same
+                        // pixelSize, so use 13 (not 16) to make the chevron LOOK the same size.
+                        ToolButton {
+                            text: "❮"
+                            onClicked: root.shown = false
+                            ToolTip.text: "Collapse (reopen with the toggle)"; ToolTip.visible: hovered
+                            contentItem: Label { text: parent.text; color: root.colSubtle; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                            background: Rectangle { color: parent.hovered ? root.colBorder : "transparent"; radius: 6 }
+                        }
                         // pin
                         ToolButton {
                             text: root.pinned ? "📌" : "📍"
@@ -433,7 +487,10 @@ ShellRoot {
                         }
                     }
                 }
-                Rectangle { Layout.fillWidth: true; height: 1; color: root.colBorder }
+                // separator under the header — colScallop (solid black) not colBorder:
+                // against the black header the grey #222 line read as "a light grey line
+                // at the top". Keep the 1px so layout height is unchanged, just invisible.
+                Rectangle { Layout.fillWidth: true; height: 1; color: root.colScallop }
 
                 // ---------- recent-chats drawer ----------
                 Rectangle {
@@ -556,7 +613,9 @@ ShellRoot {
                         verticalAlignment: Text.AlignVCenter
                     }
                 }
-                Rectangle { Layout.fillWidth: true; height: 1; color: root.colBorder }
+                // separator above the input — colScallop (solid black) not colBorder:
+                // the grey #222 line read as "a light grey line at the bottom".
+                Rectangle { Layout.fillWidth: true; height: 1; color: root.colScallop }
 
                 // ---------- input ----------
                 Rectangle {
@@ -626,10 +685,15 @@ ShellRoot {
                 }
 
                 // ---------- launcher bar (icons launch; the + on the right edits shortcuts) ----------
+                // Bottom bar must be SOLID black (not 80% colHeader): it's the last strip
+                // before the screen edge, so any transparency lets the desktop show through
+                // as a pale band that curves up around the + — reads as a light border.
                 Rectangle {
                     Layout.fillWidth: true
-                    color: root.colHeader
-                    bottomRightRadius: 18   // now the panel's scalloped bottom-right corner
+                    color: root.colScallop
+                    // NO bottomRightRadius: same reason as the header — a radius here notches
+                    // the corner and exposes bg's 80%-alpha fill as the grey line at the
+                    // bottom. The external scallop Canvas already rounds the visible corner.
                     implicitHeight: Math.max(launchFlow.implicitHeight, 38) + 12
 
                     Flow {
