@@ -11,9 +11,9 @@ log()  { printf '\033[1;36m::\033[0m %s\n' "$*"; }
 
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/desktop-manager/openclaw-flyout"
 
-if [[ -x "$CACHE/uninstall.sh" ]]; then
+if [[ -f "$CACHE/uninstall.sh" ]]; then
   log "Running the OpenClaw flyout uninstaller from the cached checkout"
-  exec "$CACHE/uninstall.sh"
+  exec bash "$CACHE/uninstall.sh"
 fi
 
 # Fallback: cache missing — remove the known deployed artifacts directly.

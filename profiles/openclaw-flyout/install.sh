@@ -30,6 +30,6 @@ else
     || die "Clone failed. Check your network / the repo URL."
 fi
 
-[[ -x "$CACHE/install.sh" ]] || die "The fetched repo has no install.sh — unexpected layout."
+[[ -f "$CACHE/install.sh" ]] || die "The fetched repo has no install.sh — unexpected layout."
 log "Running the OpenClaw flyout installer"
-exec "$CACHE/install.sh"
+exec bash "$CACHE/install.sh"
