@@ -286,6 +286,25 @@ ShellRoot {
         xhr.send();
     }
 
+    // Strip the harness/bootstrap preamble but KEEP the user's real text. The CLI
+    // prepends "[Working directory: …]\n\n<the actual message>" to user turns, so
+    // dropping the whole message ate the user's input. Only drop a message that is
+    // PURE machinery (nothing left after stripping the banner).
+    function cleanContent(s) {
+        var t = (s || "");
+        // remove a leading "[Working directory: …]" banner + following blank lines
+        t = t.replace(/^\s*\[Working directory:[^\]]*\]\s*/, "");
+        return t;
+    }
+    function isPureMachinery(s) {
+        var t = (s || "").trim();
+        if (!t.length) return true;
+        if (/^reply with (only|exact)/i.test(t)) return true;
+        if (/^Output only the token/i.test(t)) return true;
+        if (t === "NO_REPLY" || t === "no_reply") return true;
+        return false;
+    }
+
     function loadHistory(key) {
         var xhr = new XMLHttpRequest();
         xhr.open("GET", root.base + "/history?session=" + encodeURIComponent(key));
@@ -293,22 +312,29 @@ ShellRoot {
             if (xhr.readyState !== XMLHttpRequest.DONE || xhr.status !== 200) return;
             try {
                 var d = JSON.parse(xhr.responseText);
-                chatModel.clear();
+                // Build the cleaned list first, then diff against what's already
+                // shown — only rebuild the model if it actually changed. The
+                // burst-reload fires loadHistory up to 5× on open; without this
+                // diff every call would clear()+refill and the panel would FLASH.
+                var next = [];
                 for (var i = 0; i < d.messages.length; i++) {
                     var m = d.messages[i];
-                    // Skip the session bootstrap/harness preamble (working-directory
-                    // banner, "reply with only/exact ...", NO_REPLY) — machinery the
-                    // user never typed, not part of the conversation.
-                    var t = (m.content || "").trim();
-                    if (t.indexOf("[Working directory:") === 0) continue;
-                    if (/^reply with (only|exact)/i.test(t)) continue;
-                    if (/^Output only the token/i.test(t)) continue;
-                    if (t === "NO_REPLY" || t === "no_reply") continue;
-                    chatModel.append({ "role": m.role, "content": m.content });
+                    var c = root.cleanContent(m.content);
+                    if (root.isPureMachinery(c)) continue;   // banner-only / token turns
+                    next.push({ "role": m.role, "content": c });
                 }
-                // Force the view to the newest message after a full (re)load —
-                // the ListView's own onContentHeightChanged keeps re-asserting it
-                // as the text bubbles finish sizing.
+                var changed = (next.length !== chatModel.count);
+                if (!changed) {
+                    for (var j = 0; j < next.length; j++) {
+                        if (chatModel.get(j).role !== next[j].role ||
+                            chatModel.get(j).content !== next[j].content) { changed = true; break; }
+                    }
+                }
+                if (!changed) return;   // identical → no repaint, no flash
+                chatModel.clear();
+                for (var k = 0; k < next.length; k++) chatModel.append(next[k]);
+                // Pin to newest after a real (re)load; ListView.onContentHeightChanged
+                // keeps re-asserting it as the text bubbles finish sizing.
                 if (typeof list !== "undefined") list.toBottom();
             } catch (e) { /* ignore */ }
         };
