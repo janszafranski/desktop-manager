@@ -217,7 +217,19 @@ ShellRoot {
         function show(): void   { root.shown = true; if (!root.busy) root.loadHistory(root.currentSession) }  // always reopen on the current chat
         function hide(): void   { root.shown = false }
         function pin(): void    { root.pinned = !root.pinned }
-        function lock(): void   { root.shown = true; root.pinned = true }   // show + pin (CLI hand-off return)
+        // show + pin (CLI hand-off return). The ↗ terminal ALWAYS runs on
+        // `agent:main:ai-flyout` (`openclaw tui --session ai-flyout`), so on return
+        // we must (a) switch the flyout to that canonical session — the flyout may
+        // have been on an ephemeral `flyout-<ts>` "new chat" key — and (b) reload
+        // history from the store, since the terminal's turns are not in the flyout's
+        // in-memory chatModel. Without this the flyout reopens stale, missing
+        // everything typed in the terminal.
+        function lock(): void {
+            root.shown = true;
+            root.pinned = true;
+            root.currentSession = "agent:main:ai-flyout";
+            root.loadHistory(root.currentSession);
+        }
         function widen(): void  { root.panelWidth = (root.panelWidth >= 620 ? 480 : 620) }
         function clear(): void  { chatModel.clear() }
         function reload(): void { root.loadHistory(root.currentSession); root.loadSessions() }  // re-sync after CLI edits
