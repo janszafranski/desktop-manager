@@ -286,6 +286,10 @@ ShellRoot {
                     if (t === "NO_REPLY" || t === "no_reply") continue;
                     chatModel.append({ "role": m.role, "content": m.content });
                 }
+                // Force the view to the newest message after a full (re)load —
+                // the ListView's own onContentHeightChanged keeps re-asserting it
+                // as the text bubbles finish sizing.
+                if (typeof list !== "undefined") list.toBottom();
             } catch (e) { /* ignore */ }
         };
         xhr.send();
@@ -602,7 +606,19 @@ ShellRoot {
                     rightMargin: 12
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                    onCountChanged: Qt.callLater(function(){ list.positionViewAtEnd() })
+
+                    // Pin to the newest message. loadHistory() appends the whole
+                    // transcript in a tight loop, so a single positionViewAtEnd on
+                    // countChanged runs BEFORE the variable-height text bubbles have
+                    // computed their final heights → it lands near the top. Set a
+                    // "stick to bottom" flag while loading and re-assert the position
+                    // whenever contentHeight grows (delegates finishing layout) until
+                    // we're actually at the end. Also honour a user who scrolls up.
+                    property bool stickToBottom: true
+                    function toBottom() { stickToBottom = true; Qt.callLater(function(){ list.positionViewAtEnd() }) }
+                    onCountChanged: toBottom()
+                    onContentHeightChanged: if (stickToBottom) Qt.callLater(function(){ list.positionViewAtEnd() })
+                    onMovementEnded: stickToBottom = (contentY >= originY + contentHeight - height - 40)
 
                     delegate: Item {
                         width: ListView.view ? ListView.view.width - 24 : 0
