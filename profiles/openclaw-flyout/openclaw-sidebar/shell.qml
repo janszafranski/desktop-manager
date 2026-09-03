@@ -76,10 +76,14 @@ ShellRoot {
             property string lastSession: "agent:main:ai-flyout"
         }
         onLoaded: {
-            if (stateAdapter.lastSession && stateAdapter.lastSession.length) {
-                root.currentSession = stateAdapter.lastSession;
-                root.loadHistory(root.currentSession);
-            }
+            // Only restore a REAL chat session. A cron/run/hook/probe key (which can
+            // leak into lastSession) has no visible history → the flyout would open
+            // blank on a session you can't even see in the drawer. Fall back to the
+            // default flyout session in that case.
+            var s = stateAdapter.lastSession;
+            if (!s || !s.length || !root.isChatKey(s)) s = "agent:main:ai-flyout";
+            root.currentSession = s;
+            root.loadHistory(root.currentSession);
         }
         Component.onCompleted: reload()
     }
@@ -221,6 +225,18 @@ ShellRoot {
 
     // ---- data layer (bridge /sessions, /history) --------------------------
 
+    // A restorable/persistable chat key: not a cron/run/hook/node/probe/test
+    // session. Mirrors the bridge's isChatSession() so the flyout never restores
+    // or saves a session that isn't a real conversation. The throwaway
+    // flyout-<ts> keys ARE valid (the bridge pins them back to the default).
+    function isChatKey(key) {
+        if (!key || !key.length) return false;
+        if (/:cron:|:run:|:hook:|:node:/.test(key)) return false;
+        var name = key.replace(/^agent:[^:]+:/, "");
+        if (/test|diag|probe|selftest|healthprobe|flytest|empty/i.test(name)) return false;
+        return true;
+    }
+
     function loadSessions() {
         var xhr = new XMLHttpRequest();
         xhr.open("GET", root.base + "/sessions");
@@ -246,8 +262,18 @@ ShellRoot {
             try {
                 var d = JSON.parse(xhr.responseText);
                 chatModel.clear();
-                for (var i = 0; i < d.messages.length; i++)
-                    chatModel.append({ "role": d.messages[i].role, "content": d.messages[i].content });
+                for (var i = 0; i < d.messages.length; i++) {
+                    var m = d.messages[i];
+                    // Skip the session bootstrap/harness preamble (working-directory
+                    // banner, "reply with only/exact ...", NO_REPLY) — machinery the
+                    // user never typed, not part of the conversation.
+                    var t = (m.content || "").trim();
+                    if (t.indexOf("[Working directory:") === 0) continue;
+                    if (/^reply with (only|exact)/i.test(t)) continue;
+                    if (/^Output only the token/i.test(t)) continue;
+                    if (t === "NO_REPLY" || t === "no_reply") continue;
+                    chatModel.append({ "role": m.role, "content": m.content });
+                }
             } catch (e) { /* ignore */ }
         };
         xhr.send();
@@ -257,8 +283,11 @@ ShellRoot {
         root.currentSession = key;
         root.sessionsOpen = false;
         root.loadHistory(key);
-        stateAdapter.lastSession = key;   // persist so a relaunch reopens THIS chat
-        stateFile.writeAdapter();
+        // Only persist real chat keys — never a cron/probe key that would reopen blank.
+        if (root.isChatKey(key)) {
+            stateAdapter.lastSession = key;   // persist so a relaunch reopens THIS chat
+            stateFile.writeAdapter();
+        }
     }
 
     function newChat() {
