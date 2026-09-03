@@ -211,10 +211,30 @@ ShellRoot {
         }
     }
 
+    // Re-load history a few times over ~2.5s after the panel is shown / the ↗
+    // hand-off returns. The gateway writes a turn to SQLite only when the turn
+    // COMPLETES, so a single loadHistory at show-time can race the flush and
+    // reopen missing the newest exchange (e.g. the turn just typed in the CLI
+    // hand-off, or a reply that finished a beat before the panel opened). This
+    // short burst catches the flush without permanent polling. `loadHistory`
+    // clears+rebuilds chatModel and re-pins to the bottom, so a re-load is
+    // idempotent and cheap.
+    property int reloadTicks: 0
+    function reloadSoon() { root.reloadTicks = 0; refreshTimer.restart(); root.loadHistory(root.currentSession); }
+    Timer {
+        id: refreshTimer
+        interval: 600; repeat: true; running: false
+        onTriggered: {
+            root.reloadTicks += 1;
+            root.loadHistory(root.currentSession);
+            if (root.reloadTicks >= 4) running = false;   // ~600·4 = 2.4s of catch-up
+        }
+    }
+
     IpcHandler {
         target: "sidebar"
         function toggle(): void { root.shown = !root.shown }
-        function show(): void   { root.shown = true; if (!root.busy) root.loadHistory(root.currentSession) }  // always reopen on the current chat
+        function show(): void   { root.shown = true; if (!root.busy) root.reloadSoon() }  // always reopen on the current chat, catching a just-flushed turn
         function hide(): void   { root.shown = false }
         function pin(): void    { root.pinned = !root.pinned }
         // show + pin (CLI hand-off return). The ↗ terminal ALWAYS runs on
@@ -228,7 +248,7 @@ ShellRoot {
             root.shown = true;
             root.pinned = true;
             root.currentSession = "agent:main:ai-flyout";
-            root.loadHistory(root.currentSession);
+            root.reloadSoon();   // burst-reload: the terminal's last turn may still be flushing to SQLite
         }
         function widen(): void  { root.panelWidth = (root.panelWidth >= 620 ? 480 : 620) }
         function clear(): void  { chatModel.clear() }
