@@ -211,24 +211,21 @@ ShellRoot {
         }
     }
 
-    // Re-load history a few times over ~2.5s after the panel is shown / the ↗
-    // hand-off returns. The gateway writes a turn to SQLite only when the turn
-    // COMPLETES, so a single loadHistory at show-time can race the flush and
-    // reopen missing the newest exchange (e.g. the turn just typed in the CLI
-    // hand-off, or a reply that finished a beat before the panel opened). This
-    // short burst catches the flush without permanent polling. `loadHistory`
-    // clears+rebuilds chatModel and re-pins to the bottom, so a re-load is
-    // idempotent and cheap.
-    property int reloadTicks: 0
-    function reloadSoon() { root.reloadTicks = 0; refreshTimer.restart(); root.loadHistory(root.currentSession); }
+    // LIVE POLL while the panel is open. The gateway writes a turn to SQLite only
+    // when the turn COMPLETES — and replies routinely take ~2 MINUTES. A short
+    // burst after open therefore gave up long before the reply landed, so the
+    // flyout showed the user's message but never the response. Instead, keep
+    // reloading every few seconds for as long as the panel is shown: a reply that
+    // finishes 2 min later appears within one poll interval. `loadHistory` diffs
+    // against the model and no-ops when unchanged, so this never flashes and is
+    // cheap (one small SQLite read). The poll only runs while `root.shown`.
+    function reloadSoon() { root.loadHistory(root.currentSession); }
     Timer {
         id: refreshTimer
-        interval: 600; repeat: true; running: false
-        onTriggered: {
-            root.reloadTicks += 1;
-            root.loadHistory(root.currentSession);
-            if (root.reloadTicks >= 4) running = false;   // ~600·4 = 2.4s of catch-up
-        }
+        interval: 3000; repeat: true
+        running: root.shown            // auto start/stop with panel visibility
+        triggeredOnStart: true         // reload immediately on show, then every 3s
+        onTriggered: root.loadHistory(root.currentSession)
     }
 
     IpcHandler {
