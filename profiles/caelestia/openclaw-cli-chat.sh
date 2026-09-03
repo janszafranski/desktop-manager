@@ -21,6 +21,13 @@
 # re-raising) makes the return fire however the terminal dies: /exit, Ctrl+C,
 # Ctrl+D, OR super+Q closing the window.
 set -u
+# quickshell `ipc call` matches instances BY WAYLAND DISPLAY: with WAYLAND_DISPLAY
+# unset the CLI reports "No running instances ... on the current display 'unk'"
+# and the reopen SILENTLY no-ops (rc still 0). The flyout→alacritty→here chain
+# normally inherits WAYLAND_DISPLAY, but pin it defensively so the reopen can
+# never miss if a future launch path strips the env. (2026-09-03)
+: "${WAYLAND_DISPLAY:=wayland-1}"
+export WAYLAND_DISPLAY
 reopen() { qs -c openclaw-sidebar ipc call sidebar lock >/dev/null 2>&1; }
 # On a killing signal: reopen, disarm both traps (avoid a double reopen), then
 # re-raise that signal so the shell dies with the conventional status.
