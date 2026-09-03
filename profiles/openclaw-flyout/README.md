@@ -4,14 +4,20 @@
 
 A pinnable Quickshell side panel (`qs -c openclaw-sidebar`, **Super+O**) that
 chats with your OpenClaw agent through a local OpenAI-compatible bridge on
-`127.0.0.1:8787` (a Node service run via systemd --user).
+`127.0.0.1:8787`.
+
+## Now its own project
+
+The flyout lives in its own repo — the single source of truth is:
+
+**https://github.com/janszafranski/openclaw-flyout**
+
+This desktop-manager profile no longer bundles a copy. `install.sh` clones (or
+updates) that repo into `~/.cache/desktop-manager/openclaw-flyout` and runs the
+project's own installer; `uninstall.sh` runs the project's uninstaller. To pin a
+version, set `OPENCLAW_FLYOUT_REF=<tag>` (defaults to `master`).
 
 ## Install
 Desktop Manager → Apps → **OpenClaw flyout → Install**, or `./install.sh`.
-Requires **node**, **quickshell**, and the **openclaw** CLI (the flyout answers
-via your OpenClaw agent). Deploys the bridge + service + panel and wires
-Super+O / autostart / blur-off into `~/.config/hypr/hyprland.lua` (guarded).
-
-## Files
-`openclaw-ai-bridge.js` (bridge) · `openclaw-ai-bridge.service` (systemd unit) ·
-`openclaw-sidebar/` (panel QML + icons) · `openclaw-cli-chat.sh`, `openclaw-dashboard.sh` (helpers).
+Requires **git**, plus the flyout's own dependencies (**node**, **quickshell**,
+**sqlite3**, and the **openclaw** CLI). See the upstream README for details.

@@ -1,87 +1,35 @@
 #!/usr/bin/env bash
-# install.sh — install the OpenClaw AI flyout: a pinnable Quickshell side panel
-# (qs -c openclaw-sidebar, Super+O) that chats with your OpenClaw agent via a
-# local OpenAI-compatible bridge (127.0.0.1:8787). Run as your normal user.
+# install.sh — install the OpenClaw flyout (AI assistant side panel).
+#
+# The OpenClaw flyout is its own project now — the single source of truth lives at
+#   https://github.com/janszafranski/openclaw-flyout
+# so this desktop-manager profile no longer bundles a copy; it clones (or updates)
+# that repo into a local cache and runs the project's own install.sh.
 set -euo pipefail
-SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log()  { printf '\033[1;36m::\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 [[ ${EUID:-$(id -u)} -eq 0 ]] && die "Run as your normal user, not root."
 
-detect_de() {
-  local d="${XDG_CURRENT_DESKTOP:-}:${DESKTOP_SESSION:-}"
-  if [[ "$d" == *[Hh]yprland* ]] || pgrep -x Hyprland >/dev/null 2>&1; then echo hyprland
-  elif [[ "$d" == *KDE* || "$d" == *plasma* ]] || [[ -n "${KDE_FULL_SESSION:-}" ]] \
-       || pgrep -x plasmashell >/dev/null 2>&1; then echo kde
-  else echo other; fi
-}
+REPO_URL="${OPENCLAW_FLYOUT_REPO:-https://github.com/janszafranski/openclaw-flyout.git}"
+REF="${OPENCLAW_FLYOUT_REF:-master}"   # pin a tag here to freeze the version
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/desktop-manager/openclaw-flyout"
 
-# --- prerequisites (warn, don't fail) ----------------------------------------
-command -v node    >/dev/null 2>&1 || warn "Node.js not found — needed for the bridge (install 'nodejs')."
-command -v qs      >/dev/null 2>&1 || warn "Quickshell (qs) not found — needed for the panel (install 'quickshell')."
-command -v openclaw >/dev/null 2>&1 || warn "The 'openclaw' CLI is not on PATH — the flyout needs OpenClaw installed to answer."
+command -v git >/dev/null 2>&1 || die "git is required to fetch the OpenClaw flyout."
 
-# --- deploy ------------------------------------------------------------------
-log "Deploying bridge, panel and helper scripts"
-install -Dm755 "$SELF/openclaw-ai-bridge.js" "$HOME/.local/bin/openclaw-ai-bridge.js"
-for f in openclaw-cli-chat.sh openclaw-dashboard.sh; do
-  [[ -f "$SELF/$f" ]] && install -Dm755 "$SELF/$f" "$HOME/.local/bin/$f"
-done
-mkdir -p "$HOME/.config/quickshell/openclaw-sidebar"
-cp -r "$SELF/openclaw-sidebar/." "$HOME/.config/quickshell/openclaw-sidebar/"
-
-# --- bridge service ----------------------------------------------------------
-log "Installing + enabling the bridge service"
-install -Dm644 "$SELF/openclaw-ai-bridge.service" "$HOME/.config/systemd/user/openclaw-ai-bridge.service"
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl --user daemon-reload || true
-  systemctl --user enable --now openclaw-ai-bridge.service 2>/dev/null \
-    || warn "Could not enable the bridge service (no user systemd session?). Start it later with: systemctl --user enable --now openclaw-ai-bridge"
-fi
-
-# --- desktop integration -----------------------------------------------------
-# The panel is a Quickshell layer-shell surface → needs a WAYLAND session
-# (Hyprland or KDE-Wayland; it won't map on X11).
-DE="$(detect_de)"; log "Desktop environment: $DE"
-[[ "${XDG_SESSION_TYPE:-}" == x11 ]] && warn "X11 session — the panel needs Wayland; it may not appear."
-if [[ "$DE" == hyprland ]]; then
-  LUA="$HOME/.config/hypr/hyprland.lua"
-  MARK_A="-- >>> openclaw-flyout (desktop-manager) >>>"
-  MARK_B="-- <<< openclaw-flyout (desktop-manager) <<<"
-  if [[ -f "$LUA" ]] && grep -q "hl\." "$LUA" && ! grep -qF "$MARK_A" "$LUA"; then
-    log "Adding Super+O toggle, autostart and blur rule"
-    cat >> "$LUA" <<EOF
-
-$MARK_A
-hl.exec_cmd("qs -c openclaw-sidebar")
-hl.bind(mod .. " + O", hl.dsp.exec_cmd("qs -c openclaw-sidebar ipc call sidebar toggle"), { description = "OpenClaw flyout" })
-hl.layer_rule({ name = "openclaw-flyout-noblur", match = { namespace = "openclaw-sidebar" }, blur = false })
-$MARK_B
-EOF
-    command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
-  else
-    log "Hyprland rules already present or no Lua config — skipping"
-  fi
+if [[ -d "$CACHE/.git" ]]; then
+  log "Updating cached checkout ($CACHE)"
+  git -C "$CACHE" fetch --depth 1 origin "$REF" && git -C "$CACHE" checkout -q FETCH_HEAD \
+    || warn "Could not update the cache — using the existing checkout."
 else
-  # KDE / other: XDG autostart for the panel + a note for the toggle shortcut
-  install -Dm644 /dev/stdin "$HOME/.config/autostart/openclaw-sidebar.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=OpenClaw flyout
-Exec=qs -c openclaw-sidebar
-X-GNOME-Autostart-enabled=true
-NoDisplay=true
-EOF
-  log "Added XDG autostart for the panel"
-  warn "To bind Super+O: System Settings → Shortcuts → Add Command:"
-  warn "  qs -c openclaw-sidebar ipc call sidebar toggle"
+  log "Cloning $REPO_URL @ $REF"
+  rm -rf "$CACHE"
+  mkdir -p "$(dirname "$CACHE")"
+  git clone --depth 1 --branch "$REF" "$REPO_URL" "$CACHE" \
+    || git clone --depth 1 "$REPO_URL" "$CACHE" \
+    || die "Clone failed. Check your network / the repo URL."
 fi
 
-command -v qs >/dev/null 2>&1 && { log "Launching the panel"; setsid -f qs -c openclaw-sidebar >/dev/null 2>&1 || true; }
-cat <<'DONE'
-
-OpenClaw flyout installed.
-  • Toggle: Super+O   • Bridge: 127.0.0.1:8787 (systemd --user service)
-  • It answers via your OpenClaw agent — make sure OpenClaw is installed and running.
-DONE
+[[ -x "$CACHE/install.sh" ]] || die "The fetched repo has no install.sh — unexpected layout."
+log "Running the OpenClaw flyout installer"
+exec "$CACHE/install.sh"

@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# uninstall.sh — remove the OpenClaw flyout (panel, bridge, service, wiring).
+# uninstall.sh — remove the OpenClaw flyout.
+#
+# The flyout lives in its own repo (github.com/janszafranski/openclaw-flyout);
+# this profile clones it to a cache and runs its installer. On uninstall, prefer
+# the cached repo's own uninstall.sh; fall back to removing the deployed files
+# directly if the cache is gone.
 set -euo pipefail
-log() { printf '\033[1;36m::\033[0m %s\n' "$*"; }
+log()  { printf '\033[1;36m::\033[0m %s\n' "$*"; }
 [[ ${EUID:-$(id -u)} -eq 0 ]] && { echo "Run as your normal user, not root." >&2; exit 1; }
 
-pkill -f "qs -c openclaw-sidebar" 2>/dev/null || true
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl --user disable --now openclaw-ai-bridge.service 2>/dev/null || true
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/desktop-manager/openclaw-flyout"
+
+if [[ -x "$CACHE/uninstall.sh" ]]; then
+  log "Running the OpenClaw flyout uninstaller from the cached checkout"
+  exec "$CACHE/uninstall.sh"
 fi
-log "Removing files"
+
+# Fallback: cache missing — remove the known deployed artifacts directly.
+log "Cache not found — removing deployed files directly"
+pkill -f "qs -c openclaw-sidebar" 2>/dev/null || true   # NB: never `pkill qs` blindly
+command -v systemctl >/dev/null 2>&1 && systemctl --user disable --now openclaw-ai-bridge.service 2>/dev/null || true
 rm -f "$HOME/.local/bin/openclaw-ai-bridge.js" \
       "$HOME/.local/bin/openclaw-cli-chat.sh" \
       "$HOME/.local/bin/openclaw-dashboard.sh" \
@@ -16,11 +27,10 @@ rm -f "$HOME/.local/bin/openclaw-ai-bridge.js" \
 rm -rf "$HOME/.config/quickshell/openclaw-sidebar"
 rm -f "$HOME/.config/autostart/openclaw-sidebar.desktop"
 command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload || true
-
 LUA="$HOME/.config/hypr/hyprland.lua"
-if [[ -f "$LUA" ]] && grep -qF "openclaw-flyout (desktop-manager)" "$LUA"; then
+if [[ -f "$LUA" ]] && grep -qF "openclaw-flyout" "$LUA"; then
   log "Removing Hyprland wiring"
-  sed -i '/-- >>> openclaw-flyout (desktop-manager) >>>/,/-- <<< openclaw-flyout (desktop-manager) <<</d' "$LUA"
+  sed -i '/-- >>> openclaw-flyout.*>>>/,/-- <<< openclaw-flyout.*<<</d' "$LUA"
   command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
 fi
 log "Done."
