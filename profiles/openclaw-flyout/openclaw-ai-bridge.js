@@ -18,7 +18,6 @@
 'use strict';
 
 const http = require('http');
-const fs = require('fs');
 const { execFile, spawn } = require('child_process');
 const net = require('net');
 
@@ -315,15 +314,41 @@ function sessionIndex() {
   });
 }
 
-// Parse a session .jsonl transcript into [{role, content}] (user/assistant only).
-function parseTranscript(sessionFile) {
-  const out = [];
-  let raw;
+// Session transcripts moved from flat per-session .jsonl files into a single
+// SQLite store (OpenClaw 2026.8.x). `openclaw sessions list --json` no longer
+// emits a `sessionFile` path — it emits `sessionId`. Read the transcript rows
+// straight from the store, keyed by that sessionId. The event shape inside
+// `event_json` is identical to the old .jsonl lines, so `parseTranscript`
+// (below) is reused verbatim on the joined text.
+const SESSION_DB =
+  process.env.OPENCLAW_BRIDGE_SESSION_DB ||
+  `${process.env.HOME || '/root'}/.openclaw/agents/main/agent/openclaw-agent.sqlite`;
+
+// Fetch the raw newline-joined event_json rows for one sessionId, in order.
+function transcriptRaw(sessionId) {
+  if (!sessionId) return '';
+  const { execFileSync } = require('child_process');
   try {
-    raw = fs.readFileSync(sessionFile, 'utf8');
+    // -readonly so a concurrent gateway write never blocks/corrupts the read.
+    return execFileSync(
+      'sqlite3',
+      [
+        '-readonly',
+        SESSION_DB,
+        `SELECT event_json FROM transcript_events WHERE session_id='${String(sessionId).replace(/'/g, "''")}' ORDER BY seq;`,
+      ],
+      { maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' }
+    );
   } catch (e) {
-    return out;
+    return '';
   }
+}
+
+// Parse a transcript (raw newline-delimited event JSON) into [{role, content}]
+// (user/assistant only).
+function parseTranscript(raw) {
+  const out = [];
+  if (!raw) return out;
   for (const line of raw.split('\n')) {
     const t = line.trim();
     if (!t) continue;
@@ -349,11 +374,38 @@ function parseTranscript(sessionFile) {
   return out;
 }
 
-function titleFor(sessionFile) {
-  const msgs = parseTranscript(sessionFile);
-  const firstUser = msgs.find(m => m.role === 'user');
+function titleFor(sessionId) {
+  const msgs = parseTranscript(transcriptRaw(sessionId));
+  // The first user event is usually the session bootstrap (working-directory
+  // banner / "reply with exact ..." harness preamble), not something Jan typed.
+  // Prefer the first user message that doesn't look like machinery.
+  const isBoot = t =>
+    /^\[Working directory:/.test(t) ||
+    /reply with (only|exact)/i.test(t) ||
+    /^Output only the token/i.test(t) ||
+    t === 'NO_REPLY';
+  const firstUser =
+    msgs.find(m => m.role === 'user' && !isBoot(m.content.trim())) ||
+    msgs.find(m => m.role === 'user');
   if (firstUser) return firstUser.content.replace(/\s+/g, ' ').slice(0, 60);
   return null;
+}
+
+// Which session keys are real, user-facing chats worth listing in the flyout's
+// recent-chats drawer. Internal/derived sessions (cron jobs and their runs,
+// throwaway probe/test keys) are noise that "does nothing" when clicked.
+function isChatSession(key) {
+  if (!key) return false;
+  if (/:cron:|:run:|:hook:|:node:/.test(key)) return false;
+  // Throwaway probe / self-test / diagnostic sessions the bridge & I mint — not
+  // real conversations. Match by the trailing session name after the agent id.
+  const name = key.replace(/^agent:[^:]+:/, '');
+  // Session *names* are machine-derived keys (main, ai-flyout, telegram:...),
+  // never human prose — so these dev/QA tokens appearing anywhere in the name
+  // reliably mark a throwaway probe/test/diagnostic session.
+  if (/test|diag|probe|selftest|healthprobe|flytest|\bempty\b/i.test(name)) return false;
+  if (/^flyout-\d/i.test(name)) return false;
+  return true;
 }
 
 function sendJson(res, code, obj) {
@@ -399,12 +451,19 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && path === '/sessions') {
     sessionIndex().then(sessions => {
       const list = sessions
+        .filter(s => isChatSession(s.key))
         .map(s => ({
           key: s.key,
           updatedAt: s.updatedAt || 0,
           sessionId: s.sessionId,
-          title: titleFor(s.sessionFile) || s.key,
+          title: titleFor(s.sessionId),
         }))
+        // A real chat has a human-authored title. If titleFor() found only
+        // bootstrap/harness preamble (title === null), it's a throwaway
+        // probe/test session regardless of its name — drop it. The always-real
+        // default flyout session is kept even if somehow empty.
+        .filter(s => s.title || s.key === DEFAULT_SESSION)
+        .map(s => ({ ...s, title: s.title || s.key }))
         .sort((a, b) => b.updatedAt - a.updatedAt);
       sendJson(res, 200, { sessions: list });
     });
@@ -417,7 +476,7 @@ const server = http.createServer((req, res) => {
     sessionIndex().then(sessions => {
       const s = sessions.find(x => x.key === key);
       if (!s) return sendJson(res, 200, { session: key, messages: [] });
-      sendJson(res, 200, { session: key, messages: parseTranscript(s.sessionFile) });
+      sendJson(res, 200, { session: key, messages: parseTranscript(transcriptRaw(s.sessionId)) });
     });
     return;
   }
