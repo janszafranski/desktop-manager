@@ -32,6 +32,13 @@ configs), **Micro** (Catppuccin), and the GTK/Qt theming to match.
       <sub>on-screen shortcut cheat-sheet</sub>
     </td>
   </tr>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="profiles/omarchy-launcher"><img src="profiles/omarchy-launcher/assets/screenshot.png" alt="omarchy-launcher" height="240"></a><br>
+      <b><a href="profiles/omarchy-launcher">App launcher</a></b><br>
+      <sub>Omarchy-style categorised launcher · Super+Space</sub>
+    </td>
+  </tr>
 </table>
 
 ## Layout

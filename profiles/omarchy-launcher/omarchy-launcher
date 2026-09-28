@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# omarchy-launcher — toggle the categorised app launcher.
+#
+# The launcher is a long-lived Quickshell instance (`qs -c omarchy-launcher`) that keeps the
+# desktop-entry index warm, so opening it is instant. This wrapper is the thing you bind to a
+# key: it toggles the running instance, and transparently starts it first if it isn't up yet
+# (e.g. after a shell crash, or before the login autostart has run).
+#
+#   omarchy-launcher            toggle
+#   omarchy-launcher open       open only
+#   omarchy-launcher close      close only
+#   omarchy-launcher restart    restart the daemon (after editing shell.qml)
+#   omarchy-launcher edit       open categories.json in $EDITOR
+set -uo pipefail
+
+# Quickshell's desktop-entry index is whatever XDG_DATA_DIRS said when the daemon started.
+# Hyprland leaves XDG_DATA_DIRS unset on this machine, so the spec default applies
+# (/usr/local/share:/usr/share) and every Flatpak-exported app was invisible to the launcher —
+# 16 of them here, including Bitwarden, Proton Pass, Proton VPN, Synology Drive, Simple Scan,
+# Deja Dup, Yakuake and Video Downloader, several of which are named in categories.json.
+# Append the Flatpak export dirs for the daemon only; the login session's own environment is
+# deliberately left alone.
+XDG_DATA_DIRS="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+for _d in "${XDG_DATA_HOME:-$HOME/.local/share}/flatpak/exports/share" /var/lib/flatpak/exports/share; do
+    [ -d "$_d" ] || continue
+    case ":$XDG_DATA_DIRS:" in
+        *":$_d:"*) ;;
+        *) XDG_DATA_DIRS="$XDG_DATA_DIRS:$_d" ;;
+    esac
+done
+export XDG_DATA_DIRS
+unset _d
+
+CFG=omarchy-launcher
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-launcher"
+CATEGORIES="$CONFIG_DIR/categories.json"
+QS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/$CFG"
+
+die() { printf 'omarchy-launcher: %s\n' "$*" >&2; exit 1; }
+
+[ -f "$QS_DIR/shell.qml" ] || die "missing $QS_DIR/shell.qml"
+
+# A missing categories file would leave the launcher with an empty rail; ship a minimal,
+# always-valid fallback rather than failing shut.
+if [ ! -f "$CATEGORIES" ]; then
+    mkdir -p "$CONFIG_DIR"
+    cat >"$CATEGORIES" <<'JSON'
+{
+  "version": 1,
+  "defaultCategory": "favourites",
+  "categories": [
+    { "id": "favourites",  "name": "Favourites",  "icon": "favorite", "apps": [] },
+    { "id": "home",        "name": "Home",        "icon": "home",     "apps": [] },
+    { "id": "work",        "name": "Work",        "icon": "work",     "apps": [] },
+    { "id": "church",      "name": "Church",      "icon": "church",   "apps": [] },
+    { "id": "development", "name": "Development", "icon": "code",     "apps": [], "xdgCategories": ["Development"] },
+    { "id": "system",      "name": "System",      "icon": "settings", "apps": [], "xdgCategories": ["Settings", "System"] },
+    { "id": "all",         "name": "All Apps",    "icon": "apps",     "all": true }
+  ]
+}
+JSON
+fi
+
+# Anchored so the pattern matches the daemon's own argv and not, say, an interactive shell
+# that happens to have "qs -c omarchy-launcher" somewhere on its command line.
+DAEMON_RE="(^|/)qs -c $CFG( |$)"
+
+running() { pgrep -f "$DAEMON_RE" >/dev/null 2>&1; }
+
+start_daemon() {
+    qs -c "$CFG" -d >/dev/null 2>&1
+    # wait for the IPC socket to accept calls (~1s worst case)
+    for _ in $(seq 1 40); do
+        qs -c "$CFG" ipc call launcher close >/dev/null 2>&1 && return 0
+        sleep 0.05
+    done
+    return 1
+}
+
+call() {
+    qs -c "$CFG" ipc call launcher "$1" >/dev/null 2>&1
+}
+
+cmd="${1:-toggle}"
+case "$cmd" in
+    daemon)
+        running && exit 0
+        exec qs -c "$CFG"
+        ;;
+    restart)
+        pkill -f "$DAEMON_RE" >/dev/null 2>&1
+        sleep 0.2
+        start_daemon || die "failed to start the launcher daemon"
+        exit 0
+        ;;
+    edit)
+        exec "${EDITOR:-nano}" "$CATEGORIES"
+        ;;
+    toggle|open|close) ;;
+    *) die "unknown command '$cmd' (toggle|open|close|restart|edit|daemon)" ;;
+esac
+
+if call "$cmd"; then
+    exit 0
+fi
+
+# Not running (or the socket died): bring it up, then perform the action.
+start_daemon || die "failed to start the launcher daemon - run 'qs -c $CFG' to see the error"
+[ "$cmd" = "close" ] || call "$cmd"
