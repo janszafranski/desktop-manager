@@ -222,6 +222,16 @@ APPS = [
         "launch": "qs -c openclaw-sidebar ipc call sidebar toggle",
         "button": "Toggle",
     },
+    {
+        "name": "App launcher",
+        "desc": "Omarchy-style categorised app launcher (Quickshell) — a centred "
+                "portrait popup opening on Favourites, with folders you walk in and "
+                "out of. Toggle with Super+Space (Caelestia's own launcher moves to "
+                "Super+Shift+Space). Built by Coding Colin.",
+        "install": _p("profiles", "omarchy-launcher", "install.sh"),
+        "launch": "omarchy-launcher",
+        "button": "Toggle",
+    },
 ]
 
 COLUMNS = 3  # cards per row in the grid
