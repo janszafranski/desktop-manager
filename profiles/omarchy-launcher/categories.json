@@ -27,8 +27,9 @@
     "Every category below was seeded from the apps actually installed on this machine — they",
     "are a starting point, not a guess you have to live with.",
     "",
-    "Most of this can be edited without opening a text editor: the \"App List Config\" row at the",
-    "top of the System folder opens a window that writes this file (and appearance.json) for you."
+    "None of this needs a text editor: the \"App List Config\" row at the top of the System folder",
+    "opens a window that writes this file (and appearance.json) for you — categories can be added,",
+    "renamed, re-iconed and deleted there too, not just their app lists."
   ],
   "version": 1,
   "defaultCategory": "favourites",

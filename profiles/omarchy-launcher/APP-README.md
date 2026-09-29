@@ -63,6 +63,17 @@ It has two halves:
   don't want, and **ADD AN APP** by live-searching everything installed. *All Apps* is
   generated from everything installed, so there is no list to edit there — it says so and
   points you at another category.
+  The list of categories is editable here too: **New category** (`Ctrl + N`) under the column
+  inserts one next to the category you were on — the order of this list is the order of the
+  folder rows, so that saves a reorder — and puts the caret in its name. The name in the middle
+  column's header *is* the rename field, the button beside it picks the folder's icon from a
+  grid of Material Symbols (or any name typed into the box next to it), and **Delete** takes two
+  clicks. A delete never strands anything: remove the **opening view** and another category
+  becomes it, remove the folder holding the pinned **App List Config** row and it moves, with the
+  footer naming whichever category took over. The last remaining category can't be deleted.
+  A category's `id` is derived from its name at creation and then left alone — `defaultCategory`
+  points at one and `omarchy-launcher category <id>` is the kind of thing a keybind names — so
+  after the first save a rename is only a label change.
 - **Appearance** — the **Highlight** (the selection pill) and the **Faint outline** (the card
   border). Each has a *source* — text (`onSurface`), accent (`primary`), outline, surface, or
   **Custom** with a `#rrggbb` — and a slider (Highlight *Strength*, outline *Opacity*, both

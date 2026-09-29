@@ -726,6 +726,23 @@ ShellRoot {
     property bool configNoteBad: false
     property bool dirty: false
 
+    // Deleting a category is destructive in a way nothing else in this window is — every other
+    // edit is a list membership you can put straight back. So the button arms first: it holds the
+    // id it is armed for, and any move off that category disarms it.
+    property string dArmed: ""
+    property bool dIconOpen: false
+
+    // Emitted when a freshly created category needs the caret: the field owns its own focus, the
+    // model doesn't reach into the window to set it.
+    signal focusCategoryName
+
+    // Emitted whenever the category under the editor changes identity — selected, created,
+    // deleted, reverted. The name and icon boxes are TextInputs, and typing into a TextInput
+    // breaks its `text` binding, so they cannot be left to re-derive themselves. Watching `dSel`
+    // is not enough: deleting the last category in the list, or reverting, leaves `dSel` where it
+    // was while pointing at a different category.
+    signal syncCategoryFields
+
     // QML doesn't see mutations inside an array or an object, so every edit re-seats both the
     // array *and* the category that was edited. Re-seating only the array is not enough: a shallow
     // slice leaves `draft[dSel]` pointing at the same object, so `dCat` re-evaluates to an
@@ -761,6 +778,9 @@ ShellRoot {
         dirty = false;
         configNote = "";
         configNoteBad = false;
+        dArmed = "";
+        dIconOpen = false;
+        syncCategoryFields();
     }
 
     // Clicking the dim area is one pixel away from clicking the card, so an unsaved draft is kept
@@ -776,6 +796,18 @@ ShellRoot {
     function closeConfig() {
         configShown = false;
         addQuery = "";
+        dArmed = "";
+        dIconOpen = false;
+    }
+
+    // Every route to a different category goes through here, so an armed delete and a half-open
+    // icon picker can't survive the move and fire on the wrong category.
+    function dSelect(i) {
+        dSel = i;
+        addQuery = "";
+        dArmed = "";
+        dIconOpen = false;
+        syncCategoryFields();
     }
 
     readonly property var dCat: (dSel >= 0 && dSel < draft.length) ? draft[dSel] : null
@@ -948,6 +980,116 @@ ShellRoot {
         configNote = "";
     }
 
+    // ------------------------------------------------- categories themselves
+    // The lists inside a category were editable here from the start; the list *of* categories was
+    // not, so a new folder still meant opening categories.json in a text editor. These four
+    // functions close that gap — add, rename, re-icon, delete — while keeping the same draft-then-
+    // Save contract as everything else in the window.
+
+    // Ids are the file's internal keys: `defaultCategory` points at one, `dCounts` is keyed on one,
+    // and `omarchy-launcher category <id>` is the thing people bind a key to. So a rename does not
+    // re-slug an id that has already been saved — a category's label is allowed to drift from its
+    // id rather than silently breaking a keybind. The one exception is below.
+    function dNewId(name, selfId) {
+        let base = String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        if (!base)
+            base = "category";
+        let id = base;
+        let n = 2;
+        while (draft.some(c => c.id === id && c.id !== selfId))
+            id = base + "-" + (n++);
+        return id;
+    }
+
+    function dNewCategory() {
+        // Inserted next to the category you were standing on rather than appended, because the
+        // order of this list *is* the order of the folder rows in the launcher — a new "Games"
+        // next to "Media" is almost always what was meant, and it saves a reorder.
+        const at = (dSel >= 0 && dSel < draft.length) ? dSel + 1 : draft.length;
+        const next = draft.slice();
+        next.splice(at, 0, {
+            // `_fresh` marks a category that has never been written, so its id is still free to
+            // track the name being typed over the placeholder. Stripped at save; `cleanCat` only
+            // copies the keys it knows, so it never reaches the file either way.
+            _fresh: true,
+            id: dNewId("New category"),
+            name: "New category",
+            icon: "folder",
+            apps: []
+        });
+        draft = next;
+        dSelect(at);
+        dirty = true;
+        configNoteBad = false;
+        configNote = "New category — name it, then add apps from the right.";
+        focusCategoryName();
+    }
+
+    // Stored raw and trimmed at save: trimming on every keystroke would eat the space you just
+    // typed in the middle of "Home Office" as the field re-syncs.
+    function dRename(name) {
+        const cat = dCat;
+        if (!cat || cat.name === name)
+            return;
+        cat.name = name;
+        // A category that has never been saved has nothing pointing at its id yet, so it can keep
+        // one derived from the name — otherwise every category made here would be stuck with
+        // `new-category`, which is what `omarchy-launcher category …` and the file would show.
+        if (cat._fresh === true) {
+            const nid = dNewId(name, cat.id);
+            if (draftDefault === cat.id)
+                draftDefault = nid;
+            cat.id = nid;
+        }
+        touchDraft();
+    }
+
+    function dSetIcon(icon) {
+        const cat = dCat;
+        if (!cat || cat.icon === icon)
+            return;
+        cat.icon = icon;
+        touchDraft();
+    }
+
+    // Deleting is guarded, not forbidden. The two things a delete could genuinely break — the
+    // launcher's opening view, and the row that opens this window — are re-pointed at a surviving
+    // category instead of making those two categories undeletable, and the footer names whoever
+    // took them over. The only hard stop is the last category, because a launcher with no
+    // categories has nothing to draw.
+    function dDeleteCategory() {
+        const gone = dCat;
+        if (!gone || draft.length <= 1)
+            return;
+
+        const next = draft.filter((c, i) => i !== dSel);
+        const moved = [];
+
+        if (draftDefault === gone.id) {
+            draftDefault = next[0].id;
+            moved.push("opening view → " + (next[0].name || next[0].id));
+        }
+
+        if (gone.configEntry === true) {
+            // Prefer a category that still gets a folder row: the default has no folder of its
+            // own, so pinning App List Config there would strand it loose in the root list.
+            const host = next.find(c => c.id !== draftDefault && c.all !== true) ?? next.find(c => c.all !== true) ?? next[0];
+            host.configEntry = true;
+            moved.push("App List Config → " + (host.name || host.id));
+        }
+
+        draft = next;
+        dSelect(Math.max(0, Math.min(dSel, next.length - 1)));
+        dirty = true;
+        configNoteBad = false;
+        configNote = "Deleted " + (gone.name || gone.id) + (moved.length > 0 ? " (" + moved.join(", ") + ")" : "") + " — not written until you save.";
+    }
+
+    // Offered for the icon picker. Material Symbols Rounded is the launcher's icon font, so any
+    // name from fonts.google.com/icons works — these are just the ones a category is likely to
+    // want, with the free-text field next to them for everything else.
+    readonly property var catIcons: ["folder", "favorite", "home", "work", "church", "code", "terminal", "language", "mail", "chat", "description", "movie", "music_note", "photo_camera", "palette", "sports_esports", "school", "science", "calculate", "shopping_cart", "payments", "map", "fitness_center", "restaurant", "build", "settings", "lock", "cloud", "storage", "apps"]
+
     function dSetAppearance(which, key, value) {
         const part = Object.assign({}, draftAppearance[which] ?? appDefaults[which]);
         part[key] = value;
@@ -965,7 +1107,9 @@ ShellRoot {
     function cleanCat(cat) {
         const out = ({});
         out.id = cat.id;
-        out.name = cat.name;
+        // The name is held raw while it is being typed, and the loader drops any category without
+        // one — so a field left empty falls back to the id rather than quietly deleting a folder.
+        out.name = String(cat.name ?? "").trim() || cat.id;
         if (cat.icon)
             out.icon = cat.icon;
         if (cat.configEntry === true)
@@ -1006,6 +1150,11 @@ ShellRoot {
                 highlight: dAppearance("highlight"),
                 outline: dAppearance("outline")
             };
+            // Those ids are now on disk, and a keybind may already name one. From here a rename is
+            // just a label change.
+            for (const c of draft)
+                delete c._fresh;
+
             dirty = false;
             configNoteBad = false;
             configNote = "Saved to ~/.config/omarchy-launcher/";
@@ -1531,7 +1680,10 @@ ShellRoot {
                                 if (root.trimmedQuery.length > 0)
                                     return "No apps match “" + root.query.trim() + "”";
                                 const name = root.view === "cat" ? (root.currentCat?.name ?? "This category") : (root.defaultCat?.name ?? "This category");
-                                return name + " is empty — add desktop ids to it in\n~/.config/omarchy-launcher/categories.json";
+                                // A brand-new category lands here the moment it is saved, so the
+                                // hint points at the window that can fill it rather than at the
+                                // file — the file is still there, it is just no longer the only way.
+                                return name + " is empty — fill it from App List Config,\npinned at the top of " + (root.settingsCat?.name ?? "the settings folder");
                             }
                         }
                     }
@@ -1553,15 +1705,19 @@ ShellRoot {
         property string label: ""
         property string symbol: ""
         property bool accent: false
+        // What "accent" is made of. Defaults to the theme accent; the armed delete points it at
+        // the error colour, so a confirm that is about to destroy something doesn't look like a
+        // Save.
+        property color tint: root.colAccent
         signal clicked
 
         implicitHeight: 30
         implicitWidth: btnRow.implicitWidth + 24
         radius: 8
         opacity: enabled ? 1 : 0.35
-        color: accent ? Qt.tint(root.colBg, Qt.rgba(root.colAccent.r, root.colAccent.g, root.colAccent.b, 0.2)) : (btnMouse.containsMouse ? root.colHover : "transparent")
+        color: accent ? Qt.tint(root.colBg, Qt.rgba(tint.r, tint.g, tint.b, 0.2)) : (btnMouse.containsMouse ? root.colHover : "transparent")
         border.width: 1
-        border.color: accent ? Qt.rgba(root.colAccent.r, root.colAccent.g, root.colAccent.b, 0.5) : root.colBorder
+        border.color: accent ? Qt.rgba(tint.r, tint.g, tint.b, 0.5) : root.colBorder
 
         Behavior on color {
             ColorAnimation {
@@ -1580,7 +1736,7 @@ ShellRoot {
                 text: btn.symbol
                 font.family: root.iconFont
                 font.pixelSize: 16
-                color: btn.accent ? root.colAccent : root.colText
+                color: btn.accent ? btn.tint : root.colText
             }
 
             Text {
@@ -1589,7 +1745,7 @@ ShellRoot {
                 text: btn.label
                 font.family: root.uiFont
                 font.pixelSize: 13
-                color: btn.accent ? root.colAccent : root.colText
+                color: btn.accent ? btn.tint : root.colText
             }
         }
 
@@ -1894,6 +2050,13 @@ ShellRoot {
                         event.accepted = true;
                     }
                     break;
+                case Qt.Key_N:
+                    // Only on the tab that has a category list to add to.
+                    if (ctrl && root.configTab === 0) {
+                        root.dNewCategory();
+                        event.accepted = true;
+                    }
+                    break;
                 case Qt.Key_Tab:
                 case Qt.Key_Backtab:
                     if (ctrl) {
@@ -2095,7 +2258,8 @@ ShellRoot {
                             ListView {
                                 anchors.top: catsLabel.bottom
                                 anchors.topMargin: 10
-                                anchors.bottom: parent.bottom
+                                anchors.bottom: newCatBtn.top
+                                anchors.bottomMargin: 10
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 clip: true
@@ -2173,12 +2337,23 @@ ShellRoot {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            root.dSel = catRow.index;
-                                            root.addQuery = "";
-                                        }
+                                        onClicked: root.dSelect(catRow.index)
                                     }
                                 }
+                            }
+
+                            // The list of categories used to be fixed — this is the way into it.
+                            // Deleting lives in the header of the middle column, next to the
+                            // category's name, because that is the one place it is unambiguous
+                            // which category is about to go.
+                            CfgButton {
+                                id: newCatBtn
+                                anchors.bottom: parent.bottom
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                symbol: "create_new_folder"
+                                label: "New category"
+                                onClicked: root.dNewCategory()
                             }
                         }
 
@@ -2364,46 +2539,257 @@ ShellRoot {
                             anchors.leftMargin: 18
                             anchors.rightMargin: 18
 
+                            // The other two columns keep a small-caps section label; this one no
+                            // longer can, because the category's name stopped being a heading and
+                            // became a field you type in. Everything that belongs to the category
+                            // *as a category* — its name, its icon, whether it is the opening
+                            // view, and whether it exists at all — sits on this one line, above
+                            // the list of what is inside it.
                             Item {
                                 id: inHeader
                                 anchors.top: parent.top
                                 anchors.left: parent.left
                                 anchors.right: parent.right
-                                height: 34
+                                height: inTitleRow.height + (iconPick.visible ? iconPick.height + 8 : 0)
 
-                                Text {
-                                    id: inTitle
+                                Item {
+                                    id: inTitleRow
+                                    anchors.top: parent.top
                                     anchors.left: parent.left
-                                    anchors.leftMargin: 8
-                                    anchors.top: parent.top
-                                    text: (root.dCat?.name ?? "—").toUpperCase()
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    font.letterSpacing: 1.2
-                                    color: root.colSubtle
-                                    opacity: 0.8
-                                }
-
-                                Text {
-                                    anchors.left: inTitle.right
-                                    anchors.leftMargin: 8
-                                    anchors.baseline: inTitle.baseline
-                                    text: root.dMembers.length + (root.dMembers.length === 1 ? " app" : " apps")
-                                    font.family: root.uiFont
-                                    font.pixelSize: 11
-                                    color: root.colSubtle
-                                    opacity: 0.55
-                                }
-
-                                CfgButton {
                                     anchors.right: parent.right
-                                    anchors.top: parent.top
-                                    anchors.topMargin: -6
-                                    symbol: "star"
-                                    label: root.draftDefault === (root.dCat?.id ?? "") ? "Opening view" : "Make opening view"
-                                    accent: root.draftDefault === (root.dCat?.id ?? "")
-                                    enabled: root.dCat !== null && root.draftDefault !== root.dCat.id
-                                    onClicked: root.dMakeDefault(root.dCat?.id ?? "")
+                                    height: 34
+
+                                    CfgIconBtn {
+                                        id: inIconBtn
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        symbol: root.dCat?.icon ?? "folder"
+                                        tone: root.colAccent
+                                        enabled: root.dCat !== null
+                                        onClicked: root.dIconOpen = !root.dIconOpen
+                                    }
+
+                                    Rectangle {
+                                        id: inNameBox
+                                        anchors.left: inIconBtn.right
+                                        anchors.leftMargin: 4
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: Math.min(260, Math.max(120, parent.width - inIconBtn.width - inCatActions.width - inCount.width - 40))
+                                        height: 30
+                                        radius: 8
+                                        color: "transparent"
+                                        border.width: 1
+                                        // Invisible until you go near it: the name is a label most
+                                        // of the time and a field only when you want one.
+                                        border.color: (nameField.activeFocus || nameMouse.containsMouse) ? root.colBorder : "transparent"
+
+                                        TextInput {
+                                            id: nameField
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 8
+                                            anchors.rightMargin: 8
+                                            verticalAlignment: TextInput.AlignVCenter
+                                            clip: true
+                                            enabled: root.dCat !== null
+                                            color: root.colText
+                                            selectionColor: root.colAccent
+                                            selectedTextColor: root.colOnAccent
+                                            font.family: root.uiFont
+                                            font.pixelSize: 15
+                                            text: root.dCat?.name ?? ""
+                                            onTextEdited: root.dRename(text)
+                                            onAccepted: focus = false
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: nameField.text.trim().length === 0
+                                                text: "Category name"
+                                                color: root.colError
+                                                font: nameField.font
+                                                opacity: 0.8
+                                            }
+
+                                            // Typing breaks the `text` binding above, so the field
+                                            // has to be told when the category under it changed —
+                                            // otherwise renaming Work and then clicking Church
+                                            // leaves Church wearing "Work". The unconditional sync
+                                            // is the deliberate one: the field can still hold focus
+                                            // when a delete moves the selection under it, so
+                                            // skipping the resync while focused would leave the
+                                            // deleted category's name sitting on its successor.
+                                            Connections {
+                                                target: root
+
+                                                function onSyncCategoryFields() {
+                                                    nameField.text = root.dCat?.name ?? "";
+                                                }
+
+                                                function onDCatChanged() {
+                                                    if (!nameField.activeFocus)
+                                                        nameField.text = root.dCat?.name ?? "";
+                                                }
+
+                                                function onFocusCategoryName() {
+                                                    nameField.text = root.dCat?.name ?? "";
+                                                    nameField.forceActiveFocus();
+                                                    nameField.selectAll();
+                                                }
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: nameMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            acceptedButtons: Qt.NoButton
+                                            cursorShape: Qt.IBeamCursor
+                                        }
+                                    }
+
+                                    Text {
+                                        id: inCount
+                                        anchors.left: inNameBox.right
+                                        anchors.leftMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.dMembers.length + (root.dMembers.length === 1 ? " app" : " apps")
+                                        font.family: root.uiFont
+                                        font.pixelSize: 11
+                                        color: root.colSubtle
+                                        opacity: 0.55
+                                    }
+
+                                    Row {
+                                        id: inCatActions
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 8
+
+                                        CfgButton {
+                                            symbol: "star"
+                                            label: root.draftDefault === (root.dCat?.id ?? "") ? "Opening view" : "Make opening view"
+                                            accent: root.draftDefault === (root.dCat?.id ?? "")
+                                            enabled: root.dCat !== null && root.draftDefault !== root.dCat.id
+                                            onClicked: root.dMakeDefault(root.dCat?.id ?? "")
+                                        }
+
+                                        // Two clicks, because this is the only control in the
+                                        // window that destroys a list rather than moving one entry
+                                        // in or out of it. `dSelect` disarms, so the confirm can't
+                                        // follow you to another category.
+                                        CfgButton {
+                                            id: delCatBtn
+                                            readonly property bool armed: root.dArmed.length > 0 && root.dArmed === (root.dCat?.id ?? "")
+                                            symbol: armed ? "delete_forever" : "delete"
+                                            label: armed ? "Delete — click again" : "Delete"
+                                            accent: armed
+                                            tint: root.colError
+                                            enabled: root.dCat !== null && root.draft.length > 1
+                                            onClicked: {
+                                                if (armed)
+                                                    root.dDeleteCategory();
+                                                else
+                                                    root.dArmed = root.dCat?.id ?? "";
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Categories have always carried an icon; until now the only way
+                                // to set one was to look a Material Symbols name up and type it
+                                // into the JSON. The grid is the common answer, the field next to
+                                // it is every other name the font knows.
+                                Flow {
+                                    id: iconPick
+                                    anchors.top: inTitleRow.bottom
+                                    anchors.topMargin: 4
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    visible: root.dIconOpen && root.dCat !== null
+                                    height: visible ? implicitHeight : 0
+                                    spacing: 4
+
+                                    Repeater {
+                                        model: root.catIcons
+
+                                        Rectangle {
+                                            id: iconCell
+
+                                            required property var modelData
+                                            readonly property bool picked: (root.dCat?.icon ?? "") === modelData
+
+                                            width: 30
+                                            height: 30
+                                            radius: 8
+                                            color: picked ? root.colSel : (iconMouse.containsMouse ? root.colHover : "transparent")
+                                            border.width: 1
+                                            border.color: picked ? root.colBorder : "transparent"
+
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: iconCell.modelData
+                                                font.family: root.iconFont
+                                                font.pixelSize: 18
+                                                color: iconCell.picked ? root.colAccent : root.colText
+                                                opacity: iconCell.picked ? 1 : 0.75
+                                            }
+
+                                            MouseArea {
+                                                id: iconMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.dSetIcon(iconCell.modelData)
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: 136
+                                        height: 30
+                                        radius: 8
+                                        color: "transparent"
+                                        border.width: 1
+                                        border.color: root.colBorder
+
+                                        TextInput {
+                                            id: iconField
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 8
+                                            anchors.rightMargin: 8
+                                            verticalAlignment: TextInput.AlignVCenter
+                                            clip: true
+                                            color: root.colText
+                                            selectionColor: root.colAccent
+                                            selectedTextColor: root.colOnAccent
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            text: root.dCat?.icon ?? ""
+                                            onEditingFinished: root.dSetIcon(text.trim())
+
+                                            Text {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: iconField.text.length === 0
+                                                text: "icon name…"
+                                                color: root.colSubtle
+                                                font: iconField.font
+                                            }
+
+                                            // Same broken-binding problem as the name field: a
+                                            // swatch click has to show up in the box.
+                                            Connections {
+                                                target: root
+
+                                                function onSyncCategoryFields() {
+                                                    iconField.text = root.dCat?.icon ?? "";
+                                                }
+
+                                                function onDCatChanged() {
+                                                    if (!iconField.activeFocus)
+                                                        iconField.text = root.dCat?.icon ?? "";
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
 

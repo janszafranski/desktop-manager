@@ -46,6 +46,11 @@ or `omarchy-launcher config`. It lets you:
 - pick a category on the left and **reorder / add / remove** its apps (add via a
   live "ADD AN APP" search; All Apps is generated, so there's nothing to edit
   there);
+- **add, rename, re-icon and delete the categories themselves** — *New category*
+  (`Ctrl + N`) under the column, the name in the middle header is the rename
+  field, the button beside it picks the folder icon, and *Delete* takes two
+  clicks. Deleting the opening view or the folder holding the App List Config row
+  re-points both at a surviving category rather than stranding them;
 - tune the **Highlight** (selection pill) and **Faint outline** (card border) —
   each has a source (text / accent / outline / surface / **custom** `#rrggbb`)
   plus a strength/opacity slider. Every source but Custom is read live from
