@@ -213,6 +213,7 @@ APPS = [
         "install": _p("profiles", "keybinds", "install.sh"),
         "launch": "bash $HOME/.config/hypr/scripts/keybinds-toggle.sh",
         "button": "Show",
+        "group": "utilities",
     },
     {
         "name": "OpenClaw flyout",
@@ -243,6 +244,7 @@ APPS = [
         "install": _p("profiles", "mic-fixer", "install.sh"),
         "launch": "mic-fixer",
         "button": "Open",
+        "group": "utilities",
     },
 ]
 
@@ -558,34 +560,59 @@ class ReplicaWindow(Gtk.Window):
         apps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         apps_box.set_border_width(10)
         apps_frame.add(apps_box)
-        for i, app in enumerate(APPS):
-            if i:
-                apps_box.pack_start(
-                    Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
-                    False, False, 0)
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            name = Gtk.Label()
-            name.set_markup(f"<b>{GLib.markup_escape_text(app['name'])}</b>")
-            name.set_xalign(0.0)
-            desc = Gtk.Label()
-            desc.set_markup(f"<small>{GLib.markup_escape_text(app['desc'])}</small>")
-            desc.set_xalign(0.0)
-            desc.set_line_wrap(True)
-            # Cap so the (single-column) app descriptions don't stretch the
-            # window wider than the card grid above them.
-            desc.set_max_width_chars(52)
-            text.pack_start(name, False, False, 0)
-            text.pack_start(desc, False, False, 0)
-            row.pack_start(text, True, True, 0)
-            if app.get("install"):
-                ib = Gtk.Button(label="Install")
-                ib.get_style_context().add_class("suggested-action")
-                ib.set_valign(Gtk.Align.CENTER)
-                ib.connect("clicked",
-                           lambda _b, s=app["install"]: self._install_app(s))
-                row.pack_end(ib, False, False, 0)
-            apps_box.pack_start(row, False, False, 0)
+
+        # Top-level apps render as rows in the Apps frame; anything tagged with a
+        # "group" is tucked into a collapsed sub-menu (a Gtk.Expander) at the
+        # bottom, so single-purpose tools don't make the visible list grow.
+        top_apps = [a for a in APPS if not a.get("group")]
+        util_apps = [a for a in APPS if a.get("group") == "utilities"]
+
+        def _pack_app_rows(container, apps):
+            for i, app in enumerate(apps):
+                if i:
+                    container.pack_start(
+                        Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
+                        False, False, 0)
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                name = Gtk.Label()
+                name.set_markup(f"<b>{GLib.markup_escape_text(app['name'])}</b>")
+                name.set_xalign(0.0)
+                desc = Gtk.Label()
+                desc.set_markup(f"<small>{GLib.markup_escape_text(app['desc'])}</small>")
+                desc.set_xalign(0.0)
+                desc.set_line_wrap(True)
+                # Cap so the (single-column) app descriptions don't stretch the
+                # window wider than the card grid above them.
+                desc.set_max_width_chars(52)
+                text.pack_start(name, False, False, 0)
+                text.pack_start(desc, False, False, 0)
+                row.pack_start(text, True, True, 0)
+                if app.get("install"):
+                    ib = Gtk.Button(label="Install")
+                    ib.get_style_context().add_class("suggested-action")
+                    ib.set_valign(Gtk.Align.CENTER)
+                    ib.connect("clicked",
+                               lambda _b, s=app["install"]: self._install_app(s))
+                    row.pack_end(ib, False, False, 0)
+                container.pack_start(row, False, False, 0)
+
+        _pack_app_rows(apps_box, top_apps)
+
+        if util_apps:
+            # Sub-menu: collapsed by default so the list stays short. Its rows
+            # look identical to the top-level ones, just nested under a disclosure.
+            apps_box.pack_start(
+                Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
+                False, False, 0)
+            util_expander = Gtk.Expander(label="Utilities")
+            util_expander.set_expanded(False)
+            util_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            util_box.set_margin_top(6)
+            util_box.set_margin_start(6)
+            _pack_app_rows(util_box, util_apps)
+            util_expander.add(util_box)
+            apps_box.pack_start(util_expander, False, False, 0)
 
         # --- action row (kept above the Apps list) ---------------------------
         # Inset to match the Apps frame's content padding (border_width 10 + the
