@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# mic-fixer — native GTK4/libadwaita microphone checker. No browser involved.
+#
+# Payload: ~/.local/share/mic-fixer/mic-fixer.py  (override with MIC_FIXER_APP)
+# The browser build from JAN-10 lives alongside it as `mic-fixer-web`.
+set -euo pipefail
+
+APP="${MIC_FIXER_APP:-${XDG_DATA_HOME:-$HOME/.local/share}/mic-fixer/mic-fixer.py}"
+
+# Launched from a .desktop entry or a bare shell, XDG_RUNTIME_DIR is sometimes
+# unset; PipeWire's sockets live under /run/user/$UID either way.
+if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+
+exec python3 "$APP" "$@"

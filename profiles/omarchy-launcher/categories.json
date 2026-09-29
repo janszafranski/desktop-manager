@@ -255,7 +255,9 @@
       ],
       "exclude": [
         "qv4l2",
-        "qvidcap"
+        "qvidcap",
+        "mic-fixer",
+        "mic-fixer-web"
       ]
     },
     {
@@ -286,6 +288,17 @@
         "RasterGraphics",
         "Photography",
         "Scanning"
+      ]
+    },
+    {
+      "id": "utilities",
+      "name": "Utilities",
+      "icon": "build",
+      "apps": [
+        "mic-fixer",
+        "mic-fixer-web",
+        "kde-keybinds-toggle",
+        "kde-keybinds-yad"
       ]
     },
     {

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Mic Fixer
+GenericName=Microphone Tester
+Comment=Pick a microphone, record a test clip, and see what is wrong with it
+Exec=/home/jan/.local/bin/mic-fixer
+Icon=audio-input-microphone
+Terminal=false
+StartupNotify=true
+StartupWMClass=dev.jan.MicFixer
+Categories=AudioVideo;Audio;Recorder;
+Keywords=microphone;mic;audio;input;record;test;level;waveform;

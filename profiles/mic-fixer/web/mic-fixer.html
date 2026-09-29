@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mic Fixer</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --line: #2a3140;
+    --text: #e6edf3;
+    --muted: #8b97a8;
+    --accent: #4da3ff;
+    --good: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --rec: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 28px 16px 60px;
+  }
+  .app { width: 100%; max-width: 760px; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 22px; font-size: 13px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1 1 220px; min-width: 0; }
+
+  select, button {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 12px;
+  }
+  select { width: 100%; }
+  button { cursor: pointer; transition: background .12s, border-color .12s, opacity .12s; }
+  button:hover:not(:disabled) { background: #232b3b; border-color: #3a4459; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #6fb6ff; border-color: #6fb6ff; }
+  button.rec { background: var(--rec); border-color: var(--rec); color: #1a0505; font-weight: 600; }
+  button.rec:hover:not(:disabled) { background: #ff6a61; border-color: #ff6a61; }
+  button.icon { min-width: 42px; }
+
+  canvas { width: 100%; height: 120px; display: block; background: #0b0f15; border: 1px solid var(--line); border-radius: 8px; }
+  canvas.seekable { cursor: pointer; }
+
+  .meterwrap { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .meter { flex: 1; height: 8px; background: #0b0f15; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--good) 0%, var(--good) 70%, var(--warn) 86%, var(--bad) 100%); background-size: 100vw 100%; transition: width .05s linear; }
+  .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .meterval { width: 78px; text-align: right; color: var(--muted); font-size: 12px; }
+
+  .status { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 20px; }
+  .status.ok { color: var(--good); }
+  .status.warn { color: var(--warn); }
+  .status.err { color: var(--bad); }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 12px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 15px; font-weight: 600; }
+  .stat span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+  label.chk { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; cursor: pointer; }
+  label.chk input { accent-color: var(--accent); }
+
+  .banner { background: #2a1d0a; border: 1px solid #6b4c12; color: #f0c674; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; }
+  .banner code { background: #0b0f15; padding: 2px 6px; border-radius: 5px; color: #e6edf3; }
+  .hide { display: none !important; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); display: inline-block; margin-right: 6px; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .blink { animation: blink 1s infinite; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Mic Fixer</h1>
+  <p class="sub">Pick a microphone, record a test clip, play it back. Find the one that actually works.</p>
+
+  <div id="ctxBanner" class="banner hide"></div>
+
+  <!-- 1. Device -->
+  <section class="card">
+    <h2>1 &middot; Microphone</h2>
+    <div class="row">
+      <div class="grow">
+        <select id="deviceSelect"><option value="">Grant mic access to list devices…</option></select>
+      </div>
+      <button id="refreshBtn" class="icon" title="Refresh device list">↻</button>
+      <button id="grantBtn">Grant access</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="chk"><input type="checkbox" id="optEC" /> Echo cancellation</label>
+      <label class="chk"><input type="checkbox" id="optNS" /> Noise suppression</label>
+      <label class="chk"><input type="checkbox" id="optAGC" /> Auto gain</label>
+    </div>
+    <div id="devStatus" class="status"></div>
+  </section>
+
+  <!-- 2. Test -->
+  <section class="card">
+    <h2>2 &middot; Test mic</h2>
+    <div class="row">
+      <button id="recBtn" class="primary">● Test mic</button>
+      <span id="recTime" class="mono" style="color:var(--muted)">0:00.0</span>
+      <span class="grow"></span>
+      <label class="chk" title="Hear yourself live — use headphones or you will get feedback"><input type="checkbox" id="optMonitor" /> Monitor (headphones!)</label>
+    </div>
+    <canvas id="liveCanvas" style="margin-top:12px"></canvas>
+    <div class="meterwrap">
+      <span style="color:var(--muted);font-size:12px">Level</span>
+      <div class="meter"><i id="meterFill"></i></div>
+      <span id="meterVal" class="meterval mono">—</span>
+    </div>
+    <div id="recStatus" class="status"></div>
+    <div class="stats" id="stats">
+      <div class="stat"><b id="statPeak">—</b><span>Peak</span></div>
+      <div class="stat"><b id="statAvg">—</b><span>Average</span></div>
+      <div class="stat"><b id="statNoise">—</b><span>Noise floor</span></div>
+      <div class="stat"><b id="statClip">—</b><span>Clipping</span></div>
+      <div class="stat"><b id="statRate">—</b><span>Sample rate</span></div>
+    </div>
+  </section>
+
+  <!-- 3. Playback -->
+  <section class="card">
+    <h2>3 &middot; Playback</h2>
+    <div class="row">
+      <button id="playBtn" disabled>▶ Play</button>
+      <span id="playTime" class="mono" style="color:var(--muted)">0:00.0 / 0:00.0</span>
+      <span class="grow"></span>
+      <button id="downloadBtn" disabled>Download</button>
+      <button id="clearBtn" disabled>Clear</button>
+    </div>
+    <canvas id="playCanvas" class="seekable" style="margin-top:12px"></canvas>
+    <div id="playStatus" class="status">Record a test clip first. Click the waveform to seek.</div>
+  </section>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const deviceSelect = $('deviceSelect'), refreshBtn = $('refreshBtn'), grantBtn = $('grantBtn');
+  const optEC = $('optEC'), optNS = $('optNS'), optAGC = $('optAGC'), optMonitor = $('optMonitor');
+  const recBtn = $('recBtn'), recTime = $('recTime'), liveCanvas = $('liveCanvas');
+  const meterFill = $('meterFill'), meterVal = $('meterVal');
+  const playBtn = $('playBtn'), playTime = $('playTime'), playCanvas = $('playCanvas');
+  const downloadBtn = $('downloadBtn'), clearBtn = $('clearBtn');
+  const devStatus = $('devStatus'), recStatus = $('recStatus'), playStatus = $('playStatus');
+
+  const setStatus = (el, msg, kind = '') => { el.textContent = msg; el.className = 'status ' + kind; };
+
+  // ---------- context check ----------
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const b = $('ctxBanner');
+    b.classList.remove('hide');
+    b.innerHTML = location.protocol === 'file:'
+      ? 'This browser blocks microphone access on <code>file://</code> pages. Serve the file over localhost instead:<br><br><code>python3 -m http.server 8000</code><br><br>then open <code>http://localhost:8000/mic-fixer.html</code>.'
+      : 'Microphone access needs a secure context (https:// or http://localhost). This page is on <code>' + location.protocol + '</code>.';
+    [recBtn, grantBtn, refreshBtn].forEach(el => el.disabled = true);
+  } else if (location.protocol === 'file:') {
+    const b = $('ctxBanner');
+    b.classList.remove('hide');
+    b.innerHTML = 'Opened from <code>file://</code>. Chrome often refuses mic access here. If "Grant access" fails, run <code>python3 -m http.server 8000</code> in this folder and open <code>http://localhost:8000/mic-fixer.html</code>.';
+  }
+
+  // ---------- canvas helpers ----------
+  function fitCanvas(c) {
+    const dpr = window.devicePixelRatio || 1;
+    const r = c.getBoundingClientRect();
+    c.width = Math.max(1, Math.round(r.width * dpr));
+    c.height = Math.max(1, Math.round(r.height * dpr));
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w: r.width, h: r.height };
+  }
+  function clearCanvas(c, text) {
+    const { ctx, w, h } = fitCanvas(c);
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#1e2633'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+    if (text) {
+      ctx.fillStyle = '#5a6678'; ctx.font = '13px ui-sans-serif, system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(text, w / 2, h / 2 - 16);
+    }
+  }
+  const redrawAll = () => {
+    if (history.length) renderLive();
+    else clearCanvas(liveCanvas, 'Live waveform appears here while recording');
+    if (decoded) drawStatic(); else clearCanvas(playCanvas, 'Recorded waveform appears here');
+  };
+  window.addEventListener('resize', () => { clearTimeout(window.__rz); window.__rz = setTimeout(redrawAll, 120); });
+
+  const fmt = (s) => {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60), r = s - m * 60;
+    return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1);
+  };
+  const dB = (amp) => amp <= 0.0000001 ? -Infinity : 20 * Math.log10(amp);
+  const dBtxt = (amp) => { const v = dB(amp); return v === -Infinity ? '−∞ dB' : (v > 0 ? '+' : '') + v.toFixed(1) + ' dB'; };
+  const dBtoPct = (v) => Math.max(0, Math.min(100, ((v + 60) / 60) * 100)); // -60..0 dB -> 0..100%
+
+  // ---------- state ----------
+  let audioCtx = null, stream = null, analyser = null, sourceNode = null, monitorGain = null;
+  let recorder = null, chunks = [], recording = false, rafLive = 0, startedAt = 0;
+  let history = [];               // rolling {min,max} columns for the scrolling live waveform
+  let peak = 0, sumSq = 0, sumN = 0, clipCount = 0, totalFrames = 0;
+  let quietWindows = [];          // per-frame RMS, used for the noise-floor estimate
+  let blob = null, blobUrl = null, decoded = null, audioEl = null, rafPlay = 0;
+
+  const getCtx = () => {
+    if (!audioCtx || audioCtx.state === 'closed') audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  };
+
+  // ---------- devices ----------
+  async function listDevices(preferId) {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const all = await navigator.mediaDevices.enumerateDevices();
+    const mics = all.filter(d => d.kind === 'audioinput');
+    const keep = preferId || deviceSelect.value;
+    deviceSelect.innerHTML = '';
+    if (!mics.length) {
+      deviceSelect.innerHTML = '<option value="">No microphones found</option>';
+      setStatus(devStatus, 'No input devices detected.', 'err');
+      return;
+    }
+    const labelled = mics.some(d => d.label);
+    for (const d of mics) {
+      const o = document.createElement('option');
+      o.value = d.deviceId;
+      o.textContent = d.label || ('Microphone ' + (d.deviceId ? d.deviceId.slice(0, 6) : '?'));
+      deviceSelect.appendChild(o);
+    }
+    if (keep && mics.some(d => d.deviceId === keep)) deviceSelect.value = keep;
+    grantBtn.classList.toggle('hide', labelled);
+    setStatus(devStatus,
+      mics.length + ' microphone' + (mics.length === 1 ? '' : 's') + ' found.' + (labelled ? '' : ' Grant access to see real names.'),
+      labelled ? 'ok' : 'warn');
+  }
+
+  async function grantAccess() {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach(t => t.stop());
+      await listDevices();
+    } catch (e) { setStatus(devStatus, micError(e), 'err'); }
+  }
+
+  function micError(e) {
+    const n = e && e.name;
+    if (n === 'NotAllowedError' || n === 'SecurityError') return 'Microphone permission denied. Allow it in the browser address bar, then hit Refresh.';
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'That microphone is no longer available. Hit Refresh and pick another.';
+    if (n === 'NotReadableError') return 'The microphone is in use or locked by another app (Zoom, Meet, OBS…). Close it and retry.';
+    return 'Could not open the microphone: ' + (e && e.message ? e.message : e);
+  }
+
+  grantBtn.addEventListener('click', grantAccess);
+  refreshBtn.addEventListener('click', () => listDevices());
+  deviceSelect.addEventListener('change', () => setStatus(devStatus, 'Selected: ' + (deviceSelect.selectedOptions[0]?.textContent || ''), ''));
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => listDevices());
+
+  // ---------- live waveform ----------
+  const COL_W = 3;
+
+  // Paints the retained column history. Kept separate from sampling so a resize
+  // (or the end of a take) can repaint the same trace instead of blanking it.
+  function renderLive() {
+    const { ctx, w, h } = fitCanvas(liveCanvas);
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#1e2633'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+
+    const maxCols = Math.ceil(w / COL_W);
+    const mid = h / 2, amp = h / 2 - 6;
+    const full = history.length >= maxCols;
+    ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (let i = 0; i < history.length; i++) {
+      const c = history[i];
+      // fill left-to-right until the canvas is full, then scroll against the right edge
+      const x = (full ? w - (history.length - i) * COL_W : i * COL_W) + COL_W / 2;
+      const top = mid - Math.max(c.mx, 0.004) * amp;
+      const bot = mid - Math.min(c.mn, -0.004) * amp;
+      const loud = Math.max(Math.abs(c.mx), Math.abs(c.mn));
+      ctx.strokeStyle = loud > 0.985 ? '#f85149' : loud > 0.7 ? '#d29922' : '#4da3ff';
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke();
+    }
+  }
+
+  function drawLive() {
+    const buf = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(buf);
+
+    let mn = 1, mx = -1, sq = 0, clipped = false;
+    for (let i = 0; i < buf.length; i++) {
+      const v = (buf[i] - 128) / 128;
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+      sq += v * v;
+      if (Math.abs(v) > 0.985) clipped = true;
+    }
+    const rms = Math.sqrt(sq / buf.length);
+    const framePeak = Math.max(Math.abs(mn), Math.abs(mx));
+    if (framePeak > peak) peak = framePeak;
+    sumSq += sq; sumN += buf.length; totalFrames++;
+    if (clipped) clipCount++;
+    quietWindows.push(rms);
+    if (quietWindows.length > 4000) quietWindows.shift();
+
+    history.push({ mn, mx });
+    const maxCols = Math.ceil(liveCanvas.getBoundingClientRect().width / COL_W);
+    while (history.length > maxCols) history.shift();
+    renderLive();
+
+    // meter
+    const pct = dBtoPct(dB(rms));
+    meterFill.style.width = pct + '%';
+    meterVal.textContent = dBtxt(rms);
+
+    recTime.textContent = fmt((performance.now() - startedAt) / 1000);
+    rafLive = requestAnimationFrame(drawLive);
+  }
+
+  // ---------- recording ----------
+  function pickMime() {
+    const list = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4', ''];
+    for (const m of list) {
+      if (!m) return '';
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return '';
+  }
+
+  async function startRecording() {
+    if (!window.MediaRecorder) { setStatus(recStatus, 'This browser has no MediaRecorder support.', 'err'); return; }
+    const id = deviceSelect.value;
+    const audio = {
+      echoCancellation: optEC.checked,
+      noiseSuppression: optNS.checked,
+      autoGainControl: optAGC.checked,
+    };
+    if (id) audio.deviceId = { exact: id };
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio });
+    } catch (e) {
+      setStatus(recStatus, micError(e), 'err');
+      return;
+    }
+    // now that permission is granted, device labels are readable — refresh while keeping the selection
+    await listDevices(stream.getAudioTracks()[0].getSettings?.().deviceId || deviceSelect.value);
+
+    const ctx = getCtx();
+    sourceNode = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0;
+    sourceNode.connect(analyser);
+
+    monitorGain = ctx.createGain();
+    monitorGain.gain.value = optMonitor.checked ? 1 : 0;
+    sourceNode.connect(monitorGain).connect(ctx.destination);
+
+    peak = 0; sumSq = 0; sumN = 0; clipCount = 0; totalFrames = 0;
+    history = []; quietWindows = [];
+    chunks = [];
+
+    const mime = pickMime();
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = finishRecording;
+    recorder.start();
+
+    recording = true;
+    startedAt = performance.now();
+    recBtn.textContent = '■ Stop';
+    recBtn.classList.remove('primary'); recBtn.classList.add('rec');
+    deviceSelect.disabled = refreshBtn.disabled = true;
+    const track = stream.getAudioTracks()[0];
+    const s = track.getSettings ? track.getSettings() : {};
+    $('statRate').textContent = (s.sampleRate || ctx.sampleRate) ? Math.round((s.sampleRate || ctx.sampleRate) / 1000) + ' kHz' : '—';
+    setStatus(recStatus, 'Recording from "' + track.label + '" — say something.', '');
+    recStatus.innerHTML = '<span class="dot blink"></span>' + recStatus.textContent;
+    drawLive();
+  }
+
+  function stopRecording() {
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    recording = false;
+    cancelAnimationFrame(rafLive);
+    meterFill.style.width = '0%';
+    meterVal.textContent = '—';
+    recBtn.textContent = '● Test mic';
+    recBtn.classList.add('primary'); recBtn.classList.remove('rec');
+    deviceSelect.disabled = refreshBtn.disabled = false;
+  }
+
+  async function finishRecording() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    try { sourceNode && sourceNode.disconnect(); monitorGain && monitorGain.disconnect(); } catch (_) {}
+
+    const dur = (performance.now() - startedAt) / 1000;
+    const avgRms = sumN ? Math.sqrt(sumSq / sumN) : 0;
+    const sorted = quietWindows.slice().sort((a, b) => a - b);
+    const noise = sorted.length ? sorted[Math.floor(sorted.length * 0.1)] : 0;
+    const clipPct = totalFrames ? (clipCount / totalFrames) * 100 : 0;
+
+    $('statPeak').textContent = dBtxt(peak);
+    $('statAvg').textContent = dBtxt(avgRms);
+    $('statNoise').textContent = dBtxt(noise);
+    $('statClip').textContent = clipPct >= 0.05 ? clipPct.toFixed(1) + '%' : 'none';
+
+    // verdict
+    if (peak < 0.01) {
+      setStatus(recStatus, 'No signal. This mic captured near-silence — wrong device, muted in the OS, or hardware mute switch.', 'err');
+    } else if (clipPct >= 1) {
+      setStatus(recStatus, 'Clipping on ' + clipPct.toFixed(1) + '% of the signal. Lower the input gain in your OS sound settings.', 'err');
+    } else if (peak < 0.08) {
+      setStatus(recStatus, 'Very quiet (peak ' + dBtxt(peak) + '). Raise input gain, move closer, or enable Auto gain.', 'warn');
+    } else if (dB(noise) > -45 && dB(noise) > dB(avgRms) - 12) {
+      setStatus(recStatus, 'High noise floor (' + dBtxt(noise) + ') relative to your voice. Try Noise suppression, or a different mic.', 'warn');
+    } else {
+      setStatus(recStatus, 'Looks healthy — peak ' + dBtxt(peak) + ', noise floor ' + dBtxt(noise) + '. Play it back to confirm.', 'ok');
+    }
+
+    if (!chunks.length) { setStatus(playStatus, 'Nothing was captured.', 'err'); return; }
+    blob = new Blob(chunks, { type: chunks[0].type || 'audio/webm' });
+    await loadForPlayback(dur);
+  }
+
+  recBtn.addEventListener('click', () => { recording ? stopRecording() : startRecording(); });
+  optMonitor.addEventListener('change', () => { if (monitorGain) monitorGain.gain.value = optMonitor.checked ? 1 : 0; });
+
+  // ---------- playback ----------
+  async function loadForPlayback(fallbackDur) {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(blob);
+
+    if (!audioEl) {
+      audioEl = new Audio();
+      audioEl.addEventListener('play', () => { playBtn.textContent = '❚❚ Pause'; tickPlay(); });
+      audioEl.addEventListener('pause', () => { playBtn.textContent = '▶ Play'; cancelAnimationFrame(rafPlay); drawStatic(); updatePlayTime(); });
+      audioEl.addEventListener('ended', () => { playBtn.textContent = '▶ Play'; cancelAnimationFrame(rafPlay); audioEl.currentTime = 0; drawStatic(); updatePlayTime(); });
+    }
+    audioEl.src = blobUrl;
+
+    try {
+      const buf = await blob.arrayBuffer();
+      decoded = await getCtx().decodeAudioData(buf.slice(0));
+    } catch (e) {
+      decoded = { duration: fallbackDur, __nodata: true };
+    }
+    drawStatic();
+    updatePlayTime();
+    playBtn.disabled = downloadBtn.disabled = clearBtn.disabled = false;
+    setStatus(playStatus, 'Clip ready (' + fmt(duration()) + '). Press Play, or click the waveform to seek.', '');
+  }
+
+  const duration = () => {
+    if (decoded && isFinite(decoded.duration) && decoded.duration > 0) return decoded.duration;
+    if (audioEl && isFinite(audioEl.duration) && audioEl.duration > 0) return audioEl.duration;
+    return 0;
+  };
+
+  function peaksFor(width) {
+    if (!decoded || decoded.__nodata || !decoded.getChannelData) return null;
+    const ch = decoded.getChannelData(0);
+    const cols = Math.max(1, Math.floor(width));
+    const step = ch.length / cols;
+    const out = new Float32Array(cols * 2);
+    for (let i = 0; i < cols; i++) {
+      const s = Math.floor(i * step), e = Math.min(ch.length, Math.floor((i + 1) * step));
+      let mn = 0, mx = 0;
+      for (let j = s; j < e; j++) { const v = ch[j]; if (v < mn) mn = v; if (v > mx) mx = v; }
+      out[i * 2] = mn; out[i * 2 + 1] = mx;
+    }
+    return out;
+  }
+
+  function drawStatic() {
+    const { ctx, w, h } = fitCanvas(playCanvas);
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#1e2633'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+
+    const mid = h / 2, amp = h / 2 - 6;
+    const dur = duration();
+    const pos = audioEl && dur ? Math.min(1, audioEl.currentTime / dur) : 0;
+    const px = pos * w;
+
+    const pk = peaksFor(Math.floor(w));
+    if (pk) {
+      for (let i = 0; i < w; i++) {
+        const mn = pk[i * 2], mx = pk[i * 2 + 1];
+        const top = mid - Math.max(mx, 0.003) * amp;
+        const bot = mid - Math.min(mn, -0.003) * amp;
+        ctx.strokeStyle = i <= px ? '#4da3ff' : '#3b4a60';
+        ctx.beginPath(); ctx.moveTo(i + 0.5, top); ctx.lineTo(i + 0.5, bot); ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = '#5a6678'; ctx.font = '13px ui-sans-serif, system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('Waveform unavailable for this format — playback still works', w / 2, h / 2 - 16);
+    }
+
+    if (audioEl && dur) {
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, 2); ctx.lineTo(px, h - 2); ctx.stroke();
+    }
+  }
+
+  function updatePlayTime() {
+    playTime.textContent = fmt(audioEl ? audioEl.currentTime : 0) + ' / ' + fmt(duration());
+  }
+  function tickPlay() {
+    drawStatic(); updatePlayTime();
+    rafPlay = requestAnimationFrame(tickPlay);
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (!audioEl) return;
+    getCtx();
+    if (audioEl.paused) audioEl.play().catch(e => setStatus(playStatus, 'Playback failed: ' + e.message, 'err'));
+    else audioEl.pause();
+  });
+
+  playCanvas.addEventListener('click', (e) => {
+    if (!audioEl || !duration()) return;
+    const r = playCanvas.getBoundingClientRect();
+    audioEl.currentTime = Math.max(0, Math.min(duration() - 0.01, ((e.clientX - r.left) / r.width) * duration()));
+    drawStatic(); updatePlayTime();
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    if (!blob) return;
+    const ext = (blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'm4a' : 'webm');
+    const name = (deviceSelect.selectedOptions[0]?.textContent || 'mic').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase();
+    const a = document.createElement('a');
+    a.href = blobUrl; a.download = 'mic-test-' + (name || 'device') + '.' + ext;
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+
+  clearBtn.addEventListener('click', () => {
+    if (audioEl) { audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load(); }
+    cancelAnimationFrame(rafPlay);
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blob = null; blobUrl = null; decoded = null; history = [];
+    playBtn.disabled = downloadBtn.disabled = clearBtn.disabled = true;
+    playBtn.textContent = '▶ Play';
+    playTime.textContent = '0:00.0 / 0:00.0';
+    recTime.textContent = '0:00.0';
+    clearCanvas(liveCanvas, 'Live waveform appears here while recording');
+    clearCanvas(playCanvas, 'Recorded waveform appears here');
+    setStatus(playStatus, 'Cleared. Record a new test clip.', '');
+    ['statPeak','statAvg','statNoise','statClip','statRate'].forEach(i => $(i).textContent = '—');
+    setStatus(recStatus, '', '');
+  });
+
+  // keyboard: space toggles record, p toggles play
+  document.addEventListener('keydown', (e) => {
+    if (e.target.matches('input, select, button')) return;
+    if (e.code === 'Space') { e.preventDefault(); recBtn.click(); }
+    if (e.key === 'p' && !playBtn.disabled) playBtn.click();
+  });
+
+  // ---------- init ----------
+  clearCanvas(liveCanvas, 'Live waveform appears here while recording');
+  clearCanvas(playCanvas, 'Recorded waveform appears here');
+  if (navigator.mediaDevices?.enumerateDevices) {
+    listDevices();
+    navigator.permissions?.query?.({ name: 'microphone' })
+      .then(p => { if (p.state === 'granted') listDevices(); })
+      .catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>

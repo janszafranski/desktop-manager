@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# mic-fixer — open the Mic Fixer app in a standalone window.
+#
+# Chromium-family browsers refuse getUserMedia() on file:// pages: the mic is
+# silently never granted. So the page is served over http://127.0.0.1 (a secure
+# context, same as https) for the lifetime of the window, and nothing is left
+# listening afterwards.
+#
+# Lifecycle: the server is a child of this script, and the script blocks on the
+# browser process, so closing the window tears the server down with it. A
+# non-blocking flock makes a second launch focus the window that already exists
+# instead of starting a second server.
+#
+#   mic-fixer            open (or focus, if already open)
+#   mic-fixer --url      print the URL it would serve and exit
+#
+# Env overrides: MIC_FIXER_PORT, MIC_FIXER_BROWSER, MIC_FIXER_APP_DIR.
+
+set -uo pipefail
+
+APP_DIR="${MIC_FIXER_APP_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mic-fixer-web}"
+PAGE="mic-fixer.html"
+PROFILE_DIR="$APP_DIR/browser-profile"
+STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/mic-fixer-web-$(id -u)"
+LOCK="$STATE_DIR/lock"
+PORT_FILE="$STATE_DIR/port"
+LOG="$STATE_DIR/log"
+# Chromium ignores --class on Wayland and derives its own app_id from the URL
+# (verified stable across ports), so match on that rather than on the window
+# title: another app on this box also titles a window "Mic Fixer", and focusing
+# that one instead would be worse than not focusing anything. Dots here are
+# regex wildcards, which is fine — the string is already unique. Keep in step
+# with StartupWMClass in mic-fixer.desktop.
+WINDOW_MATCH="class:chrome-127.0.0.1__mic-fixer.html-Default"
+
+# Stable by default so the browser remembers the mic permission for this origin
+# between runs (permissions are keyed on scheme+host+port). Deliberately below
+# the local ephemeral range (32768-60999) so the kernel never hands it out to
+# something else. If it is busy anyway, serve.py falls back to a free port.
+PREFERRED_PORT="${MIC_FIXER_PORT:-21437}"
+
+die() { printf 'mic-fixer: %s\n' "$*" >&2; exit 1; }
+
+[ -f "$APP_DIR/$PAGE" ]    || die "app payload missing: $APP_DIR/$PAGE"
+[ -f "$APP_DIR/serve.py" ] || die "server missing: $APP_DIR/serve.py"
+command -v python3 >/dev/null 2>&1 || die "python3 not found"
+
+if [ "${1:-}" = "--url" ]; then
+    printf 'http://127.0.0.1:%s/%s\n' "$PREFERRED_PORT" "$PAGE"
+    exit 0
+fi
+
+# Pick a Chromium-family browser: --app= gives a real app window rather than a
+# stray tab, and a dedicated profile keeps this process in the foreground so we
+# can tell when the window closes (a shared profile would hand off to the
+# already-running browser and exit immediately, orphaning the server).
+BROWSER=""
+if [ -n "${MIC_FIXER_BROWSER:-}" ]; then
+    BROWSER="$MIC_FIXER_BROWSER"
+else
+    for b in chromium chromium-browser brave brave-browser google-chrome-stable \
+             google-chrome microsoft-edge microsoft-edge-stable vivaldi-stable; do
+        if command -v "$b" >/dev/null 2>&1; then BROWSER="$(command -v "$b")"; break; fi
+    done
+fi
+
+mkdir -p "$STATE_DIR" || die "cannot create $STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null
+
+# Idempotency: one window at a time. The lock is held by an open fd, so it is
+# released automatically however this script dies — there is no stale lock file.
+exec 9>"$LOCK" || die "cannot open lock $LOCK"
+if ! flock -n 9; then
+    running_port="$(cat "$PORT_FILE" 2>/dev/null)"
+    echo "mic-fixer: already running${running_port:+ on http://127.0.0.1:$running_port/$PAGE} — focusing it."
+    # Hyprland 0.56 moved dispatchers to a Lua API; older releases take the flat
+    # form. Try both so this keeps working across an update either way.
+    if command -v hyprctl >/dev/null 2>&1; then
+        for _ in 1 2 3; do
+            hyprctl dispatch "hl.dsp.focus({ window = \"$WINDOW_MATCH\" })" 2>/dev/null | grep -qx ok && exit 0
+            hyprctl dispatch focuswindow "$WINDOW_MATCH" 2>/dev/null | grep -qx ok && exit 0
+            sleep 0.3
+        done
+    fi
+    exit 0
+fi
+
+rm -f "$PORT_FILE"
+: >"$LOG"
+
+python3 "$APP_DIR/serve.py" "$APP_DIR" "$PORT_FILE" "$PREFERRED_PORT" >>"$LOG" 2>&1 &
+SERVER_PID=$!
+
+cleanup() {
+    trap - EXIT INT TERM HUP
+    if kill -0 "$SERVER_PID" 2>/dev/null; then
+        kill "$SERVER_PID" 2>/dev/null
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            kill -0 "$SERVER_PID" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill -9 "$SERVER_PID" 2>/dev/null
+    fi
+    wait "$SERVER_PID" 2>/dev/null
+    rm -f "$PORT_FILE"
+}
+trap cleanup EXIT INT TERM HUP
+
+# Wait for the server to report the port it bound (up to ~5s).
+PORT=""
+for _ in $(seq 1 100); do
+    if [ -s "$PORT_FILE" ]; then PORT="$(cat "$PORT_FILE")"; break; fi
+    kill -0 "$SERVER_PID" 2>/dev/null || break
+    sleep 0.05
+done
+if [ -z "$PORT" ]; then
+    sed 's/^/mic-fixer: /' "$LOG" >&2
+    die "local server did not start"
+fi
+
+URL="http://127.0.0.1:$PORT/$PAGE"
+echo "mic-fixer: serving $URL"
+
+if [ -n "$BROWSER" ]; then
+    BROWSER_ARGS=(
+        --user-data-dir="$PROFILE_DIR"
+        --no-first-run
+        --no-default-browser-check
+        --disable-features=Translate
+    )
+    # Chromium picks its ozone backend from XDG_SESSION_TYPE, so anything that
+    # launches us without exporting it (a bare login shell, a systemd unit)
+    # gets an X11 fallback and "Missing X server or $DISPLAY". Only override
+    # when the session variable is missing but a Wayland socket is plainly
+    # there, so the normal desktop path keeps the browser's own default.
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ "${XDG_SESSION_TYPE:-}" != "wayland" ]; then
+        BROWSER_ARGS+=(--ozone-platform=wayland)
+    fi
+
+    # Blocks until the app window is closed; cleanup() then stops the server.
+    "$BROWSER" "${BROWSER_ARGS[@]}" --app="$URL" >>"$LOG" 2>&1
+    browser_rc=$?
+    if [ "$browser_rc" -ne 0 ]; then
+        echo "mic-fixer: $BROWSER exited $browser_rc — last lines of $LOG:" >&2
+        grep -i 'error\|fatal' "$LOG" | tail -5 | sed 's/^/mic-fixer: /' >&2
+        exit "$browser_rc"
+    fi
+else
+    # No Chromium-family browser: fall back to the default handler. We cannot
+    # observe that window's lifetime, so the server runs until this is stopped.
+    echo "mic-fixer: no Chromium-family browser found; opening in the default browser." >&2
+    echo "mic-fixer: press Ctrl-C here when you are done to stop the server." >&2
+    ( xdg-open "$URL" >>"$LOG" 2>&1 & )
+    wait "$SERVER_PID"
+fi

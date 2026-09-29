@@ -68,6 +68,16 @@ file is watched — save it and the next open picks the change up, no restart. S
 **[APP-README.md](APP-README.md)** for the full category schema, XDG
 auto-population, and design notes.
 
+## Utilities folder
+
+To keep the list from sprawling, small single-purpose tools are gathered in a
+**Utilities** category rather than scattered across Media/System. **Mic Fixer**
+(both builds) and the KDE **Keybinds** entries live there, and Mic Fixer is
+`exclude`d from Media so it doesn't also auto-appear via its `AudioVideo` tag.
+Add more here the same way — a `utilities` entry in `categories.json`, listed
+apps by desktop id, and an `exclude` in any auto-filled category that would
+otherwise pull them back in.
+
 ## Files
 - `omarchy-launcher` → `~/.local/bin/` — the wrapper you bind to a key (toggle / open / close / restart / edit / daemon)
 - `shell.qml` → `~/.config/quickshell/omarchy-launcher/` — the Quickshell UI

@@ -234,6 +234,16 @@ APPS = [
         "launch": "omarchy-launcher",
         "button": "Toggle",
     },
+    {
+        "name": "Mic Fixer",
+        "desc": "Pick a microphone, record a test clip, watch the level meter and "
+                "waveform, and get a plain verdict on what is wrong with it. Native "
+                "GTK4 build (mic-fixer) plus a browser build (mic-fixer-web). Filed "
+                "under the launcher's Utilities folder. Built by Coding Colin.",
+        "install": _p("profiles", "mic-fixer", "install.sh"),
+        "launch": "mic-fixer",
+        "button": "Open",
+    },
 ]
 
 COLUMNS = 3  # cards per row in the grid

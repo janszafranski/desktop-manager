@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Mic Fixer (browser)
+GenericName=Microphone Tester
+Comment=Pick a microphone, record a test clip, play it back
+Exec=/home/jan/.local/bin/mic-fixer-web
+Icon=mic-fixer
+Terminal=false
+StartupNotify=true
+StartupWMClass=chrome-127.0.0.1__mic-fixer.html-Default
+Categories=AudioVideo;Audio;Recorder;
+Keywords=microphone;mic;audio;input;record;test;level;waveform;
