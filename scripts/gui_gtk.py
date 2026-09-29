@@ -205,6 +205,7 @@ APPS = [
         "install": _p("profiles", "shakefree-mouse", "install.sh"),
         "launch": "shakefree-mouse",
         "button": "Open panel",
+        "group": "utilities",
     },
     {
         "name": "Keyboard shortcuts",
@@ -451,6 +452,9 @@ class ReplicaWindow(Gtk.Window):
     # Fixed height (px) of the scrollable card-grid viewport — sized to show the
     # current two rows fully; extra rows scroll rather than growing the window.
     GRID_VIEWPORT_H = 680
+    # Fixed height (px) of the scrollable Apps-list viewport — sized to show the
+    # current rows; extra apps scroll rather than growing the window.
+    APPS_VIEWPORT_H = 210
 
     def __init__(self, image_override, image_full=None):
         super().__init__()
@@ -559,7 +563,17 @@ class ReplicaWindow(Gtk.Window):
         apps_frame = Gtk.Frame(label="Apps")
         apps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         apps_box.set_border_width(10)
-        apps_frame.add(apps_box)
+        # Fixed-height scroll area (same idiom as the card grid): the Apps list
+        # scrolls instead of growing the window as more apps are added. The
+        # vertical bar is a permanent visible track with a proportional thumb.
+        apps_scroll = Gtk.ScrolledWindow()
+        apps_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.ALWAYS)
+        apps_scroll.set_overlay_scrolling(False)
+        apps_scroll.set_min_content_height(self.APPS_VIEWPORT_H)
+        apps_scroll.set_max_content_height(self.APPS_VIEWPORT_H)
+        apps_scroll.set_propagate_natural_height(False)
+        apps_scroll.add(apps_box)
+        apps_frame.add(apps_scroll)
 
         # Top-level apps render as rows in the Apps frame; anything tagged with a
         # "group" is tucked into a collapsed sub-menu (a Gtk.Expander) at the
