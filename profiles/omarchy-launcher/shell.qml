@@ -73,12 +73,73 @@ ShellRoot {
     readonly property color colOnAccent: c("onPrimary", lightMode ? "#ffffff" : "#2a2a60")
     readonly property color colError: c("error", "#ffb4ab")
 
-    // The reference's selection is a *whisper* — measured at +13/255 per channel over the card,
-    // i.e. about a 5% text-coloured wash. Deriving it from the scheme instead of naming a colour
-    // keeps that relationship in light mode and after every wallpaper recolour.
-    readonly property color colSel: Qt.tint(colBg, Qt.rgba(colText.r, colText.g, colText.b, 0.075))
-    readonly property color colHover: Qt.tint(colBg, Qt.rgba(colText.r, colText.g, colText.b, 0.04))
-    readonly property color colBorder: Qt.rgba(colSubtle.r, colSubtle.g, colSubtle.b, 0.5)
+    // ------------------------------------------------------- appearance knobs
+    // The selection pill is a *whisper* — measured off the reference at +13/255 per channel over
+    // the card, about a 7.5% text-coloured wash — and the card border is a half-opacity outline.
+    // Both used to be hard-coded numbers. They are user data now (appearance.json, written by the
+    // App List Config popup), so the highlight and the faint outline can be re-pointed at any
+    // colour in the live scheme without editing QML. The defaults below reproduce the original
+    // look, so an absent or unreadable file changes nothing.
+    readonly property var appDefaults: ({
+            highlight: {
+                source: "text",
+                strength: 0.075,
+                custom: ""
+            },
+            outline: {
+                source: "outline",
+                strength: 0.5,
+                custom: ""
+            }
+        })
+    // What is on disk, and what App List Config is currently proposing. Reading through the draft
+    // while the popup is up is what makes the colour controls a live preview: the launcher behind
+    // the popup — and the popup itself — repaint as the sliders move, and closing without saving
+    // drops straight back to the saved values with nothing to undo.
+    property var savedAppearance: appDefaults
+    property var draftAppearance: appDefaults
+    readonly property var appearance: configShown ? draftAppearance : savedAppearance
+
+    function appPart(which) {
+        const p = (appearance ?? {})[which] ?? {};
+        const d = appDefaults[which];
+        const s = p.strength;
+        return {
+            source: p.source ?? d.source,
+            strength: (typeof s === "number" && isFinite(s)) ? Math.max(0, Math.min(1, s)) : d.strength,
+            custom: p.custom ?? d.custom
+        };
+    }
+
+    // "Match the desktop theme" is the default rather than an option you have to go and find:
+    // every source except `custom` is read live out of Caelestia's scheme, so a wallpaper
+    // recolour or a light/dark flip moves the highlight and the outline with it.
+    function sourceColour(src, custom) {
+        if (src === "custom" && /^#[0-9a-fA-F]{6}$/.test(String(custom ?? "").trim()))
+            return String(custom).trim();
+        switch (src) {
+        case "accent":
+            return colAccent;
+        case "outline":
+            return colSubtle;
+        case "surface":
+            return c("surfaceContainerHighest", colSubtle);
+        default:
+            return colText;
+        }
+    }
+
+    readonly property var hlPart: appPart("highlight")
+    readonly property var outPart: appPart("outline")
+    readonly property color hlBase: sourceColour(hlPart.source, hlPart.custom)
+    readonly property color outBase: sourceColour(outPart.source, outPart.custom)
+
+    // A wash over the card, not an opaque fill, so the pill stays subtle at low strengths in both
+    // light and dark. Hover is a fixed fraction of the selection — the ratio the two hard-coded
+    // values used to have (0.04 / 0.075) — so tuning one keeps the pair in proportion.
+    readonly property color colSel: Qt.tint(colBg, Qt.rgba(hlBase.r, hlBase.g, hlBase.b, hlPart.strength))
+    readonly property color colHover: Qt.tint(colBg, Qt.rgba(hlBase.r, hlBase.g, hlBase.b, hlPart.strength * 0.53))
+    readonly property color colBorder: Qt.rgba(outBase.r, outBase.g, outBase.b, outPart.strength)
 
     // Caelestia ships Google Sans Flex inside its package; use it when present so the launcher
     // is typographically identical to the rest of the shell, else fall back to the system sans.
@@ -103,6 +164,28 @@ ShellRoot {
         }
     }
 
+    // Written by App List Config. Watched like the scheme and the categories, so accepting a
+    // change in the popup repaints the launcher behind it without a restart.
+    FileView {
+        id: apprFile
+        path: Quickshell.env("HOME") + "/.config/omarchy-launcher/appearance.json"
+        printErrors: false
+        watchChanges: true
+        onFileChanged: reload()
+        onLoadFailed: root.savedAppearance = root.appDefaults
+        onLoaded: {
+            try {
+                const cfg = JSON.parse(text());
+                root.savedAppearance = {
+                    highlight: cfg.highlight ?? root.appDefaults.highlight,
+                    outline: cfg.outline ?? root.appDefaults.outline
+                };
+            } catch (e) {
+                root.savedAppearance = root.appDefaults;
+            }
+        }
+    }
+
     // ------------------------------------------------------------- categories
     FileView {
         id: catsFile
@@ -121,6 +204,12 @@ ShellRoot {
                     throw new Error("no categories defined");
                 root.defaultCategoryId = cfg.defaultCategory ?? list[0].id;
                 root.cats = list;
+                // Keep the hand-written header comment and the schema version so that saving from
+                // the config popup rewrites the lists without eating the file's own documentation.
+                root.catsPreamble = {
+                    _readme: cfg._readme,
+                    version: cfg.version
+                };
                 root.configError = "";
                 root.goRoot();
             } catch (e) {
@@ -129,6 +218,22 @@ ShellRoot {
             }
         }
     }
+
+    property var catsPreamble: ({})
+
+    // Which folder carries the pinned "App List Config" row. It is a flag in the data
+    // (`"configEntry": true`) rather than a hard-coded id, so renaming or moving the settings
+    // category doesn't strand the entry point; the id fallbacks below only matter for a config
+    // written before this flag existed.
+    readonly property var settingsCat: cats.find(x => x.configEntry === true) ?? cats.find(x => x.id === "settings") ?? cats.find(x => x.id === "system") ?? null
+
+    // The one synthetic row in the launcher: it opens a window instead of an app.
+    readonly property var configRow: ({
+            kind: "action",
+            id: "config",
+            name: "App List Config",
+            icon: "tune"
+        })
 
     // The folders shown at the top of root. The default category is deliberately absent — it has
     // no folder because you are already standing inside it.
@@ -312,16 +417,45 @@ ShellRoot {
     //   { kind: "folder", cat }   a nested category — opens in place, does not launch
     //   { kind: "app",    app }   a launchable desktop entry
     // `gap` marks the first row after the folder block, which draws the hairline.
+    // "App List Config" answers to more than its own name — the words people actually reach for
+    // when they want to change what is in the launcher.
+    readonly property var configKeywords: ["app list config", "app list", "config", "configure", "settings", "preferences", "edit apps", "favourites", "favorites", "categories", "launcher settings", "customise", "customize", "colours", "colors"]
+
+    // Substring, never fuzzy. "App List Config" is a long name, so a subsequence match makes it
+    // answer to almost any short query — "sig" hits it through app li[s]t conf[i]... [g] — and it
+    // would then sit above Signal holding the default selection. Matching here has to be
+    // deliberate, because this row does not launch an app.
+    function configMatches(q) {
+        if (!q)
+            return false;
+        for (const k of configKeywords)
+            if (k.indexOf(q) === 0)
+                return true;
+        return scoreText(configRow.name, q, false) >= 0;
+    }
+
     readonly property var rows: {
         const q = trimmedQuery;
 
         if (view === "cat") {
             const inCat = filterApps(catApps, q);
             const use = (q.length > 0 && inCat.length === 0 && currentCat?.all !== true) ? filterApps(allApps, q) : inCat;
-            return use.map(a => ({
+            const catOut = use.map(a => ({
                 kind: "app",
                 app: a
             }));
+
+            // Pinned to the top of the settings folder, above its apps and under its own
+            // hairline — it stays put while you type rather than being filtered away, because
+            // it is the door out of the launcher and not one more search result.
+            if (settingsCat && currentCat && currentCat.id === settingsCat.id) {
+                if (catOut.length > 0)
+                    catOut[0] = Object.assign({}, catOut[0], {
+                        gap: true
+                    });
+                return [configRow].concat(catOut);
+            }
+            return catOut;
         }
 
         // Root: the folders, then the default category's apps. Typing filters the folders by
@@ -339,6 +473,19 @@ ShellRoot {
                 app: apps[i],
                 gap: i === 0 && folders.length > 0
             });
+
+        // From root the config is reachable by name too, so you never have to remember that it
+        // lives inside System. Only while searching — an unsearched root stays exactly as it was.
+        //
+        // It trails the apps here rather than leading them, under its own hairline. Leading looks
+        // tidier but means "con" puts it on the default selection, and Enter opens a settings
+        // window instead of Konsole. Inside the settings folder it is pinned to the top, because
+        // there it *is* the thing you came for; at root it is only a shortcut, and a shortcut
+        // that hijacks Return is a trap.
+        if (configMatches(q))
+            out.push(Object.assign({}, configRow, {
+                gap: out.length > 0
+            }));
         return out;
     }
 
@@ -368,6 +515,10 @@ ShellRoot {
     function close() {
         shown = false;
         goRoot();
+        // Each type-to-open burst numbers itself from 1, so the ordering window has to end with
+        // the launcher — otherwise the next burst would look stale and be dropped entirely.
+        lastSeedSeq = 0;
+        pendingSeed = "";
     }
 
     function toggle() {
@@ -426,6 +577,8 @@ ShellRoot {
             return;
         if (row.kind === "folder")
             enterCat(row.cat);
+        else if (row.kind === "action")
+            openConfig();
         else
             launch(row.app);
     }
@@ -512,6 +665,369 @@ ShellRoot {
             if (cat && cat.id !== root.defaultCategoryId)
                 root.enterCat(cat);
         }
+
+        // The config popup is its own window, so it gets its own verbs — `omarchy-launcher config`
+        // opens it without going through the launcher at all.
+        function config(): void {
+            root.openConfig();
+        }
+
+        // Type-to-open from the desktop: we open with the search already seeded, so the
+        // keystrokes that summoned the launcher are not thrown away. `seq` orders a burst — see
+        // typeOpen(). A hand-typed `omarchy-launcher type foo` passes no seq and always applies.
+        function typed(text: string, seq: string): void {
+            root.typeOpen(String(text ?? ""), parseInt(seq) || 0);
+        }
+    }
+
+    // The character that summoned the launcher, waiting for the window to map. Mapping is
+    // asynchronous (the monitor probe runs first) and the search field wipes itself on the way
+    // in, so the seed has to be applied *after* that, not before.
+    property string pendingSeed: ""
+    property int lastSeedSeq: 0
+
+    // Mapping takes a beat, and a fast typist gets three or four characters out before the window
+    // is up — each one firing its own keybind, its own process and its own IPC call. Those
+    // processes race: typing "conf" on the desktop really did arrive here as "cofn".
+    //
+    // So Hyprland does not send characters, it sends the whole buffer so far, tagged with a
+    // sequence number, and a message that lost the race is dropped instead of being appended out
+    // of order. The last one to arrive is always the most complete, which is why this replaces
+    // rather than accumulates.
+    function typeOpen(s, seq) {
+        if (seq > 0 && seq <= lastSeedSeq)
+            return;
+        lastSeedSeq = Math.max(lastSeedSeq, seq);
+        pendingSeed = s;
+        if (shown)
+            applySeed();      // already up: no map to wait for
+        else
+            open();           // applied by the field when `shown` flips
+    }
+
+    // Installed by the search field, so the root hands off rather than reaching into the window.
+    property var applySeed: function () {}
+
+    // ==================================================================================
+    //  App List Config — the editor behind the pinned row
+    // ==================================================================================
+    // Everything the launcher shows is already data on disk; this popup is a front end for that
+    // data rather than a second source of truth. It edits a *draft* copy and only touches disk on
+    // Save, so a half-finished edit can be walked away from — and because both files are watched,
+    // saving repaints the launcher without a restart.
+
+    property bool configShown: false
+    property var draft: []                // deep copy of `cats`, edited in place
+    property string draftDefault: ""      // proposed defaultCategory
+    property int dSel: 0                  // which category the editor is showing
+    property int configTab: 0             // 0 = App lists, 1 = Appearance
+    property string addQuery: ""
+    property string configNote: ""
+    property bool configNoteBad: false
+    property bool dirty: false
+
+    // QML doesn't see mutations inside an array or an object, so every edit re-seats both the
+    // array *and* the category that was edited. Re-seating only the array is not enough: a shallow
+    // slice leaves `draft[dSel]` pointing at the same object, so `dCat` re-evaluates to an
+    // identical value, QML suppresses the change, and everything hanging off `dCat` — the member
+    // list, the tick marks in the add column — silently keeps rendering the pre-edit state while
+    // the counts (which read `draft`) move. That split is exactly the bug this shape prevents.
+    function touchDraft() {
+        if (dSel >= 0 && dSel < draft.length)
+            draft[dSel] = Object.assign({}, draft[dSel]);
+        draft = draft.slice();
+        dirty = true;
+        configNote = "";
+    }
+
+    function touchAppearance() {
+        draftAppearance = Object.assign({}, draftAppearance);
+        dirty = true;
+        configNote = "";
+    }
+
+    function resetDraft() {
+        draft = JSON.parse(JSON.stringify(cats));
+        draftDefault = defaultCategoryId;
+        // Seeded from the *normalised* values, so an appearance.json with a missing or nonsense
+        // field opens showing what the launcher is actually rendering.
+        draftAppearance = {
+            highlight: appPart("highlight"),
+            outline: appPart("outline")
+        };
+        dSel = 0;
+        addQuery = "";
+        configTab = 0;
+        dirty = false;
+        configNote = "";
+        configNoteBad = false;
+    }
+
+    // Clicking the dim area is one pixel away from clicking the card, so an unsaved draft is kept
+    // rather than thrown away: reopening puts you back where you were, still unsaved, with the
+    // footer still saying so. Revert is the way to discard, and it is spelled out on a button.
+    function openConfig() {
+        if (!dirty)
+            resetDraft();
+        close();              // one exclusive-keyboard layer at a time
+        configShown = true;
+    }
+
+    function closeConfig() {
+        configShown = false;
+        addQuery = "";
+    }
+
+    readonly property var dCat: (dSel >= 0 && dSel < draft.length) ? draft[dSel] : null
+
+    function sameId(a, b) {
+        return String(a).toLowerCase() === String(b).toLowerCase();
+    }
+
+    // Would this app reappear on its own the moment it left `apps`? If so, "remove" has to mean
+    // "exclude" — otherwise the row would come straight back and the button would look broken.
+    function autoMember(cat, appId) {
+        const a = appById(appId);
+        const xdg = cat?.xdgCategories ?? [];
+        if (!a || xdg.length === 0)
+            return false;
+        const acats = a.categories ?? [];
+        for (const want of xdg)
+            if (acats.indexOf(want) >= 0)
+                return true;
+        return false;
+    }
+
+    // What the middle column shows: the category's apps, each tagged with where it came from.
+    //   pinned   listed in `apps` — hand-ordered, so it can be moved and removed
+    //   auto     pulled in by `xdgCategories` — removable (by exclusion), but not orderable
+    // `pos` is the index in `cat.apps`, which is not the row number once an id fails to resolve.
+    function draftMembers(cat) {
+        if (!cat)
+            return [];
+        if (cat.all === true)
+            return allApps.map(a => ({
+                        app: a,
+                        pinned: false,
+                        pos: -1
+                    }));
+
+        const exclude = (cat.exclude ?? []).map(x => String(x).toLowerCase());
+        const seen = ({});
+        const out = [];
+        const ids = cat.apps ?? [];
+
+        for (let i = 0; i < ids.length; i++) {
+            const a = appById(ids[i]);
+            if (!a || seen[a.id] || exclude.indexOf(a.id.toLowerCase()) >= 0)
+                continue;
+            seen[a.id] = true;
+            out.push({
+                app: a,
+                pinned: true,
+                pos: i
+            });
+        }
+
+        for (const a of allApps) {
+            if (seen[a.id] || exclude.indexOf(a.id.toLowerCase()) >= 0)
+                continue;
+            if (autoMember(cat, a.id)) {
+                seen[a.id] = true;
+                out.push({
+                    app: a,
+                    pinned: false,
+                    pos: -1
+                });
+            }
+        }
+        return out;
+    }
+
+    // Ids in `apps` that no longer resolve to anything installed. The launcher drops these
+    // silently; the editor shows them so they can actually be cleaned up.
+    function draftStale(cat) {
+        if (!cat || cat.all === true)
+            return [];
+        const out = [];
+        for (const id of (cat.apps ?? []))
+            if (!appById(id))
+                out.push(id);
+        return out;
+    }
+
+    readonly property var dMembers: draftMembers(dCat)
+    readonly property var dStale: draftStale(dCat)
+
+    // Counts for the category column. Computed once per draft change rather than once per
+    // delegate repaint — draftMembers() walks every installed desktop entry.
+    readonly property var dCounts: {
+        const m = ({});
+        for (const x of draft)
+            m[x.id] = draftMembers(x).length;
+        return m;
+    }
+
+    readonly property var addList: filterApps(allApps, addQuery.trim().toLowerCase())
+
+    // Positions in `cat.apps` of the pinned rows, in display order — the ladder the ↑/↓ buttons
+    // climb, so a move always lands next to the neighbour you can see rather than next to an id
+    // that failed to resolve.
+    readonly property var dPinnedPos: dMembers.filter(m => m.pinned).map(m => m.pos)
+
+    function dInCat(appId) {
+        const cat = dCat;
+        if (!cat)
+            return false;
+        if (cat.all === true)
+            return true;
+        if ((cat.exclude ?? []).some(x => sameId(x, appId)))
+            return false;
+        return (cat.apps ?? []).some(x => sameId(x, appId)) || autoMember(cat, appId);
+    }
+
+    function dAdd(appId) {
+        const cat = dCat;
+        if (!cat || cat.all === true)
+            return;
+        // Adding something that was explicitly excluded means un-excluding it first, or the add
+        // would be silently cancelled by the exclusion.
+        cat.exclude = (cat.exclude ?? []).filter(x => !sameId(x, appId));
+        if (!(cat.apps ?? []).some(x => sameId(x, appId)))
+            cat.apps = (cat.apps ?? []).concat([appId]);
+        touchDraft();
+    }
+
+    function dRemove(appId) {
+        const cat = dCat;
+        if (!cat || cat.all === true)
+            return;
+        cat.apps = (cat.apps ?? []).filter(x => !sameId(x, appId));
+        if (autoMember(cat, appId) && !(cat.exclude ?? []).some(x => sameId(x, appId)))
+            cat.exclude = (cat.exclude ?? []).concat([appId]);
+        touchDraft();
+    }
+
+    function dToggle(appId) {
+        if (dInCat(appId))
+            dRemove(appId);
+        else
+            dAdd(appId);
+    }
+
+    function dDropStale(rawId) {
+        const cat = dCat;
+        if (!cat)
+            return;
+        cat.apps = (cat.apps ?? []).filter(x => x !== rawId);
+        touchDraft();
+    }
+
+    // `rank` is the row's place among the pinned rows, not its index in `apps`.
+    function dMove(rank, delta) {
+        const cat = dCat;
+        const ladder = dPinnedPos;
+        const to = rank + delta;
+        if (!cat || rank < 0 || to < 0 || rank >= ladder.length || to >= ladder.length)
+            return;
+        const ids = (cat.apps ?? []).slice();
+        const a = ladder[rank];
+        const b = ladder[to];
+        const t = ids[a];
+        ids[a] = ids[b];
+        ids[b] = t;
+        cat.apps = ids;
+        touchDraft();
+    }
+
+    function dMakeDefault(id) {
+        if (!id || draftDefault === id)
+            return;
+        draftDefault = id;
+        dirty = true;
+        configNote = "";
+    }
+
+    function dSetAppearance(which, key, value) {
+        const part = Object.assign({}, draftAppearance[which] ?? appDefaults[which]);
+        part[key] = value;
+        draftAppearance[which] = part;
+        touchAppearance();
+    }
+
+    function dAppearance(which) {
+        return draftAppearance[which] ?? appDefaults[which];
+    }
+
+    // ---------------------------------------------------------------- saving
+    // Key order is written out deliberately so a saved file still reads like the hand-written one
+    // and a later diff is about what changed, not about the serialiser's whims.
+    function cleanCat(cat) {
+        const out = ({});
+        out.id = cat.id;
+        out.name = cat.name;
+        if (cat.icon)
+            out.icon = cat.icon;
+        if (cat.configEntry === true)
+            out.configEntry = true;
+        if (cat.all === true)
+            out.all = true;
+        else
+            out.apps = (cat.apps ?? []).slice();
+        if ((cat.xdgCategories ?? []).length > 0)
+            out.xdgCategories = cat.xdgCategories.slice();
+        if ((cat.exclude ?? []).length > 0)
+            out.exclude = cat.exclude.slice();
+        return out;
+    }
+
+    readonly property string apprReadme: "Written by the launcher's App List Config popup. `source` is where the colour comes from: text (onSurface), accent (primary), outline, surface, or custom with a #rrggbb in `custom`. Every source but custom is read live from Caelestia's scheme, so the wallpaper still drives the theme. `strength` is the highlight's wash over the card and the outline's opacity, both 0..1."
+
+    function saveConfig() {
+        try {
+            const obj = ({});
+            if (catsPreamble._readme !== undefined)
+                obj._readme = catsPreamble._readme;
+            obj.version = catsPreamble.version ?? 1;
+            obj.defaultCategory = draftDefault;
+            obj.categories = draft.map(cleanCat);
+            catsFile.setText(JSON.stringify(obj, null, 2) + "\n");
+
+            apprFile.setText(JSON.stringify({
+                _readme: apprReadme,
+                version: 1,
+                highlight: dAppearance("highlight"),
+                outline: dAppearance("outline")
+            }, null, 2) + "\n");
+
+            // Don't wait for the watcher round-trip to stop previewing: adopt the saved values
+            // now, so the launcher is correct even if the reload is slow or fails.
+            savedAppearance = {
+                highlight: dAppearance("highlight"),
+                outline: dAppearance("outline")
+            };
+            dirty = false;
+            configNoteBad = false;
+            configNote = "Saved to ~/.config/omarchy-launcher/";
+        } catch (e) {
+            configNoteBad = true;
+            configNote = "Could not save: " + e;
+        }
+    }
+
+    // Colours offered for "custom", taken straight out of Caelestia's generated scheme — picking
+    // one is how you match the desktop theme by hand rather than by guessing a hex.
+    readonly property var swatchKeys: ["primary", "secondary", "tertiary", "primaryContainer", "secondaryContainer", "tertiaryContainer", "onSurface", "outline", "surfaceContainerHighest", "error"]
+    readonly property var swatches: {
+        const cols = scheme.colours ?? {};
+        const out = [];
+        for (const k of swatchKeys)
+            if (cols[k])
+                out.push({
+                    key: k,
+                    hex: "#" + cols[k]
+                });
+        return out;
     }
 
     // ----------------------------------------------------------------- window
@@ -639,15 +1155,24 @@ ShellRoot {
                         font.pixelSize: Math.round(17 * card.fScale)
                         clip: true
 
-                        // Restore a clean field every time the launcher maps.
+                        // Restore a clean field every time the launcher maps — unless a keystroke
+                        // on the desktop is what opened it, in which case that character is the
+                        // field's starting contents.
                         Connections {
                             target: root
                             function onShownChanged() {
-                                if (root.shown) {
-                                    input.text = "";
-                                    input.forceActiveFocus();
-                                }
+                                if (root.shown)
+                                    root.applySeed();
                             }
+                        }
+
+                        // Always a replace: an empty seed is the ordinary "clear the field on the
+                        // way in", and a non-empty one is the full buffer typed on the desktop.
+                        Component.onCompleted: root.applySeed = function () {
+                            input.text = root.pendingSeed;
+                            root.pendingSeed = "";
+                            input.cursorPosition = input.text.length;
+                            input.forceActiveFocus();
                         }
 
                         // The placeholder *is* the breadcrumb: "Apps…" at root, "Church…" once
@@ -841,6 +1366,10 @@ ShellRoot {
                             required property var modelData
 
                             readonly property bool isFolder: modelData.kind === "folder"
+                            readonly property bool isAction: modelData.kind === "action"
+                            // Folders and the config row share the symbol slot and the trailing
+                            // affordance; only apps get a real icon and a bare row.
+                            readonly property bool isSymbol: isFolder || isAction
                             readonly property bool selected: index === root.index
                             // Only the first app row under the folder block carries the split.
                             readonly property int splitH: modelData.gap === true ? body.splitH : 0
@@ -892,18 +1421,18 @@ ShellRoot {
 
                                     IconImage {
                                         anchors.fill: parent
-                                        visible: !rowRoot.isFolder
+                                        visible: !rowRoot.isSymbol
                                         asynchronous: true
                                         implicitSize: body.iconSize
-                                        source: rowRoot.isFolder ? "" : Quickshell.iconPath(rowRoot.modelData.app.icon, "application-x-executable")
+                                        source: rowRoot.isSymbol ? "" : Quickshell.iconPath(rowRoot.modelData.app.icon, "application-x-executable")
                                     }
 
                                     Text {
                                         anchors.fill: parent
-                                        visible: rowRoot.isFolder
+                                        visible: rowRoot.isSymbol
                                         horizontalAlignment: Text.AlignHCenter
                                         verticalAlignment: Text.AlignVCenter
-                                        text: rowRoot.isFolder ? (rowRoot.modelData.cat.icon ?? "folder") : ""
+                                        text: rowRoot.isFolder ? (rowRoot.modelData.cat.icon ?? "folder") : (rowRoot.isAction ? (rowRoot.modelData.icon ?? "tune") : "")
                                         font.family: root.iconFont
                                         font.pixelSize: body.iconSize - 2
                                         color: root.colAccent
@@ -918,7 +1447,7 @@ ShellRoot {
                                     anchors.right: rowTrail.left
                                     anchors.rightMargin: 8
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: rowRoot.isFolder ? rowRoot.modelData.cat.name : rowRoot.modelData.app.name
+                                    text: rowRoot.isFolder ? rowRoot.modelData.cat.name : (rowRoot.isAction ? rowRoot.modelData.name : rowRoot.modelData.app.name)
                                     elide: Text.ElideRight
                                     color: root.colText
                                     font.family: root.uiFont
@@ -933,7 +1462,7 @@ ShellRoot {
                                     anchors.rightMargin: Math.round(12 * card.mScale)
                                     anchors.verticalCenter: parent.verticalCenter
                                     spacing: 4
-                                    visible: rowRoot.isFolder
+                                    visible: rowRoot.isSymbol
 
                                     Text {
                                         anchors.verticalCenter: parent.verticalCenter
@@ -944,9 +1473,12 @@ ShellRoot {
                                         font.pixelSize: body.metaSize
                                     }
 
+                                    // A folder opens in place, so it gets a chevron; the config
+                                    // opens a window of its own, so it gets the "leaves this box"
+                                    // symbol instead. The difference is the only warning you get.
                                     Text {
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: "chevron_right"
+                                        text: rowRoot.isAction ? "open_in_new" : "chevron_right"
                                         font.family: root.iconFont
                                         font.pixelSize: body.chevronSize
                                         color: root.colSubtle
@@ -1001,6 +1533,1355 @@ ShellRoot {
                                 const name = root.view === "cat" ? (root.currentCat?.name ?? "This category") : (root.defaultCat?.name ?? "This category");
                                 return name + " is empty — add desktop ids to it in\n~/.config/omarchy-launcher/categories.json";
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================================================================================
+    //  App List Config — the window
+    // ==================================================================================
+    // Deliberately landscape and roomy, the opposite of the launcher: this is a thing you sit in
+    // for a minute, not a thing you flash open. It borrows every colour from the same live scheme,
+    // so it is recognisably part of the launcher without pretending to be the same shape.
+
+    component CfgButton: Rectangle {
+        id: btn
+
+        property string label: ""
+        property string symbol: ""
+        property bool accent: false
+        signal clicked
+
+        implicitHeight: 30
+        implicitWidth: btnRow.implicitWidth + 24
+        radius: 8
+        opacity: enabled ? 1 : 0.35
+        color: accent ? Qt.tint(root.colBg, Qt.rgba(root.colAccent.r, root.colAccent.g, root.colAccent.b, 0.2)) : (btnMouse.containsMouse ? root.colHover : "transparent")
+        border.width: 1
+        border.color: accent ? Qt.rgba(root.colAccent.r, root.colAccent.g, root.colAccent.b, 0.5) : root.colBorder
+
+        Behavior on color {
+            ColorAnimation {
+                duration: 90
+            }
+        }
+
+        Row {
+            id: btnRow
+            anchors.centerIn: parent
+            spacing: 6
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: btn.symbol.length > 0
+                text: btn.symbol
+                font.family: root.iconFont
+                font.pixelSize: 16
+                color: btn.accent ? root.colAccent : root.colText
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: btn.label.length > 0
+                text: btn.label
+                font.family: root.uiFont
+                font.pixelSize: 13
+                color: btn.accent ? root.colAccent : root.colText
+            }
+        }
+
+        MouseArea {
+            id: btnMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            enabled: btn.enabled
+            cursorShape: Qt.PointingHandCursor
+            onClicked: btn.clicked()
+        }
+    }
+
+    component CfgIconBtn: Rectangle {
+        id: ib
+
+        property string symbol: ""
+        property color tone: root.colSubtle
+        signal clicked
+
+        implicitWidth: 26
+        implicitHeight: 26
+        radius: 6
+        opacity: enabled ? 1 : 0.25
+        color: ibMouse.containsMouse ? root.colHover : "transparent"
+
+        Text {
+            anchors.centerIn: parent
+            text: ib.symbol
+            font.family: root.iconFont
+            font.pixelSize: 17
+            color: ib.tone
+        }
+
+        MouseArea {
+            id: ibMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            enabled: ib.enabled
+            cursorShape: Qt.PointingHandCursor
+            onClicked: ib.clicked()
+        }
+    }
+
+    component CfgChip: Rectangle {
+        id: chip
+
+        property string label: ""
+        property bool active: false
+        signal clicked
+
+        implicitHeight: 27
+        implicitWidth: chipLbl.implicitWidth + 24
+        radius: 13
+        color: active ? Qt.tint(root.colBg, Qt.rgba(root.colAccent.r, root.colAccent.g, root.colAccent.b, 0.22)) : (chipMouse.containsMouse ? root.colHover : "transparent")
+        border.width: 1
+        border.color: active ? Qt.rgba(root.colAccent.r, root.colAccent.g, root.colAccent.b, 0.55) : root.colBorder
+
+        Behavior on color {
+            ColorAnimation {
+                duration: 90
+            }
+        }
+
+        Text {
+            id: chipLbl
+            anchors.centerIn: parent
+            text: chip.label
+            font.family: root.uiFont
+            font.pixelSize: 13
+            color: chip.active ? root.colAccent : root.colText
+        }
+
+        MouseArea {
+            id: chipMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: chip.clicked()
+        }
+    }
+
+    // Hand-rolled rather than QtQuick.Controls: the launcher has no Controls dependency and this
+    // is the only slider in it.
+    component CfgSlider: Item {
+        id: sl
+
+        property real value: 0
+        property real from: 0
+        property real to: 1
+        signal moved(real v)
+
+        implicitHeight: 26
+        readonly property real frac: (to > from) ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
+
+        function valueAt(px) {
+            const t = Math.max(0, Math.min(1, px / Math.max(1, track.width)));
+            return sl.from + t * (sl.to - sl.from);
+        }
+
+        Rectangle {
+            id: track
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            height: 4
+            radius: 2
+            color: Qt.rgba(root.colSubtle.r, root.colSubtle.g, root.colSubtle.b, 0.28)
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: parent.width * sl.frac
+                radius: 2
+                color: root.colAccent
+            }
+        }
+
+        Rectangle {
+            width: 14
+            height: 14
+            radius: 7
+            x: track.width * sl.frac - width / 2
+            anchors.verticalCenter: parent.verticalCenter
+            color: root.colAccent
+            border.width: 2
+            border.color: root.colBg
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onPressed: e => sl.moved(sl.valueAt(e.x))
+            onPositionChanged: e => {
+                if (pressed)
+                    sl.moved(sl.valueAt(e.x));
+            }
+        }
+    }
+
+    // One row of "where does this colour come from" chips plus the swatches that appear when the
+    // answer is "custom". Used identically for the highlight and the outline.
+    component CfgSourceRow: Column {
+        id: src
+
+        property string which: "highlight"
+        readonly property var part: root.dAppearance(which)
+
+        spacing: 10
+
+        Row {
+            spacing: 8
+
+            Repeater {
+                model: [
+                    {
+                        k: "text",
+                        n: "Text"
+                    },
+                    {
+                        k: "accent",
+                        n: "Accent"
+                    },
+                    {
+                        k: "outline",
+                        n: "Outline"
+                    },
+                    {
+                        k: "surface",
+                        n: "Surface"
+                    },
+                    {
+                        k: "custom",
+                        n: "Custom"
+                    }
+                ]
+
+                CfgChip {
+                    required property var modelData
+                    label: modelData.n
+                    active: src.part.source === modelData.k
+                    onClicked: root.dSetAppearance(src.which, "source", modelData.k)
+                }
+            }
+        }
+
+        // The swatches are the live scheme, so "match the desktop theme" is a click rather than a
+        // hex you have to go and look up.
+        Flow {
+            width: src.width
+            spacing: 8
+            visible: src.part.source === "custom"
+
+            Repeater {
+                model: root.swatches
+
+                Rectangle {
+                    required property var modelData
+                    width: 26
+                    height: 26
+                    radius: 7
+                    color: modelData.hex
+                    border.width: 2
+                    border.color: src.part.custom === modelData.hex ? root.colText : root.colBorder
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.dSetAppearance(src.which, "custom", modelData.hex)
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 104
+                height: 26
+                radius: 7
+                color: "transparent"
+                border.width: 1
+                border.color: root.colBorder
+
+                TextInput {
+                    id: hexField
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: /^#[0-9a-fA-F]{6}$/.test(text) ? root.colText : root.colError
+                    font.family: root.uiFont
+                    font.pixelSize: 12
+                    maximumLength: 7
+                    text: src.part.custom
+                    onEditingFinished: root.dSetAppearance(src.which, "custom", text)
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: hexField.text.length === 0
+                        text: "#rrggbb"
+                        color: root.colSubtle
+                        font: hexField.font
+                    }
+                }
+            }
+        }
+    }
+
+    PanelWindow {
+        id: cfgWin
+
+        visible: root.configShown
+        color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+
+        screen: {
+            if (!root.focusedScreen)
+                return null;
+            return Quickshell.screens.find(s => s.name === root.focusedScreen) ?? null;
+        }
+
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "omarchy-launcher-config"
+        WlrLayershell.keyboardFocus: root.configShown ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: root.lightMode ? "#40000000" : "#99000000"
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.closeConfig()
+            }
+        }
+
+        FocusScope {
+            id: cfgCard
+
+            focus: true
+            anchors.centerIn: parent
+            width: Math.round(Math.min(parent.width - 120, 1180))
+            height: Math.round(Math.min(parent.height - 110, 820))
+
+            // Plain Tab belongs to the search field, so the window's own shortcuts all sit behind
+            // Ctrl — otherwise the tabs and the save button would be mouse-only.
+            Keys.onPressed: event => {
+                const ctrl = (event.modifiers & Qt.ControlModifier) !== 0;
+                switch (event.key) {
+                case Qt.Key_Escape:
+                    root.closeConfig();
+                    event.accepted = true;
+                    break;
+                case Qt.Key_S:
+                    if (ctrl) {
+                        root.saveConfig();
+                        event.accepted = true;
+                    }
+                    break;
+                case Qt.Key_Tab:
+                case Qt.Key_Backtab:
+                    if (ctrl) {
+                        root.configTab = root.configTab === 0 ? 1 : 0;
+                        event.accepted = true;
+                    }
+                    break;
+                case Qt.Key_1:
+                case Qt.Key_2:
+                    if (ctrl) {
+                        root.configTab = event.key - Qt.Key_1;
+                        event.accepted = true;
+                    }
+                    break;
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 18
+                color: root.colBg
+                border.width: 2
+                border.color: root.colBorder
+                clip: true
+
+                // ------------------------------------------------------ header
+                Item {
+                    id: cfgHeader
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 26
+                    anchors.rightMargin: 20
+                    height: 62
+
+                    Text {
+                        id: cfgTitleIcon
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "tune"
+                        font.family: root.iconFont
+                        font.pixelSize: 22
+                        color: root.colAccent
+                    }
+
+                    Text {
+                        id: cfgTitle
+                        anchors.left: cfgTitleIcon.right
+                        anchors.leftMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "App List Config"
+                        font.family: root.uiFont
+                        font.pixelSize: 19
+                        color: root.colText
+                    }
+
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 8
+
+                        CfgChip {
+                            label: "App lists"
+                            active: root.configTab === 0
+                            onClicked: root.configTab = 0
+                        }
+
+                        CfgChip {
+                            label: "Appearance"
+                            active: root.configTab === 1
+                            onClicked: root.configTab = 1
+                        }
+                    }
+
+                    CfgIconBtn {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        symbol: "close"
+                        onClicked: root.closeConfig()
+                    }
+                }
+
+                Rectangle {
+                    id: cfgHeaderRule
+                    anchors.top: cfgHeader.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: root.colBorder
+                    opacity: 0.5
+                }
+
+                // ------------------------------------------------------ footer
+                Rectangle {
+                    id: cfgFooterRule
+                    anchors.bottom: cfgFooter.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: root.colBorder
+                    opacity: 0.5
+                }
+
+                Item {
+                    id: cfgFooter
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 26
+                    anchors.rightMargin: 20
+                    height: 58
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.right: cfgActions.left
+                        anchors.rightMargin: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        elide: Text.ElideRight
+                        font.family: root.uiFont
+                        font.pixelSize: 13
+                        color: root.configNoteBad ? root.colError : root.colSubtle
+                        text: {
+                            if (root.configNote)
+                                return root.configNote;
+                            if (root.dirty)
+                                return "Unsaved changes — Save writes ~/.config/omarchy-launcher/categories.json and appearance.json";
+                            return "Changes are previewed live; nothing is written until you save.";
+                        }
+                    }
+
+                    Row {
+                        id: cfgActions
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
+
+                        CfgButton {
+                            label: "Revert"
+                            symbol: "undo"
+                            enabled: root.dirty
+                            onClicked: root.resetDraft()
+                        }
+
+                        CfgButton {
+                            label: "Save"
+                            symbol: "check"
+                            accent: true
+                            enabled: root.dirty
+                            onClicked: root.saveConfig()
+                        }
+
+                        CfgButton {
+                            label: "Close"
+                            onClicked: root.closeConfig()
+                        }
+                    }
+                }
+
+                // ------------------------------------------- body: app lists
+                Item {
+                    id: cfgBody
+                    anchors.top: cfgHeaderRule.bottom
+                    anchors.bottom: cfgFooterRule.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+
+                    // ---- tab 0 ------------------------------------------------
+                    Item {
+                        anchors.fill: parent
+                        visible: root.configTab === 0
+
+                        // column A: the categories
+                        Item {
+                            id: colCats
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.left: parent.left
+                            anchors.topMargin: 16
+                            anchors.bottomMargin: 16
+                            anchors.leftMargin: 18
+                            width: 222
+
+                            Text {
+                                id: catsLabel
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.leftMargin: 8
+                                text: "CATEGORIES"
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.letterSpacing: 1.2
+                                color: root.colSubtle
+                                opacity: 0.8
+                            }
+
+                            ListView {
+                                anchors.top: catsLabel.bottom
+                                anchors.topMargin: 10
+                                anchors.bottom: parent.bottom
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                clip: true
+                                spacing: 2
+                                model: root.draft
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                delegate: Rectangle {
+                                    id: catRow
+
+                                    required property int index
+                                    required property var modelData
+                                    readonly property bool sel: index === root.dSel
+
+                                    width: ListView.view.width
+                                    height: 36
+                                    radius: 9
+                                    color: sel ? root.colSel : (catMouse.containsMouse ? root.colHover : "transparent")
+
+                                    Text {
+                                        id: catRowIcon
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 11
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: catRow.modelData.icon ?? "folder"
+                                        font.family: root.iconFont
+                                        font.pixelSize: 18
+                                        color: root.colAccent
+                                    }
+
+                                    Text {
+                                        anchors.left: catRowIcon.right
+                                        anchors.leftMargin: 10
+                                        anchors.right: catRowTrail.left
+                                        anchors.rightMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: catRow.modelData.name
+                                        elide: Text.ElideRight
+                                        font.family: root.uiFont
+                                        font.pixelSize: 14
+                                        color: root.colText
+                                    }
+
+                                    Row {
+                                        id: catRowTrail
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 5
+
+                                        // The default category is the launcher's opening view —
+                                        // worth showing here, because it is the one setting that
+                                        // changes what you see before you type anything.
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            visible: root.draftDefault === catRow.modelData.id
+                                            text: "star"
+                                            font.family: root.iconFont
+                                            font.pixelSize: 14
+                                            color: root.colAccent
+                                        }
+
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: root.dCounts[catRow.modelData.id] ?? ""
+                                            font.family: root.uiFont
+                                            font.pixelSize: 12
+                                            color: root.colSubtle
+                                            opacity: 0.75
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: catMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.dSel = catRow.index;
+                                            root.addQuery = "";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            id: ruleA
+                            anchors.left: colCats.right
+                            anchors.leftMargin: 18
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.topMargin: 14
+                            anchors.bottomMargin: 14
+                            width: 1
+                            color: root.colBorder
+                            opacity: 0.45
+                        }
+
+                        // column C: add apps (anchored first so B can fill between)
+                        Item {
+                            id: colAdd
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.right: parent.right
+                            anchors.topMargin: 16
+                            anchors.bottomMargin: 16
+                            anchors.rightMargin: 18
+                            width: 316
+
+                            Text {
+                                id: addLabel
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.leftMargin: 8
+                                text: "ADD AN APP"
+                                font.family: root.uiFont
+                                font.pixelSize: 11
+                                font.letterSpacing: 1.2
+                                color: root.colSubtle
+                                opacity: 0.8
+                            }
+
+                            Rectangle {
+                                id: addSearch
+                                anchors.top: addLabel.bottom
+                                anchors.topMargin: 10
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                height: 34
+                                radius: 9
+                                color: "transparent"
+                                border.width: 1
+                                border.color: root.colBorder
+
+                                Text {
+                                    id: addSearchIcon
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 10
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "search"
+                                    font.family: root.iconFont
+                                    font.pixelSize: 16
+                                    color: root.colSubtle
+                                }
+
+                                TextInput {
+                                    id: addInput
+                                    anchors.left: addSearchIcon.right
+                                    anchors.leftMargin: 8
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 10
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    clip: true
+                                    color: root.colText
+                                    selectionColor: root.colAccent
+                                    selectedTextColor: root.colOnAccent
+                                    font.family: root.uiFont
+                                    font.pixelSize: 14
+                                    text: root.addQuery
+                                    onTextChanged: root.addQuery = text
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: addInput.text.length === 0
+                                        text: "Search all " + root.allApps.length + " apps…"
+                                        color: root.colSubtle
+                                        font: addInput.font
+                                    }
+                                }
+                            }
+
+                            ListView {
+                                anchors.top: addSearch.bottom
+                                anchors.topMargin: 10
+                                anchors.bottom: parent.bottom
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                clip: true
+                                spacing: 1
+                                model: root.addList
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                delegate: Rectangle {
+                                    id: addRow
+
+                                    required property var modelData
+                                    readonly property bool present: root.dInCat(modelData.id)
+
+                                    width: ListView.view.width
+                                    height: 34
+                                    radius: 8
+                                    color: addMouse.containsMouse ? root.colHover : "transparent"
+
+                                    IconImage {
+                                        id: addRowIcon
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 9
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 20
+                                        height: 20
+                                        asynchronous: true
+                                        implicitSize: 20
+                                        source: Quickshell.iconPath(addRow.modelData.icon, "application-x-executable")
+                                    }
+
+                                    Text {
+                                        anchors.left: addRowIcon.right
+                                        anchors.leftMargin: 9
+                                        anchors.right: addRowMark.left
+                                        anchors.rightMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: addRow.modelData.name
+                                        elide: Text.ElideRight
+                                        font.family: root.uiFont
+                                        font.pixelSize: 14
+                                        color: addRow.present ? root.colSubtle : root.colText
+                                    }
+
+                                    Text {
+                                        id: addRowMark
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: addRow.present ? "check" : "add"
+                                        font.family: root.iconFont
+                                        font.pixelSize: 17
+                                        color: addRow.present ? root.colAccent : root.colSubtle
+                                        opacity: addRow.present ? 0.9 : (addMouse.containsMouse ? 1 : 0.5)
+                                    }
+
+                                    MouseArea {
+                                        id: addMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        enabled: root.dCat?.all !== true
+                                        onClicked: root.dToggle(addRow.modelData.id)
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            id: ruleB
+                            anchors.right: colAdd.left
+                            anchors.rightMargin: 18
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.topMargin: 14
+                            anchors.bottomMargin: 14
+                            width: 1
+                            color: root.colBorder
+                            opacity: 0.45
+                        }
+
+                        // column B: what is in the selected category
+                        Item {
+                            id: colIn
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.left: ruleA.right
+                            anchors.right: ruleB.left
+                            anchors.topMargin: 16
+                            anchors.bottomMargin: 16
+                            anchors.leftMargin: 18
+                            anchors.rightMargin: 18
+
+                            Item {
+                                id: inHeader
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                height: 34
+
+                                Text {
+                                    id: inTitle
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 8
+                                    anchors.top: parent.top
+                                    text: (root.dCat?.name ?? "—").toUpperCase()
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    font.letterSpacing: 1.2
+                                    color: root.colSubtle
+                                    opacity: 0.8
+                                }
+
+                                Text {
+                                    anchors.left: inTitle.right
+                                    anchors.leftMargin: 8
+                                    anchors.baseline: inTitle.baseline
+                                    text: root.dMembers.length + (root.dMembers.length === 1 ? " app" : " apps")
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    color: root.colSubtle
+                                    opacity: 0.55
+                                }
+
+                                CfgButton {
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.topMargin: -6
+                                    symbol: "star"
+                                    label: root.draftDefault === (root.dCat?.id ?? "") ? "Opening view" : "Make opening view"
+                                    accent: root.draftDefault === (root.dCat?.id ?? "")
+                                    enabled: root.dCat !== null && root.draftDefault !== root.dCat.id
+                                    onClicked: root.dMakeDefault(root.dCat?.id ?? "")
+                                }
+                            }
+
+                            // Generated categories have no list to edit; say so rather than
+                            // showing 168 rows with dead buttons on them.
+                            Text {
+                                anchors.top: inHeader.bottom
+                                anchors.topMargin: 6
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 8
+                                visible: root.dCat?.all === true
+                                wrapMode: Text.WordWrap
+                                text: "All Apps is generated from everything installed — there is no list to edit here. Pick another category on the left."
+                                font.family: root.uiFont
+                                font.pixelSize: 13
+                                color: root.colSubtle
+                            }
+
+                            ListView {
+                                id: inList
+                                anchors.top: inHeader.bottom
+                                anchors.topMargin: 6
+                                anchors.bottom: staleBox.top
+                                anchors.bottomMargin: staleBox.visible ? 10 : 0
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                clip: true
+                                spacing: 1
+                                model: root.dCat?.all === true ? [] : root.dMembers
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                // Every edit re-seats the model, which sends a ListView back to
+                                // the top. Removing the fortieth row of System and being thrown
+                                // to the first one makes tidying a long category miserable, so
+                                // the scroll position is carried across the swap. It is recorded
+                                // only when the user stops scrolling, because the swap itself
+                                // zeroes contentY before the restore can run.
+                                property real keepY: 0
+                                onMovementEnded: keepY = contentY
+                                onFlickEnded: keepY = contentY
+                                onModelChanged: Qt.callLater(() => {
+                                    contentY = Math.max(0, Math.min(keepY, Math.max(0, contentHeight - height)));
+                                })
+
+                                delegate: Rectangle {
+                                    id: memRow
+
+                                    required property int index
+                                    required property var modelData
+
+                                    readonly property bool pinned: modelData.pinned
+                                    // Pinned rows are emitted first, so the row index doubles as
+                                    // the rung this row sits on in the move ladder.
+                                    readonly property int rank: pinned ? index : -1
+
+                                    width: ListView.view.width
+                                    height: 36
+                                    radius: 8
+                                    color: memMouse.containsMouse ? root.colHover : "transparent"
+
+                                    IconImage {
+                                        id: memIcon
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 9
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 21
+                                        height: 21
+                                        asynchronous: true
+                                        implicitSize: 21
+                                        source: Quickshell.iconPath(memRow.modelData.app.icon, "application-x-executable")
+                                    }
+
+                                    Text {
+                                        id: memName
+                                        anchors.left: memIcon.right
+                                        anchors.leftMargin: 10
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: Math.max(0, memTools.x - x - (memTag.visible ? memTag.width + 14 : 10))
+                                        text: memRow.modelData.app.name
+                                        elide: Text.ElideRight
+                                        font.family: root.uiFont
+                                        font.pixelSize: 14
+                                        color: root.colText
+                                    }
+
+                                    // An auto row is here because of a freedesktop tag, not
+                                    // because anyone put it here — which is why it can't be
+                                    // reordered, and why removing it has to write an exclusion.
+                                    Rectangle {
+                                        id: memTag
+                                        anchors.left: memName.right
+                                        anchors.leftMargin: 8
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: !memRow.pinned
+                                        width: memTagText.implicitWidth + 12
+                                        height: 18
+                                        radius: 9
+                                        color: "transparent"
+                                        border.width: 1
+                                        border.color: root.colBorder
+
+                                        Text {
+                                            id: memTagText
+                                            anchors.centerIn: parent
+                                            text: "auto"
+                                            font.family: root.uiFont
+                                            font.pixelSize: 10
+                                            color: root.colSubtle
+                                        }
+                                    }
+
+                                    Row {
+                                        id: memTools
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 8
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 2
+                                        opacity: memMouse.containsMouse ? 1 : 0.55
+
+                                        CfgIconBtn {
+                                            symbol: "keyboard_arrow_up"
+                                            enabled: memRow.pinned && memRow.rank > 0
+                                            onClicked: root.dMove(memRow.rank, -1)
+                                        }
+
+                                        CfgIconBtn {
+                                            symbol: "keyboard_arrow_down"
+                                            enabled: memRow.pinned && memRow.rank >= 0 && memRow.rank < root.dPinnedPos.length - 1
+                                            onClicked: root.dMove(memRow.rank, 1)
+                                        }
+
+                                        CfgIconBtn {
+                                            symbol: "close"
+                                            tone: root.colError
+                                            onClicked: root.dRemove(memRow.modelData.app.id)
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: memMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        acceptedButtons: Qt.NoButton
+                                    }
+                                }
+                            }
+
+                            // Ids that no longer resolve. The launcher hides these; leaving them
+                            // invisible here is how a categories.json quietly rots.
+                            Column {
+                                id: staleBox
+                                anchors.bottom: parent.bottom
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                visible: root.dStale.length > 0
+                                // A hidden Column still measures its children, and `inList`
+                                // anchors to the top of this one — collapse it explicitly or it
+                                // silently eats the bottom of the list.
+                                height: visible ? implicitHeight : 0
+                                spacing: 4
+
+                                Text {
+                                    text: root.dStale.length + (root.dStale.length === 1 ? " id in this list matches nothing installed" : " ids in this list match nothing installed")
+                                    font.family: root.uiFont
+                                    font.pixelSize: 11
+                                    color: root.colError
+                                    opacity: 0.9
+                                }
+
+                                Flow {
+                                    width: staleBox.width
+                                    spacing: 6
+
+                                    Repeater {
+                                        model: root.dStale
+
+                                        Rectangle {
+                                            required property var modelData
+                                            width: staleLbl.implicitWidth + 34
+                                            height: 24
+                                            radius: 12
+                                            color: "transparent"
+                                            border.width: 1
+                                            border.color: Qt.rgba(root.colError.r, root.colError.g, root.colError.b, 0.45)
+
+                                            Text {
+                                                id: staleLbl
+                                                anchors.left: parent.left
+                                                anchors.leftMargin: 10
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: parent.modelData
+                                                font.family: root.uiFont
+                                                font.pixelSize: 11
+                                                color: root.colError
+                                            }
+
+                                            Text {
+                                                anchors.right: parent.right
+                                                anchors.rightMargin: 7
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: "close"
+                                                font.family: root.iconFont
+                                                font.pixelSize: 13
+                                                color: root.colError
+                                            }
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.dDropStale(parent.modelData)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- tab 1: appearance -----------------------------------
+                    Flickable {
+                        anchors.fill: parent
+                        visible: root.configTab === 1
+                        clip: true
+                        contentHeight: Math.max(apprCol.implicitHeight, apprPreview.implicitHeight) + 56
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        // Capped at a readable measure rather than stretched to the window: a
+                        // 1100px slider is impossible to land a value on, and a 1100px line of
+                        // explanation is impossible to read.
+                        Column {
+                            id: apprCol
+                            x: 30
+                            y: 24
+                            width: Math.min(cfgBody.width - 460, 560)
+                            spacing: 26
+
+                            // ---- highlight ----
+                            Column {
+                                width: parent.width
+                                spacing: 12
+
+                                Text {
+                                    text: "Highlight"
+                                    font.family: root.uiFont
+                                    font.pixelSize: 16
+                                    color: root.colText
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    wrapMode: Text.WordWrap
+                                    text: "The pill behind the row you are on, and the fainter one under the mouse. Every source but Custom is read live from Caelestia's scheme, so it keeps matching the desktop theme through a wallpaper recolour."
+                                    font.family: root.uiFont
+                                    font.pixelSize: 13
+                                    color: root.colSubtle
+                                }
+
+                                CfgSourceRow {
+                                    width: parent.width
+                                    which: "highlight"
+                                }
+
+                                Item {
+                                    width: parent.width
+                                    height: 30
+
+                                    Text {
+                                        id: hlLabel
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 74
+                                        text: "Strength"
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        color: root.colSubtle
+                                    }
+
+                                    CfgSlider {
+                                        id: hlSlider
+                                        anchors.left: hlLabel.right
+                                        anchors.right: hlValue.left
+                                        anchors.rightMargin: 14
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        from: 0
+                                        to: 0.30
+                                        value: root.dAppearance("highlight").strength
+                                        onMoved: v => root.dSetAppearance("highlight", "strength", Math.round(v * 1000) / 1000)
+                                    }
+
+                                    Text {
+                                        id: hlValue
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 52
+                                        horizontalAlignment: Text.AlignRight
+                                        text: (root.dAppearance("highlight").strength * 100).toFixed(1) + "%"
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        color: root.colText
+                                    }
+                                }
+                            }
+
+                            // ---- outline ----
+                            Column {
+                                width: parent.width
+                                spacing: 12
+
+                                Text {
+                                    text: "Faint outline"
+                                    font.family: root.uiFont
+                                    font.pixelSize: 16
+                                    color: root.colText
+                                }
+
+                                Text {
+                                    width: parent.width
+                                    wrapMode: Text.WordWrap
+                                    text: "The card's border, the hairline under the folder block, and the rules in this window."
+                                    font.family: root.uiFont
+                                    font.pixelSize: 13
+                                    color: root.colSubtle
+                                }
+
+                                CfgSourceRow {
+                                    width: parent.width
+                                    which: "outline"
+                                }
+
+                                Item {
+                                    width: parent.width
+                                    height: 30
+
+                                    Text {
+                                        id: outLabel
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 74
+                                        text: "Opacity"
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        color: root.colSubtle
+                                    }
+
+                                    CfgSlider {
+                                        anchors.left: outLabel.right
+                                        anchors.right: outValue.left
+                                        anchors.rightMargin: 14
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        from: 0
+                                        to: 1
+                                        value: root.dAppearance("outline").strength
+                                        onMoved: v => root.dSetAppearance("outline", "strength", Math.round(v * 100) / 100)
+                                    }
+
+                                    Text {
+                                        id: outValue
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 52
+                                        horizontalAlignment: Text.AlignRight
+                                        text: Math.round(root.dAppearance("outline").strength * 100) + "%"
+                                        font.family: root.uiFont
+                                        font.pixelSize: 13
+                                        color: root.colText
+                                    }
+                                }
+                            }
+
+                            CfgButton {
+                                label: "Reset to theme defaults"
+                                symbol: "restart_alt"
+                                onClicked: {
+                                    root.draftAppearance = JSON.parse(JSON.stringify(root.appDefaults));
+                                    root.dirty = true;
+                                    root.configNote = "";
+                                }
+                            }
+
+                            Text {
+                                width: parent.width
+                                wrapMode: Text.WordWrap
+                                text: "Saved to ~/.config/omarchy-launcher/appearance.json. Delete that file and the launcher falls back to these defaults."
+                                font.family: root.uiFont
+                                font.pixelSize: 12
+                                color: root.colSubtle
+                                opacity: 0.75
+                            }
+                        }
+
+                        // ---- preview ----
+                        // This window is already a live preview of itself, but a launcher-shaped
+                        // sample next to the controls is the comparison you actually care about —
+                        // and it sits in the space the capped control column leaves free.
+                        Column {
+                            id: apprPreview
+                            x: apprCol.x + apprCol.width + 48
+                            y: 24
+                            spacing: 12
+
+                            Text {
+                                text: "Preview"
+                                font.family: root.uiFont
+                                font.pixelSize: 16
+                                color: root.colText
+                            }
+
+                            Rectangle {
+                                    width: 340
+                                    // 2 × 14 margin + 4 rows of 34 + 3 gaps of 2. Pinned rather
+                                    // than derived because the sample rows are a fixed set.
+                                    height: 170
+                                    radius: 14
+                                    color: root.colBg
+                                    border.width: 2
+                                    border.color: root.colBorder
+
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.margins: 14
+                                        spacing: 2
+
+                                        Repeater {
+                                            model: [
+                                                {
+                                                    n: "Development",
+                                                    f: true,
+                                                    s: false
+                                                },
+                                                {
+                                                    n: "Media",
+                                                    f: true,
+                                                    s: false
+                                                },
+                                                {
+                                                    n: "Signal",
+                                                    f: false,
+                                                    s: true
+                                                },
+                                                {
+                                                    n: "Telegram",
+                                                    f: false,
+                                                    s: false
+                                                }
+                                            ]
+
+                                            Rectangle {
+                                                required property var modelData
+                                                width: 312
+                                                height: 34
+                                                radius: 9
+                                                color: modelData.s ? root.colSel : "transparent"
+
+                                                Text {
+                                                    id: pvIcon
+                                                    anchors.left: parent.left
+                                                    anchors.leftMargin: 12
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: parent.modelData.f ? "folder" : "apps"
+                                                    font.family: root.iconFont
+                                                    font.pixelSize: 18
+                                                    color: root.colAccent
+                                                }
+
+                                                Text {
+                                                    anchors.left: pvIcon.right
+                                                    anchors.leftMargin: 12
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: parent.modelData.n
+                                                    font.family: root.uiFont
+                                                    font.pixelSize: 14
+                                                    color: root.colText
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                         }
                     }
                 }

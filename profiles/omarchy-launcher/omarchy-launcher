@@ -6,11 +6,14 @@
 # key: it toggles the running instance, and transparently starts it first if it isn't up yet
 # (e.g. after a shell crash, or before the login autostart has run).
 #
-#   omarchy-launcher            toggle
-#   omarchy-launcher open       open only
-#   omarchy-launcher close      close only
-#   omarchy-launcher restart    restart the daemon (after editing shell.qml)
-#   omarchy-launcher edit       open categories.json in $EDITOR
+#   omarchy-launcher               toggle
+#   omarchy-launcher open          open only
+#   omarchy-launcher close         close only
+#   omarchy-launcher config        open the App List Config window
+#   omarchy-launcher category ID   open straight into one folder
+#   omarchy-launcher type TEXT     open with the search seeded with TEXT
+#   omarchy-launcher restart       restart the daemon (after editing shell.qml)
+#   omarchy-launcher edit          open categories.json in $EDITOR
 set -uo pipefail
 
 # Quickshell's desktop-entry index is whatever XDG_DATA_DIRS said when the daemon started.
@@ -78,10 +81,13 @@ start_daemon() {
 }
 
 call() {
-    qs -c "$CFG" ipc call launcher "$1" >/dev/null 2>&1
+    qs -c "$CFG" ipc call launcher "$@" >/dev/null 2>&1
 }
 
 cmd="${1:-toggle}"
+# The IPC verb and its arguments, which are not always the subcommand the user typed: `type` is
+# spelled `typed` over IPC because `type` is a bash builtin and reads badly as a CLI verb.
+ARGS=()
 case "$cmd" in
     daemon)
         running && exit 0
@@ -96,14 +102,29 @@ case "$cmd" in
     edit)
         exec "${EDITOR:-nano}" "$CATEGORIES"
         ;;
-    toggle|open|close) ;;
-    *) die "unknown command '$cmd' (toggle|open|close|restart|edit|daemon)" ;;
+    toggle|open|close|config)
+        ARGS=("$cmd")
+        ;;
+    category)
+        [ $# -ge 2 ] || die "usage: omarchy-launcher category <id>"
+        ARGS=(category "$2")
+        ;;
+    type)
+        # From the desktop type-to-open binds. TEXT is the whole buffer typed so far, not the
+        # last character: the binds fire one of these per keystroke and the processes race each
+        # other to the socket, so SEQ lets the launcher drop a message that arrived late rather
+        # than scramble the search. Hand-typed calls omit SEQ and always apply.
+        # Empty TEXT is not an error — it just opens the launcher — so a mis-wired keybind
+        # degrades to "the launcher opened".
+        ARGS=(typed "${2-}" "${3-0}")
+        ;;
+    *) die "unknown command '$cmd' (toggle|open|close|config|category|type|restart|edit|daemon)" ;;
 esac
 
-if call "$cmd"; then
+if call "${ARGS[@]}"; then
     exit 0
 fi
 
 # Not running (or the socket died): bring it up, then perform the action.
 start_daemon || die "failed to start the launcher daemon - run 'qs -c $CFG' to see the error"
-[ "$cmd" = "close" ] || call "$cmd"
+[ "$cmd" = "close" ] || call "${ARGS[@]}"

@@ -18,18 +18,20 @@
     "  xdgCategories optional: auto-include anything tagged with these freedesktop categories,",
     "                alphabetically, after the explicit ids",
     "  exclude       optional: desktop ids to keep out of an auto-filled category",
+    "  configEntry   optional: true pins the \"App List Config\" row to the top of this folder",
     "  all           true = every installed app (used by 'All Apps')",
     "",
     "A desktop id is the .desktop filename without the extension, e.g. org.kde.dolphin.",
     "List them with:  ls /usr/share/applications ~/.local/share/applications",
     "",
     "Every category below was seeded from the apps actually installed on this machine — they",
-    "are a starting point, not a guess you have to live with."
+    "are a starting point, not a guess you have to live with.",
+    "",
+    "Most of this can be edited without opening a text editor: the \"App List Config\" row at the",
+    "top of the System folder opens a window that writes this file (and appearance.json) for you."
   ],
-
   "version": 1,
   "defaultCategory": "favourites",
-
   "categories": [
     {
       "id": "favourites",
@@ -154,8 +156,12 @@
         "micro",
         "vim"
       ],
-      "xdgCategories": ["Development", "IDE", "TextEditor", "TerminalEmulator"],
-      "exclude": []
+      "xdgCategories": [
+        "Development",
+        "IDE",
+        "TextEditor",
+        "TerminalEmulator"
+      ]
     },
     {
       "id": "internet",
@@ -181,8 +187,17 @@
         "com.github.unrud.VideoDownloader",
         "net.codelogistics.webapps"
       ],
-      "xdgCategories": ["Network", "WebBrowser", "Email", "InstantMessaging", "Chat"],
-      "exclude": ["bssh", "bvnc"]
+      "xdgCategories": [
+        "Network",
+        "WebBrowser",
+        "Email",
+        "InstantMessaging",
+        "Chat"
+      ],
+      "exclude": [
+        "bssh",
+        "bvnc"
+      ]
     },
     {
       "id": "office",
@@ -206,8 +221,9 @@
         "org.kde.kwrite",
         "org.kde.kcalc"
       ],
-      "xdgCategories": ["Office"],
-      "exclude": []
+      "xdgCategories": [
+        "Office"
+      ]
     },
     {
       "id": "media",
@@ -228,8 +244,18 @@
         "org.pulseaudio.pavucontrol",
         "pavucontrol-qt"
       ],
-      "xdgCategories": ["AudioVideo", "Player", "Audio", "Video", "Recorder", "AudioVideoEditing"],
-      "exclude": ["qv4l2", "qvidcap"]
+      "xdgCategories": [
+        "AudioVideo",
+        "Player",
+        "Audio",
+        "Video",
+        "Recorder",
+        "AudioVideoEditing"
+      ],
+      "exclude": [
+        "qv4l2",
+        "qvidcap"
+      ]
     },
     {
       "id": "graphics",
@@ -252,13 +278,20 @@
         "org.gnome.SimpleScan",
         "hp-uiscan"
       ],
-      "xdgCategories": ["Graphics", "2DGraphics", "VectorGraphics", "RasterGraphics", "Photography", "Scanning"],
-      "exclude": []
+      "xdgCategories": [
+        "Graphics",
+        "2DGraphics",
+        "VectorGraphics",
+        "RasterGraphics",
+        "Photography",
+        "Scanning"
+      ]
     },
     {
       "id": "system",
       "name": "System",
       "icon": "settings",
+      "configEntry": true,
       "apps": [
         "systemsettings",
         "kdesystemsettings",
@@ -299,8 +332,12 @@
         "org.kde.kwalletmanager",
         "xkill-shortcut"
       ],
-      "xdgCategories": ["Settings", "System", "HardwareSettings", "Security"],
-      "exclude": []
+      "xdgCategories": [
+        "Settings",
+        "System",
+        "HardwareSettings",
+        "Security"
+      ]
     },
     {
       "id": "all",
