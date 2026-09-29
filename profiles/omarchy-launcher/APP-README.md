@@ -49,11 +49,36 @@ breadcrumb — `Apps…` at root, the category name once you are inside one.
 Searching a category that has no match automatically widens to **all apps** and says so, so a
 typo'd category never leaves you at a dead end.
 
+## App List Config window
+
+Categories, favourites and appearance can all be edited from inside the launcher — no text
+editor needed. The **App List Config** window opens from the pinned `tune`-icon row at the top
+of the System folder, or `omarchy-launcher config`. Which folder carries that pinned row is a
+flag in the data (`"configEntry": true`) rather than a hard-coded id, so renaming or moving the
+settings category keeps the row where it belongs.
+
+It has two halves:
+
+- **CATEGORIES** — pick a category on the left; on the right, reorder its apps, drop apps you
+  don't want, and **ADD AN APP** by live-searching everything installed. *All Apps* is
+  generated from everything installed, so there is no list to edit there — it says so and
+  points you at another category.
+- **Appearance** — the **Highlight** (the selection pill) and the **Faint outline** (the card
+  border). Each has a *source* — text (`onSurface`), accent (`primary`), outline, surface, or
+  **Custom** with a `#rrggbb` — and a slider (Highlight *Strength*, outline *Opacity*, both
+  0..1). Every source but Custom is read live from Caelestia's scheme, so the pill and border
+  keep matching the desktop through a wallpaper recolour.
+
+An **Unsaved changes** banner tracks a working draft; **Save** writes both
+`~/.config/omarchy-launcher/categories.json` **and** `~/.config/omarchy-launcher/appearance.json`.
+`appearance.json` is a new file the popup owns — delete it and the launcher falls back to the
+built-in defaults. Both files are watched, so a save applies on the next open, no restart.
+
 ## Categories
 
 Everything about the categories lives in `~/.config/omarchy-launcher/categories.json`
-(`omarchy-launcher edit` opens it). The file is watched — save it and the next open picks the
-change up, no restart.
+(`omarchy-launcher edit` opens it, or edit it from the App List Config window above). The file
+is watched — save it and the next open picks the change up, no restart.
 
 ```json
 {
@@ -108,8 +133,11 @@ environment is deliberately left alone.
 
 - **UI**: `~/.config/quickshell/omarchy-launcher/shell.qml` — its own Quickshell instance.
 - **Control**: `~/.local/bin/omarchy-launcher` — `toggle` (default), `open`, `close`,
-  `restart` (after editing the QML), `edit`, `daemon`. It also fixes up `XDG_DATA_DIRS` for the
-  daemon so Flatpak apps are indexed (see above). IPC adds `category <id>`.
+  `config` (open the App List Config window), `category <id>` (open straight into one folder),
+  `type TEXT` (open with the search seeded — the desktop type-to-open binds), `restart` (after
+  editing the QML), `edit`, `daemon`. It also fixes up `XDG_DATA_DIRS` for the daemon so Flatpak
+  apps are indexed (see above). Over IPC, `type` is spelled `typed` (with a sequence arg so
+  per-keystroke calls that race to the socket can't scramble the search).
 - **Keybind + autostart**: `~/.config/hypr/hyprland.lua` — `Super+Alt+Space`, plus an
   `omarchy-launcher daemon` line in the `hyprland.start` block so the desktop-entry index is
   warm before the first keypress.

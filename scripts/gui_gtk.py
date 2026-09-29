@@ -227,7 +227,9 @@ APPS = [
         "desc": "Omarchy-style categorised app launcher (Quickshell) — a centred "
                 "portrait popup opening on Favourites, with folders you walk in and "
                 "out of. Toggle with Super+Space (Caelestia's own launcher moves to "
-                "Super+Shift+Space). Built by Coding Colin.",
+                "Super+Shift+Space). Edit categories, favourites and appearance from "
+                "the in-launcher App List Config window (no JSON editing). Built by "
+                "Coding Colin.",
         "install": _p("profiles", "omarchy-launcher", "install.sh"),
         "launch": "omarchy-launcher",
         "button": "Toggle",
