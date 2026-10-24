@@ -38,8 +38,19 @@ configs), **Micro** (Catppuccin), and the GTK/Qt theming to match.
       <b><a href="profiles/omarchy-launcher">App launcher</a></b><br>
       <sub>Omarchy-style categorised launcher · Super+Space</sub>
     </td>
+    <td align="center" valign="top" width="33%">
+      <a href="profiles/omarchy-desktop-icons"><img src="profiles/omarchy-desktop-icons/docs/screenshot.png" alt="Desktop icons" height="240"></a><br>
+      <b><a href="profiles/omarchy-desktop-icons">Desktop icons</a></b><br>
+      <sub>app icons on the wallpaper, double-click to open</sub>
+    </td>
   </tr>
 </table>
+
+Every one of these installs from the GUI's **Apps** list, independently of the
+theme cards above; the small single-purpose tools sit behind **Apps → Utilities**
+— see [Apps and the Utilities flyout](#apps-and-the-utilities-flyout). *Mic
+Fixer* (microphone tester, also by Coding Colin) ships the same way and lives in
+[`profiles/mic-fixer`](profiles/mic-fixer).
 
 ## Layout
 
@@ -107,6 +118,31 @@ It uses the best available toolkit, in order:
 The preview image comes from `preview.png` in the repo root (a desktop
 screenshot); it's scaled to fit the dialog (full desktop, not cropped) and a
 larger copy backs the click-to-enlarge popup. Replace that file to change it.
+
+#### Apps and the Utilities flyout
+
+Under the theme cards, the GTK front-end carries an **Apps** frame: one row per
+bundled standalone app, each with its own **Install** button that runs just that
+app's `profiles/<name>/install.sh` (ticking **Dry run** prints the command
+instead of running it). The row list is the `APPS` array in
+`scripts/gui_gtk.py`.
+
+An app tagged `"group": "utilities"` is *not* shown inline. Instead a single
+**Utilities** row appears at the bottom of the frame, and its **Open** button
+pops a separate flyout window — same row style, same Install buttons — so small
+single-purpose tools can be added indefinitely without the main window growing.
+Currently in the flyout:
+
+| Utility | What it is |
+| --- | --- |
+| [Shakefree Mouse](profiles/shakefree-mouse) | hand-tremor mouse filter · `Super+Shift+M` |
+| [Keyboard shortcuts](profiles/keybinds) | on-screen keybinding cheat-sheet · `Super+/` |
+| [Mic Fixer](profiles/mic-fixer) | pick a mic, record a clip, get a plain verdict |
+| [Desktop icons](profiles/omarchy-desktop-icons) | app icons on the wallpaper, double-click to open |
+
+To add one: drop a `profiles/<name>/` directory with an `install.sh`, then append
+an entry to `APPS` with `"group": "utilities"`. Leave `group` off and it becomes
+a top-level Apps row instead.
 
 > **TODO — float the GUI window on tiling setups (UNRESOLVED).** On KDE +
 > Krohnkite the window still tiles. Tried, none of which worked on Wayland:

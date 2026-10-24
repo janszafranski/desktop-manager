@@ -247,6 +247,18 @@ APPS = [
         "button": "Open",
         "group": "utilities",
     },
+    {
+        "name": "Desktop icons",
+        "desc": "App icons on the wallpaper, double-click to open — the thing you "
+                "miss from Windows (Quickshell). Right-click to add, rename or "
+                "resize; drag to rearrange. Needs quickshell. No keybinding or "
+                "autostart is written for you — see the profile README. Built by "
+                "Coding Colin.",
+        "install": _p("profiles", "omarchy-desktop-icons", "install.sh"),
+        "launch": "omarchy-desktop-icons toggle",
+        "button": "Toggle",
+        "group": "utilities",
+    },
 ]
 
 COLUMNS = 3  # cards per row in the grid

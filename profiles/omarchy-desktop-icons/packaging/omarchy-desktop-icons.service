@@ -1,0 +1,15 @@
+[Unit]
+Description=omarchy-desktop-icons — desktop icon grid for Hyprland
+Documentation=https://github.com/
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/omarchy-desktop-icons/bin/omarchy-desktop-icons start
+Restart=on-failure
+RestartSec=2
+Slice=app.slice
+
+[Install]
+WantedBy=graphical-session.target

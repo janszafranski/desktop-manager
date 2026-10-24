@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# omarchy-desktop-icons — start / stop / toggle the desktop icon grid.
+#
+#   omarchy-desktop-icons           start it (stays in the foreground)
+#   omarchy-desktop-icons start     same
+#   omarchy-desktop-icons toggle    show/hide the SUPER+I overlay
+#   omarchy-desktop-icons stop      quit the running instance
+#   omarchy-desktop-icons status    is it running?
+#   omarchy-desktop-icons edit      open the config in $EDITOR
+set -euo pipefail
+
+APPDIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-desktop-icons/config.json"
+
+if ! command -v qs >/dev/null 2>&1; then
+    echo "omarchy-desktop-icons: 'qs' (quickshell) is not installed." >&2
+    echo "  Arch/Omarchy:  yay -S quickshell        # or: yay -S quickshell-git" >&2
+    exit 1
+fi
+
+case "${1:-start}" in
+    start)  exec qs -p "$APPDIR" --no-duplicate ;;
+    toggle) exec qs -p "$APPDIR" ipc call desktop toggle ;;
+    open)   exec qs -p "$APPDIR" ipc call desktop open ;;
+    close)  exec qs -p "$APPDIR" ipc call desktop close ;;
+    reload) exec qs -p "$APPDIR" ipc call desktop reload ;;
+    stop)   exec qs -p "$APPDIR" kill ;;
+    edit)   exec "${VISUAL:-${EDITOR:-nano}}" "$CONFIG" ;;
+    status)
+        if qs -p "$APPDIR" ipc show >/dev/null 2>&1; then
+            echo "running (config: $CONFIG)"
+        else
+            echo "not running"
+            exit 1
+        fi
+        ;;
+    -h|--help|help)
+        sed -n '2,10p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//'
+        ;;
+    *)
+        echo "omarchy-desktop-icons: unknown command '$1' (try --help)" >&2
+        exit 2
+        ;;
+esac

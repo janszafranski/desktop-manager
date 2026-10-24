@@ -1,0 +1,18 @@
+{
+  "geometry": {
+    "anchor": "top-left",
+    "margins": { "top": 24, "left": 24, "right": 24, "bottom": 24 },
+    "columns": 0,
+    "screen": ""
+  },
+  "behaviour": {
+    "icon_size": "medium",
+    "activate": "double",
+    "label_position": "below"
+  },
+  "items": [
+    { "label": "", "desktop_id": "firefox.desktop", "exec": "", "icon": "", "cell": [0, 0] },
+    { "label": "", "desktop_id": "com.mitchellh.ghostty.desktop", "exec": "", "icon": "", "cell": [0, 1] },
+    { "label": "My notes", "desktop_id": "", "exec": "xdg-open ~/Documents/notes.md", "icon": "text-x-generic", "cell": [0, 2] }
+  ]
+}
