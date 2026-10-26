@@ -43,7 +43,7 @@ ShellRoot {
             { label: "Auto-arrange", action: () => Config.autoArrange(grid.rows) },
             { separator: true },
             { label: "Reload config", action: () => { Config.reload(); Theme.reload(); } },
-            { label: "Edit config…", action: () => shell.editConfig() },
+            { label: "Settings…", action: () => settingsDialog.show() },
             { separator: true },
             { label: "Quit", action: () => Qt.quit() }
         ];
@@ -74,6 +74,8 @@ ShellRoot {
     }
 
     // $EDITOR in a terminal if there is one, otherwise whatever handles JSON.
+    // No longer in the right-click menu — it is the footer escape hatch in the
+    // Settings dialog, and `omarchy-desktop-icons edit` from a shell.
     function editConfig() {
         const editor = Quickshell.env("VISUAL") || Quickshell.env("EDITOR");
         if (editor)
@@ -170,6 +172,12 @@ ShellRoot {
         onPicked: desktopId => shell.addApp(desktopId, overlay.open ? overlayGrid : desktopGrid)
     }
 
+    SettingsDialog {
+        id: settingsDialog
+        screen: shell.targetScreen
+        onEditRequested: shell.editConfig()
+    }
+
     TextPrompt {
         id: prompt
         screen: shell.targetScreen
@@ -194,5 +202,6 @@ ShellRoot {
         function open(): void { overlay.open = true; }
         function close(): void { overlay.open = false; }
         function reload(): void { Config.reload(); Theme.reload(); }
+        function settings(): void { settingsDialog.show(); }
     }
 }

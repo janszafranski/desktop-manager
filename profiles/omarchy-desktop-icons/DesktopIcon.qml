@@ -32,12 +32,16 @@ Item {
         Behavior on color { ColorAnimation { duration: 90 } }
     }
 
-    Column {
+    // A Grid rather than a Column so `label_position` can put the label beside
+    // the icon as well as under it; `columns: 1` lays out exactly like a Column.
+    Grid {
         anchors.centerIn: parent
-        spacing: 4
+        columns: Config.labelBeside ? 2 : 1
+        spacing: Config.labelBeside ? 8 : 4
+        horizontalItemAlignment: Grid.AlignHCenter
+        verticalItemAlignment: Grid.AlignVCenter
 
         Item {
-            anchors.horizontalCenter: parent.horizontalCenter
             implicitWidth: root.iconSize
             implicitHeight: root.iconSize
             opacity: root.dragging ? 0.55 : 1
@@ -70,8 +74,7 @@ Item {
         }
 
         Item {
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: root.width - 8
+            width: Config.labelBeside ? root.width - root.iconSize - 20 : root.width - 8
             height: labelText.height
             visible: Config.behaviour.label_position !== "none"
 
@@ -82,7 +85,7 @@ Item {
                 text: labelText.text
                 font: labelText.font
                 color: Theme.labelShadow
-                horizontalAlignment: Text.AlignHCenter
+                horizontalAlignment: labelText.horizontalAlignment
                 wrapMode: Text.Wrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
@@ -94,7 +97,7 @@ Item {
                 text: root.label
                 color: Theme.labelColor
                 font.pixelSize: Math.max(10, Math.round(root.iconSize / 4))
-                horizontalAlignment: Text.AlignHCenter
+                horizontalAlignment: Config.labelBeside ? Text.AlignLeft : Text.AlignHCenter
                 wrapMode: Text.Wrap
                 maximumLineCount: 2
                 elide: Text.ElideRight

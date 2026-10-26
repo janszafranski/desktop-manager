@@ -4,9 +4,11 @@
 #   omarchy-desktop-icons           start it (stays in the foreground)
 #   omarchy-desktop-icons start     same
 #   omarchy-desktop-icons toggle    show/hide the SUPER+I overlay
+#   omarchy-desktop-icons settings  open the Settings dialog
 #   omarchy-desktop-icons stop      quit the running instance
 #   omarchy-desktop-icons status    is it running?
 #   omarchy-desktop-icons edit      open the config in $EDITOR
+#   omarchy-desktop-icons version   print the installed revision
 set -euo pipefail
 
 APPDIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
@@ -21,11 +23,14 @@ fi
 case "${1:-start}" in
     start)  exec qs -p "$APPDIR" --no-duplicate ;;
     toggle) exec qs -p "$APPDIR" ipc call desktop toggle ;;
+    settings) exec qs -p "$APPDIR" ipc call desktop settings ;;
     open)   exec qs -p "$APPDIR" ipc call desktop open ;;
     close)  exec qs -p "$APPDIR" ipc call desktop close ;;
     reload) exec qs -p "$APPDIR" ipc call desktop reload ;;
     stop)   exec qs -p "$APPDIR" kill ;;
     edit)   exec "${VISUAL:-${EDITOR:-nano}}" "$CONFIG" ;;
+    version|-v|--version)
+            cat "$APPDIR/VERSION" 2>/dev/null || echo "unknown" ;;
     status)
         if qs -p "$APPDIR" ipc show >/dev/null 2>&1; then
             echo "running (config: $CONFIG)"
@@ -35,7 +40,7 @@ case "${1:-start}" in
         fi
         ;;
     -h|--help|help)
-        sed -n '2,10p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//'
+        sed -n '2,11p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//'
         ;;
     *)
         echo "omarchy-desktop-icons: unknown command '$1' (try --help)" >&2

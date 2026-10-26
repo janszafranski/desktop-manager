@@ -19,7 +19,7 @@ fi
 echo "Installing to $DEST"
 mkdir -p "$DEST" "$BIN"
 cp -r "$SRC"/*.qml "$SRC"/bin "$SRC"/packaging "$SRC"/docs \
-      "$SRC"/config.example.json "$SRC"/uninstall.sh "$DEST"/
+      "$SRC"/config.example.json "$SRC"/uninstall.sh "$SRC"/VERSION "$DEST"/
 # The app's own manual ships in this profile as APP-README.md (README.md here is
 # the Desktop Manager-facing one); install it under its upstream name, because
 # the uninstall instructions tell you to cd into $DEST and read it.

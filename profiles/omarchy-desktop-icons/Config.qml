@@ -22,8 +22,10 @@ Singleton {
     property var behaviour: defaultBehaviour()
 
     readonly property int iconPixels: ({ small: 32, medium: 48, large: 72 })[behaviour.icon_size] ?? 48
-    readonly property int cellWidth: Math.round(iconPixels * 2.1)
-    readonly property int cellHeight: Math.round(iconPixels * 1.9)
+    // A label beside the icon needs width instead of height.
+    readonly property bool labelBeside: behaviour.label_position === "right"
+    readonly property int cellWidth: Math.round(iconPixels * (labelBeside ? 3.4 : 2.1))
+    readonly property int cellHeight: Math.round(iconPixels * (labelBeside ? 1.35 : 1.9))
 
     // Set while we are writing, so our own write does not trigger a reload.
     property string lastWritten: ""
@@ -102,10 +104,26 @@ Singleton {
         save();
     }
 
-    function setIconSize(size) {
-        behaviour = merge(behaviour, { icon_size: size });
+    // Generic setters used by SettingsDialog. Each one merges over what is
+    // already loaded and saves, so the grid updates before the write lands.
+    function setGeometry(changes) {
+        geometry = merge(geometry, changes);
         save();
     }
+
+    function setMargins(changes) {
+        const g = merge(geometry, {});
+        g.margins = merge(geometry.margins, changes);
+        geometry = g;
+        save();
+    }
+
+    function setBehaviour(changes) {
+        behaviour = merge(behaviour, changes);
+        save();
+    }
+
+    function setIconSize(size) { setBehaviour({ icon_size: size }); }
 
     function isCellFree(col, row, exceptIndex) {
         return !items.some((it, i) => i !== exceptIndex && it.cell[0] === col && it.cell[1] === row);

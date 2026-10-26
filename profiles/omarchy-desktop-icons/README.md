@@ -7,7 +7,8 @@ Windows. A Quickshell layer-shell surface that sits on the wallpaper, underneath
 every window. It does **not** replace your bar, dock, wallpaper or theme; it
 just adds icons.
 
-Built by **Coding Colin** (Paperclip agent) for this desktop.
+Built by **Coding Colin** (Paperclip agent) for this desktop. Currently
+**v1-rev4** (see `VERSION`; `omarchy-desktop-icons version` reports it).
 
 ## Install
 
@@ -69,25 +70,45 @@ would take your bar, dock and wallpaper with it.
 | single click | select |
 | drag | move the icon; snaps to the grid and is remembered |
 | middle-click | open it on a fresh, empty workspace (needs `hyprctl`) |
-| right-click wallpaper | **Add app…** · Icon size · Edit config… · Reload config |
+| right-click wallpaper | **Add app…** · Icon size · Auto-arrange · **Settings…** · Reload config |
 | right-click an icon | **Rename…** · **Remove "…"** · Icon size |
+
+## Settings
+
+<p align="center"><img src="docs/screenshot-settings.png" alt="The Settings dialog" width="420"></p>
+
+Right-click the wallpaper → **Settings…**. Corner, edge spacing (one slider, or
+four behind a disclosure), columns, monitor, icon size, single- vs double-click
+to open, and where the labels go. Live — there is no OK button; each control
+writes and saves as you move it, so the grid updates behind the dialog. `Esc`,
+a click outside, or **Done** closes it.
+
+This replaces the old **Edit config…** menu entry, which shelled out to
+`$EDITOR`. That path still exists, one level down: **Settings… → Edit config
+file…**, or `omarchy-desktop-icons edit`.
 
 ## Config
 
 One hand-editable file, `~/.config/omarchy-desktop-icons/config.json`
-(`config.example.json` here is the seed). Right-click → **Edit config…** opens
-it, **Reload config** picks the change up; writes are atomic. Menu colours
-follow the desktop theme, reading Omarchy's `current/theme` first, then end-4's
-generated `material_colors.scss`, then built-in defaults. Full schema and the
-caveats — one monitor only, drag-and-drop-to-add untested, keyboard focus limited
-to the context menu — are in **[APP-README.md](APP-README.md)**.
+(`config.example.json` here is the seed), and it stays the only source of
+truth — Settings is a front end for it, not a replacement. Writes are atomic,
+the file is watched, and a hand-edit made while the dialog is open moves the
+dialog's controls instead of being clobbered by them. **Reload config** forces
+a re-read. Menu colours follow the desktop theme, reading Omarchy's
+`current/theme` first, then end-4's generated `material_colors.scss`, then
+built-in defaults. Full schema, the control-to-key mapping, and the caveats —
+one monitor only, drag-and-drop-to-add untested, keyboard focus limited to the
+menu and dialogs — are in **[APP-README.md](APP-README.md)**.
 
 ## Files
 
-- `bin/omarchy-desktop-icons` → `~/.local/bin/` — wrapper (no arg = start; `toggle` / `open` / `close` / `reload` / `stop` / `status` / `edit`)
+- `bin/omarchy-desktop-icons` → `~/.local/bin/` — wrapper (no arg = start; `toggle` / `settings` / `open` / `close` / `reload` / `stop` / `status` / `edit`)
 - `*.qml` → `~/.local/share/omarchy-desktop-icons/` — the Quickshell app
   (`shell.qml`, `IconGrid.qml`, `DesktopIcon.qml`, `ContextMenu.qml`,
-  `AppPicker.qml`, `TextPrompt.qml`, `Config.qml`, `Apps.qml`, `Theme.qml`)
+  `AppPicker.qml`, `SettingsDialog.qml`, `TextPrompt.qml`, `Config.qml`,
+  `Apps.qml`, `Theme.qml`)
 - `packaging/omarchy-desktop-icons.service` → `~/.config/systemd/user/` — installed, not enabled
 - `config.example.json` — seed for `~/.config/omarchy-desktop-icons/config.json`
+- `VERSION` — the app revision, reported by `omarchy-desktop-icons version`
+- `tests/run.sh` — offscreen behaviour tests for the Settings dialog and the icon layout (not installed; safe to run on a live desktop)
 - `APP-README.md` — the app's own manual (installed as `README.md` alongside the app)

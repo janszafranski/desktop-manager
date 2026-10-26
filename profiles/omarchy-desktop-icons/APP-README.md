@@ -1,5 +1,7 @@
 # omarchy-desktop-icons
 
+**v1-rev4** — `omarchy-desktop-icons version` tells you what you have installed.
+
 App icons on your desktop, double-click to open — the thing you miss from
 Windows. It sits on the wallpaper, underneath all your windows. It does **not**
 replace your bar, your dock, your wallpaper or your theme. Omarchy stays
@@ -67,6 +69,22 @@ manager onto the desktop and it becomes an icon.
 
 To change one: right-click the icon → **Rename…**, or **Remove "…"**.
 To make them bigger: right-click → **Icon size → Large**.
+
+## 3a. Settings
+
+Right-click the wallpaper → **Settings…** for everything else: which corner the
+icons start from, how far in from the edge they sit, how many columns, which
+monitor, how big the icons are, whether one click or two opens an app, and
+where the names go.
+
+![The Settings dialog](docs/screenshot-settings.png)
+
+There is no OK button — every change happens as you make it, so you can drag a
+slider and watch the icons move. Press `Esc`, click outside, or press **Done**
+to close it.
+
+**Different spacing per side** opens four separate sliders, for when something
+else on your desktop (a bar down one edge, say) needs more room than the rest.
 
 ## 4. Start it automatically at login
 
@@ -206,17 +224,23 @@ with `')' expected near ...`; it wants `hyprctl dispatch 'hl.dsp.exec_cmd("foo")
 
 ## The config file
 
-Everything lives in one hand-editable file:
+Everything the Settings dialog writes — and the icon list, which it doesn't —
+lives in one hand-editable file:
 
 ```
 ~/.config/omarchy-desktop-icons/config.json
 ```
 
-Right-click → **Edit config…** opens it in your editor; right-click →
-**Reload config** picks up the changes. (It's JSON rather than TOML because QML
-reads and writes JSON natively — a TOML parser would have been more code than
-the whole rest of the app. Writes are atomic, so a crash can't leave you with
-half a file.)
+The file is the only source of truth; Settings is just a front end for it.
+Edit it by hand whenever you prefer: **Settings… → Edit config file…** opens it
+in your editor, as does `omarchy-desktop-icons edit` from a shell. The app
+watches the file, so a hand-edit shows up immediately — including in the
+Settings dialog, if you have it open at the time. Right-click → **Reload
+config** forces a re-read.
+
+(It's JSON rather than TOML because QML reads and writes JSON natively — a TOML
+parser would have been more code than the whole rest of the app. Writes are
+atomic, so a crash can't leave you with half a file.)
 
 ```jsonc
 {
@@ -229,7 +253,7 @@ half a file.)
   "behaviour": {
     "icon_size": "medium",    // small | medium | large
     "activate": "double",     // double | single
-    "label_position": "below" // below | none
+    "label_position": "below" // below | right | none
   },
   "items": [
     // An installed app. Name, icon and command all come from the .desktop
@@ -245,6 +269,27 @@ half a file.)
 
 `cell` is `[column, row]` counted from the anchored corner. `label` left empty
 means "use the app's own name".
+
+Which control in **Settings…** writes which key:
+
+| Setting | Key |
+| --- | --- |
+| Corner | `geometry.anchor` |
+| Edge spacing | all four of `geometry.margins` at once |
+| Different spacing per side | `geometry.margins.top` / `.left` / `.right` / `.bottom` |
+| Columns (`Auto` = 0) | `geometry.columns` |
+| Monitor (`Automatic` = `""`) | `geometry.screen` |
+| Icon size | `behaviour.icon_size` |
+| Open with | `behaviour.activate` |
+| Labels | `behaviour.label_position` |
+
+`items` is deliberately absent: icons are added, moved, renamed and removed on
+the desktop itself, not in a dialog.
+
+The single **Edge spacing** slider stops at 120px; the per-side ones go to 600,
+because a bar that reserves 500px down one edge is a real layout. If the four
+sides already differ, the dialog opens with the per-side sliders showing and
+the single slider reads **Mixed** rather than pretending to one number.
 
 ## Other things it does
 
@@ -284,9 +329,9 @@ means "use the app's own name".
   wallpaper there too — in practice that works, see below, but a wallpaper
   client started *after* the grid would end up on top of it and swallow clicks.
   Start the grid last.
-- **Escape and arrow keys only work in the right-click menu**, which gets its
-  own surface for exactly that reason — Hyprland never gives keyboard focus to
-  the wallpaper layer.
+- **Escape and arrow keys only work in the right-click menu and the dialogs**,
+  which each get their own surface for exactly that reason — Hyprland never
+  gives keyboard focus to the wallpaper layer.
 - `Open on new workspace` needs `hyprctl`, so it's Hyprland-only. Everything
   else works on any wlroots compositor with layer-shell.
 
@@ -317,6 +362,21 @@ written and reviewed but no Wayland drag source was available to script against
 it, so dragging a `.desktop` file from a file manager onto the grid is the one
 feature you should expect to find broken. Please report it if it is.
 
+### v1-rev4 (the Settings dialog)
+
+`SettingsDialog.qml` and the `label_position: "right"` layout were built and
+tested **off-compositor**: the real QML, with the layer-shell surface swapped
+for a plain window and `Config`/`Theme` backed by memory instead of a file,
+driven by a script under Qt's offscreen platform. 73 assertions cover every
+control writing the right key, the slider debounce firing exactly one write per
+drag, slider ranges clamping, a hand-edit to the file moving the controls
+without provoking a write back, and the three label layouts.
+
+What that approach *cannot* reach, and so has not been exercised: the dialog's
+own layer-shell surface, `Esc` and click-outside dismissal, and tab/arrow-key
+focus movement. All three are the same code as `AppPicker.qml` and
+`TextPrompt.qml`, which are verified live — but they are copies, not proof.
+
 ## For the curious: how it's built
 
 | File | What it does |
@@ -326,6 +386,7 @@ feature you should expect to find broken. Please report it if it is.
 | `DesktopIcon.qml` | One icon: image, label, mouse handling |
 | `ContextMenu.qml` | The right-click menu, on its own overlay surface |
 | `AppPicker.qml` | The searchable "Add app…" list |
+| `SettingsDialog.qml` | The Settings… dialog and its hand-rolled controls |
 | `TextPrompt.qml` | The "Rename…" box |
 | `Config.qml` | Reads/writes `config.json` |
 | `Apps.qml` | `.desktop` lookup, icon resolution, launching |
@@ -336,3 +397,15 @@ Run it straight from a source checkout without installing:
 ```bash
 qs -p /path/to/omarchy-desktop-icons
 ```
+
+There are behaviour tests for the dialog and the icon layout:
+
+```bash
+./tests/run.sh
+```
+
+They run under Qt's offscreen platform against the app's own QML, with
+Quickshell's singletons stubbed, so they are safe to run on a live desktop —
+nothing is drawn on your wallpaper and the running copy is not touched. They
+also render `docs/screenshot-settings.png`. `tests/run.sh` explains what the
+approach can and cannot cover.
