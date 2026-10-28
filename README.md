@@ -60,7 +60,8 @@ system-replica/
 │   ├── manifest.sh   # single source of truth: what gets backed up / restored
 │   ├── collect.sh    # system  -> repo  (re-run to refresh this snapshot)
 │   ├── install.sh    # repo    -> system (deploy onto a fresh machine)
-│   └── restore-backup.sh  # undo an install.sh `files` deploy
+│   ├── restore-backup.sh  # undo an install.sh `files` deploy
+│   └── bar-doctor.sh      # "my bar disappeared": diagnose it, put it back
 ├── packages/
 │   ├── pacman-native.txt         # explicit repo packages
 │   ├── aur.txt                   # AUR / foreign packages
@@ -254,6 +255,32 @@ where you had none, using the same `manifest.sh` the deploy reads — so the hom
 directory ends up as it was. Packages and the system-level SDDM theme are left
 alone; neither affects your desktop config. `scripts/tests/restore-backup-test.sh`
 proves the round trip on a throwaway `$HOME`.
+
+### "My bar disappeared"
+
+Two different things cause that, and they have different fixes:
+
+```bash
+./scripts/bar-doctor.sh         # the bar is missing after installing a package
+./scripts/restore-backup.sh     # the bar is missing after an `install.sh files` deploy
+```
+
+`bar-doctor.sh` is for the case that has nothing to do with this repo's deploy:
+a `yay -S …`/`pacman` install that pulled in newer system libraries and left
+waybar unable to start, so the bar is simply absent at the next login with no
+error message anywhere obvious. It reads the package log, probes the bar,
+classifies the failure (missing libraries vs. rejected settings vs. unknown)
+and starts the bar again when the bar itself is healthy. It never installs,
+removes or upgrades a package, never edits a config and never touches a
+compositor — `sudo` commands are printed, not run. `--dry-run` diagnoses only,
+`--log-only` shows just the recent package changes. It knows waybar and says so
+and stops on a desktop whose bar is something else.
+`scripts/tests/bar-doctor-test.sh` drives every branch against stub binaries
+(42 assertions, no compositor needed).
+
+The reason both exist: the desktop-icons app's install page tells a new user to
+install quickshell first, and that package install — not the app — is what can
+take the bar out.
 
 The `files` stage **applies live** when run inside a Plasma session: it stops
 plasmashell before deploying (so a running shell can't overwrite the restored

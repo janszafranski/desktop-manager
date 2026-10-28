@@ -16,14 +16,25 @@ Omarchy; this just adds icons.
 You need **quickshell**. Open a terminal and run:
 
 ```bash
-yay -S quickshell
+sudo pacman -S quickshell
 ```
 
-If that says "target not found", use the development build instead:
+If that says "target not found", quickshell is not in your distribution's own
+repositories and has to be built from source instead:
 
 ```bash
 yay -S quickshell-git
 ```
+
+> **Worth knowing before you run that second one.** `yay` refreshes the whole
+> package database and can pull in newer system libraries alongside the thing
+> you asked for. Once in a while that leaves some *other* part of the desktop
+> unable to start — most often the bar across the top of the screen, which is
+> then simply missing at the next login. Nothing is lost and it is quick to put
+> right: see [If your bar disappears after installing
+> something](#if-your-bar-disappears-after-installing-something) at the end of
+> this file. Prefer the `pacman` line above whenever it works, which on a
+> current Omarchy it does.
 
 Then, from this folder:
 
@@ -317,7 +328,47 @@ the single slider reads **Mixed** rather than pretending to one number.
 | Icons appear but clicks do nothing | Something else is sitting on the wallpaper layer. See "Known limitations". |
 | An icon is blank with a letter in it | Your icon theme has no icon for that app. Set `"icon"` yourself in the config. |
 | It won't start | Run `omarchy-desktop-icons` in a terminal and read the error. |
-| Your bar / taskbar disappeared | Not this app. It only adds `~/.local/share/omarchy-desktop-icons`, one command on your `$PATH` and one (disabled) systemd unit, and it never writes to your Hyprland or waybar config. If you also pressed **Install** on Desktop Manager's first card ("KDE Plasma (default)"), *that* replaces your Hyprland config and takes the bar with it — run `./scripts/restore-backup.sh` in the desktop-manager folder to put your own config back. |
+| Your bar / taskbar disappeared | Not this app — see the section directly below. |
+
+## If your bar disappears after installing something
+
+This app cannot do it. It only adds `~/.local/share/omarchy-desktop-icons`, one
+command on your `$PATH` and one (disabled) systemd unit; it never writes to a
+Hyprland, waybar or autostart config, and it never installs or removes a
+package.
+
+What *can* do it is step 1 — not this app's install, but the package install it
+asks you to run first. `yay -S …` refreshes your whole package database, and a
+package install that updates some system libraries without updating the
+programs built against them can leave your bar unable to start. The bar is then
+missing with no error anywhere you would normally look.
+
+There is a script in the Desktop Manager folder that finds out which it is and
+puts the bar back when it can:
+
+```bash
+./scripts/bar-doctor.sh
+```
+
+It reads your package log, tries to start the bar, and tells you in plain words
+what happened. If the bar is fine it just starts it again and you have it back
+without rebooting. If the bar is broken it prints the command that fixes it —
+usually `sudo pacman -Syu` to finish the half-done update. It never installs,
+removes or upgrades anything itself, and never edits a config file; commands
+that need `sudo` are printed for you to read.
+
+`./scripts/bar-doctor.sh --dry-run` diagnoses without starting anything, and
+`--log-only` just shows what packages changed recently.
+
+Two things it is **not**:
+
+- It is not about Desktop Manager's **Install** buttons. If you pressed
+  **Install** on the first card ("KDE Plasma (default)"), that is a separate
+  thing which replaces your Hyprland config — `./scripts/restore-backup.sh`
+  undoes that one. `bar-doctor.sh` will tell you if that is what happened,
+  because it shows you what actually changed.
+- It only knows **waybar**, Omarchy's bar. On a desktop whose bar is something
+  else it says so and stops rather than guessing.
 
 ## Known limitations
 
