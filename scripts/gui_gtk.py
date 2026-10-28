@@ -107,7 +107,14 @@ CONFIGS = [
         "kind": "install",
         "key": "current",
         "name": "KDE Plasma (default)",
-        "desc": "KDE Plasma 6 · Nordic-bluish · Krohnkite tiling · Alacritty",
+        "desc": "KDE Plasma 6 · Nordic-bluish · Krohnkite tiling · Alacritty. "
+                "For setting up a fresh CachyOS/Arch machine — it replaces this "
+                "user's shell, Hyprland and KDE config files with the ones "
+                "captured in this repo. It is not an add-on: on an existing "
+                "Omarchy (or other Hyprland) desktop it takes over the bar and "
+                "keybindings. Everything it replaces is saved to "
+                "~/.config-backup-<date> first, and scripts/restore-backup.sh "
+                "puts it all back. Use Dry run before Install.",
         "image": None,
     },
     {

@@ -317,6 +317,7 @@ the single slider reads **Mixed** rather than pretending to one number.
 | Icons appear but clicks do nothing | Something else is sitting on the wallpaper layer. See "Known limitations". |
 | An icon is blank with a letter in it | Your icon theme has no icon for that app. Set `"icon"` yourself in the config. |
 | It won't start | Run `omarchy-desktop-icons` in a terminal and read the error. |
+| Your bar / taskbar disappeared | Not this app. It only adds `~/.local/share/omarchy-desktop-icons`, one command on your `$PATH` and one (disabled) systemd unit, and it never writes to your Hyprland or waybar config. If you also pressed **Install** on Desktop Manager's first card ("KDE Plasma (default)"), *that* replaces your Hyprland config and takes the bar with it — run `./scripts/restore-backup.sh` in the desktop-manager folder to put your own config back. |
 
 ## Known limitations
 

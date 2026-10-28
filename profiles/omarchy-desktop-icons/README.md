@@ -28,6 +28,7 @@ for you. Start it by hand first:
 ```bash
 omarchy-desktop-icons          # start   (Ctrl+C or `omarchy-desktop-icons stop` to quit)
 omarchy-desktop-icons toggle   # raise the same grid as a dimmed full-screen overlay
+                               # (or start it, if it isn't running yet)
 ```
 
 …then wire up autostart and (optionally) a toggle key yourself — step 4 and step

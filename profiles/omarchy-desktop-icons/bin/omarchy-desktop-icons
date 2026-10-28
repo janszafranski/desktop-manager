@@ -3,7 +3,8 @@
 #
 #   omarchy-desktop-icons           start it (stays in the foreground)
 #   omarchy-desktop-icons start     same
-#   omarchy-desktop-icons toggle    show/hide the SUPER+I overlay
+#   omarchy-desktop-icons toggle    show/hide the SUPER+I overlay (starts it
+#                                   first if the grid isn't running)
 #   omarchy-desktop-icons settings  open the Settings dialog
 #   omarchy-desktop-icons stop      quit the running instance
 #   omarchy-desktop-icons status    is it running?
@@ -22,7 +23,12 @@ fi
 
 case "${1:-start}" in
     start)  exec qs -p "$APPDIR" --no-duplicate ;;
-    toggle) exec qs -p "$APPDIR" ipc call desktop toggle ;;
+    # Nothing running means there is nothing to toggle, so start the grid
+    # instead of failing. Desktop Manager's "Toggle" button is the only way a
+    # GUI-only user ever launches this, and it used to do nothing at all on a
+    # fresh install.
+    toggle) qs -p "$APPDIR" ipc call desktop toggle 2>/dev/null \
+                || exec qs -p "$APPDIR" --no-duplicate --daemonize ;;
     settings) exec qs -p "$APPDIR" ipc call desktop settings ;;
     open)   exec qs -p "$APPDIR" ipc call desktop open ;;
     close)  exec qs -p "$APPDIR" ipc call desktop close ;;
@@ -40,7 +46,7 @@ case "${1:-start}" in
         fi
         ;;
     -h|--help|help)
-        sed -n '2,11p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//'
+        sed -n '2,12p' "$(readlink -f "$0")" | sed 's/^# \{0,1\}//'
         ;;
     *)
         echo "omarchy-desktop-icons: unknown command '$1' (try --help)" >&2

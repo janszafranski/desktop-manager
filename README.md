@@ -59,7 +59,8 @@ system-replica/
 ├── scripts/
 │   ├── manifest.sh   # single source of truth: what gets backed up / restored
 │   ├── collect.sh    # system  -> repo  (re-run to refresh this snapshot)
-│   └── install.sh    # repo    -> system (deploy onto a fresh machine)
+│   ├── install.sh    # repo    -> system (deploy onto a fresh machine)
+│   └── restore-backup.sh  # undo an install.sh `files` deploy
 ├── packages/
 │   ├── pacman-native.txt         # explicit repo packages
 │   ├── aur.txt                   # AUR / foreign packages
@@ -234,6 +235,25 @@ macOS is currently the only profile; add more by dropping another
 
 Existing files are **backed up** to `~/.config-backup-<timestamp>/` before being
 overwritten — nothing is destroyed silently.
+
+### Undoing a deploy
+
+The **`files`** stage replaces this user's shell, Hyprland and KDE config with
+the captured ones. That is what you want on a fresh machine and *not* what you
+want on a desktop you already like: on an existing Omarchy or Hyprland setup it
+takes over the bar and the keybindings. To put everything back:
+
+```bash
+./scripts/restore-backup.sh --list      # which backups you have
+./scripts/restore-backup.sh --dry-run   # what would change, changing nothing
+./scripts/restore-backup.sh             # newest backup, then log out and back in
+```
+
+It restores every file the deploy replaced and deletes the ones it created
+where you had none, using the same `manifest.sh` the deploy reads — so the home
+directory ends up as it was. Packages and the system-level SDDM theme are left
+alone; neither affects your desktop config. `scripts/tests/restore-backup-test.sh`
+proves the round trip on a throwaway `$HOME`.
 
 The `files` stage **applies live** when run inside a Plasma session: it stops
 plasmashell before deploying (so a running shell can't overwrite the restored
