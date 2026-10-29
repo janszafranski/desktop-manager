@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Tests for scripts/bar-doctor.sh.
+# Tests for scripts/fix-my-bar.sh.
 #
 # Puts a stub `waybar` and `pgrep` on $PATH so every branch of the diagnosis
 # can be driven without a real bar, and stub `pacman`/`yay`/`pkill`/`sudo` that
 # fail the test if the script ever calls them. Needs no compositor and changes
 # nothing outside its temp directory, so it is safe to run on a live desktop.
 #
-#   ./scripts/tests/bar-doctor-test.sh
+#   ./scripts/tests/fix-my-bar-test.sh
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$(dirname "$SCRIPT_DIR")")"
-DOCTOR="$REPO/scripts/bar-doctor.sh"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/bar-doctor-test.XXXXXX")"
+SCRIPT="$REPO/scripts/fix-my-bar.sh"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/fix-my-bar-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 pass=0; fail=0
@@ -67,29 +67,38 @@ old="$(date -d '-40 days' +%Y-%m-%d)"
 export STUB_MARKERS="$TMP/markers"
 mkdir -p "$STUB_MARKERS"
 
-# Run the doctor against the stubs only. $1 is the stub directory to put first
-# on $PATH, the rest are the doctor's own arguments. Callers set MODE (what the
+# Every run drives a *copy* of the script sitting on its own in a directory
+# with no repository anywhere near it, from a working directory that is not the
+# repo either — the way it reaches someone who was sent the one file. If the
+# script ever grows a dependency on a sibling file, every case below breaks.
+LOOSE="$TMP/downloads/fix-my-bar.sh"
+mkdir -p "$TMP/downloads" "$TMP/elsewhere" "$TMP/home"
+cp "$SCRIPT" "$LOOSE"
+REPORT="$TMP/home/bar-report.txt"
+
+# Run the script against the stubs only. $1 is the stub directory to put first
+# on $PATH, the rest are the script's own arguments. Callers set MODE (what the
 # stub bar does), PGREP_RC (whether a bar looks like it is running) and
 # NO_WAYLAND as prefix assignments.
 #
 # BASH_ENV is cleared because some environments point it at a file that
 # re-exports $PATH, which would undo the stubbing.
-run_doctor() {
+run_fix() {
   local stubs="$1"; shift
   local -a wayland=(WAYLAND_DISPLAY=wayland-test)
   [[ "${NO_WAYLAND:-0}" == 1 ]] && wayland=()
-  rm -f "$STUB_MARKERS"/*
+  rm -f "$STUB_MARKERS"/* "$REPORT"
   out=""; rc=0
-  out="$(env -i -u BASH_ENV \
+  out="$(cd "$TMP/elsewhere" && env -i -u BASH_ENV \
            PATH="$stubs:/usr/bin:/bin" \
            HOME="$TMP/home" \
            "${wayland[@]}" \
            STUB_MARKERS="$STUB_MARKERS" \
            STUB_WAYBAR_MODE="${MODE:-up}" \
            STUB_PGREP_RC="${PGREP_RC:-1}" \
-           BAR_DOCTOR_PACMAN_LOG="$LOG" \
-           BAR_DOCTOR_PROBE_SECONDS=1 \
-           bash "$DOCTOR" "$@" 2>&1)" || rc=$?
+           FIX_MY_BAR_PACMAN_LOG="$LOG" \
+           FIX_MY_BAR_PROBE_SECONDS=1 \
+           bash "$LOOSE" "$@" 2>&1)" || rc=$?
 }
 
 no_violations() {
@@ -102,10 +111,22 @@ no_violations() {
   fi
 }
 
-mkdir -p "$TMP/home"
+echo "=== one loose file, no repository ==="
+# The whole point of this script: someone is sent the single file and runs it.
+lacks "refers to no sibling file in the repo" "scripts/" "$(cat "$LOOSE")"
+MODE=libs run_fix "$BIN"
+contains "works from a directory with no repo in it" "half-finished system update" "$out"
+if [[ -s "$REPORT" ]]; then ok "writes the report file"; else no "writes the report file"; fi
+contains "says where the report is" "bar-report.txt" "$out"
+contains "the report has the diagnosis in it" "libfmt.so.11" "$(cat "$REPORT" 2>/dev/null)"
+contains "the report says which machine"     "kernel" "$(cat "$REPORT" 2>/dev/null)"
+lacks    "the report has no colour codes"    $'\033[' "$(cat "$REPORT" 2>/dev/null)"
+MODE=libs run_fix "$BIN" --no-report
+if [[ -e "$REPORT" ]]; then no "--no-report writes nothing"; else ok "--no-report writes nothing"; fi
+check "--no-report keeps the exit status" 1 "$rc"
 
 echo "=== --log-only ==="
-run_doctor "$BIN" --log-only
+run_fix "$BIN" --log-only
 check    "exits 0" 0 "$rc"
 contains "shows today's install" "installed quickshell" "$out"
 contains "shows today's removal" "removed waybar" "$out"
@@ -115,14 +136,14 @@ if [[ -e "$STUB_MARKERS/waybar-ran" ]]; then no "does not run the bar"; else ok 
 no_violations "touches no package manager"
 
 echo "=== bar already running ==="
-PGREP_RC=0 run_doctor "$BIN"
+PGREP_RC=0 run_fix "$BIN"
 check    "exits 0" 0 "$rc"
 contains "says it is already running" "already running" "$out"
 contains "still reports the package history" "removed waybar" "$out"
 if [[ -e "$STUB_MARKERS/waybar-ran" ]]; then no "does not start a second one"; else ok "does not start a second one"; fi
 
 echo "=== bar not installed ==="
-run_doctor "$TMP/bin-empty"
+run_fix "$TMP/bin-empty"
 check    "exits 1" 1 "$rc"
 contains "says it is gone"           "not installed on this machine" "$out"
 contains "quotes the removal line"   "removed waybar (0.15.0-3.1)" "$out"
@@ -135,14 +156,14 @@ echo "=== this desktop's bar was never waybar ==="
 OTHER_LOG="$TMP/pacman-no-waybar.log"
 grep -v waybar "$LOG" > "$OTHER_LOG"
 saved_log="$LOG"; LOG="$OTHER_LOG"
-run_doctor "$TMP/bin-empty"
+run_fix "$TMP/bin-empty"
 check    "exits 2 (cannot tell)" 2 "$rc"
 contains "says the bar is something else" "its bar is" "$out"
 lacks    "does not prescribe waybar"      "sudo pacman -S waybar" "$out"
 LOG="$saved_log"
 
 echo "=== bar is healthy, just was not started ==="
-MODE=up run_doctor "$BIN" --dry-run
+MODE=up run_fix "$BIN" --dry-run
 check    "exits 0" 0 "$rc"
 contains "says the bar itself is fine" "starts and stays up" "$out"
 contains "says it would start it"      "[dry-run] would start your bar" "$out"
@@ -150,7 +171,7 @@ if [[ -e "$STUB_MARKERS/waybar-ran" ]]; then ok "probed the real binary"; else n
 if [[ -e "$STUB_MARKERS/bar-started" ]]; then no "dry-run starts nothing"; else ok "dry-run starts nothing"; fi
 
 echo "=== broken libraries ==="
-MODE=libs run_doctor "$BIN"
+MODE=libs run_fix "$BIN"
 check    "exits 1" 1 "$rc"
 contains "quotes what the bar said"    "libfmt.so.11" "$out"
 contains "names the half-done update"  "half-finished system update" "$out"
@@ -159,26 +180,26 @@ lacks    "does not blame the settings" "settings file" "$out"
 no_violations "fixes nothing itself"
 
 echo "=== rejected settings ==="
-MODE=config run_doctor "$BIN"
+MODE=config run_fix "$BIN"
 check    "exits 1" 1 "$rc"
 contains "quotes the parse error"     "unexpected token at line 4" "$out"
 contains "names the settings file"    "rejects its own settings and exits" "$out"
 lacks    "does not prescribe -Syu"    "pacman -Syu" "$out"
 
 echo "=== unrecognised failure ==="
-MODE=weird run_doctor "$BIN"
+MODE=weird run_fix "$BIN"
 check    "exits 1" 1 "$rc"
 contains "still quotes the message" "nobody has ever seen before" "$out"
 contains "admits it cannot tell"    "cannot tell from that message" "$out"
 
 echo "=== run from outside a desktop session ==="
-NO_WAYLAND=1 run_doctor "$BIN"
+NO_WAYLAND=1 run_fix "$BIN"
 check    "exits 2" 2 "$rc"
 contains "says where to run it" "terminal on your own desktop" "$out"
 if [[ -e "$STUB_MARKERS/waybar-ran" ]]; then no "does not try to start it headless"; else ok "does not try to start it headless"; fi
 
 echo "=== bad option ==="
-run_doctor "$BIN" --nonsense
+run_fix "$BIN" --nonsense
 check    "exits 2" 2 "$rc"
 contains "shows usage" "Usage:" "$out"
 

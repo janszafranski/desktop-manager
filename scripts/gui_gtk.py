@@ -468,12 +468,14 @@ class Card(Gtk.Frame):
 
 
 class ReplicaWindow(Gtk.Window):
-    # Fixed height (px) of the scrollable card-grid viewport — sized to show the
-    # current two rows fully; extra rows scroll rather than growing the window.
-    GRID_VIEWPORT_H = 680
-    # Fixed height (px) of the scrollable Apps-list viewport — sized to show the
-    # current rows; extra apps scroll rather than growing the window.
-    APPS_VIEWPORT_H = 210
+    # Fixed height (px) of the scrollable card-grid viewport. This is the one
+    # scroll area in the window, so it is also where the height the Apps list
+    # needs comes from: the two together are what the window is tall enough for.
+    GRID_VIEWPORT_H = 620
+    # Fixed height (px) of the Apps-list viewport. Kept above the natural
+    # height of the current rows (244px) so the list is never squeezed and
+    # needs no scrollbar of its own — see the note at the widget.
+    APPS_VIEWPORT_H = 270
 
     def __init__(self, image_override, image_full=None):
         super().__init__()
@@ -582,12 +584,13 @@ class ReplicaWindow(Gtk.Window):
         apps_frame = Gtk.Frame(label="Apps")
         apps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         apps_box.set_border_width(10)
-        # Fixed-height scroll area (same idiom as the card grid): the Apps list
-        # scrolls instead of growing the window as more apps are added. The
-        # vertical bar is a permanent visible track with a proportional thumb.
+        # Fixed-height area holding the Apps list. It is tall enough for the
+        # rows as they are, so there is no scrollbar: a second permanent track
+        # beside the card grid's was redundant, and a squeezed one is worse.
+        # Should the list ever outgrow the height, an overlay bar appears while
+        # scrolling rather than a second track sitting there all the time.
         apps_scroll = Gtk.ScrolledWindow()
-        apps_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.ALWAYS)
-        apps_scroll.set_overlay_scrolling(False)
+        apps_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         apps_scroll.set_min_content_height(self.APPS_VIEWPORT_H)
         apps_scroll.set_max_content_height(self.APPS_VIEWPORT_H)
         apps_scroll.set_propagate_natural_height(False)

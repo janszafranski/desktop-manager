@@ -61,7 +61,8 @@ system-replica/
 │   ├── collect.sh    # system  -> repo  (re-run to refresh this snapshot)
 │   ├── install.sh    # repo    -> system (deploy onto a fresh machine)
 │   ├── restore-backup.sh  # undo an install.sh `files` deploy
-│   └── bar-doctor.sh      # "my bar disappeared": diagnose it, put it back
+│   └── fix-my-bar.sh      # "my bar disappeared": diagnose it, put it back
+│                          # (standalone: send the one file, no repo needed)
 ├── packages/
 │   ├── pacman-native.txt         # explicit repo packages
 │   ├── aur.txt                   # AUR / foreign packages
@@ -261,11 +262,11 @@ proves the round trip on a throwaway `$HOME`.
 Two different things cause that, and they have different fixes:
 
 ```bash
-./scripts/bar-doctor.sh         # the bar is missing after installing a package
+./scripts/fix-my-bar.sh         # the bar is missing after installing a package
 ./scripts/restore-backup.sh     # the bar is missing after an `install.sh files` deploy
 ```
 
-`bar-doctor.sh` is for the case that has nothing to do with this repo's deploy:
+`fix-my-bar.sh` is for the case that has nothing to do with this repo's deploy:
 a `yay -S …`/`pacman` install that pulled in newer system libraries and left
 waybar unable to start, so the bar is simply absent at the next login with no
 error message anywhere obvious. It reads the package log, probes the bar,
@@ -273,14 +274,31 @@ classifies the failure (missing libraries vs. rejected settings vs. unknown)
 and starts the bar again when the bar itself is healthy. It never installs,
 removes or upgrades a package, never edits a config and never touches a
 compositor — `sudo` commands are printed, not run. `--dry-run` diagnoses only,
-`--log-only` shows just the recent package changes. It knows waybar and says so
-and stops on a desktop whose bar is something else.
-`scripts/tests/bar-doctor-test.sh` drives every branch against stub binaries
-(42 assertions, no compositor needed).
+`--log-only` shows just the recent package changes, `--no-report` skips the
+report file. It knows waybar and says so and stops on a desktop whose bar is
+something else.
+
+**It is deliberately one self-contained file**, because the people who need it
+are the ones who do not have this repo. Send them the file; they run it with
+`bash ~/Downloads/fix-my-bar.sh` and send back `~/bar-report.txt`, which is a
+plain-text copy of everything it printed. Nothing is cloned, nothing installed.
+`scripts/tests/fix-my-bar-test.sh` drives every branch against stub binaries —
+from a copy of the script alone in a directory with no repo near it, so a
+dependency on a sibling file would fail the suite (51 assertions, no
+compositor needed).
 
 The reason both exist: the desktop-icons app's install page tells a new user to
 install quickshell first, and that package install — not the app — is what can
 take the bar out.
+
+### Checking the GUI's layout
+
+`scripts/tests/gui-layout-test.sh` builds the real `gui_gtk.py` window on a
+private `broadwayd` display — GTK's HTML backend, so no compositor and nothing
+drawn on anyone's screen — and measures the widget allocations: that the window
+has exactly one scrollbar (the card grid's), and that the Apps list is tall
+enough for its rows rather than squeezed behind a second one. It skips itself
+if broadwayd is not installed.
 
 The `files` stage **applies live** when run inside a Plasma session: it stops
 plasmashell before deploying (so a running shell can't overwrite the restored

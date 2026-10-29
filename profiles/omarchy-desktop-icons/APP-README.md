@@ -343,12 +343,17 @@ package install that updates some system libraries without updating the
 programs built against them can leave your bar unable to start. The bar is then
 missing with no error anywhere you would normally look.
 
-There is a script in the Desktop Manager folder that finds out which it is and
-puts the bar back when it can:
+There is a script that finds out which it is and puts the bar back when it can.
+It is one self-contained file — you do not need this app, or Desktop Manager,
+or a copy of any repository to run it. Paste these two lines into a terminal:
 
 ```bash
-./scripts/bar-doctor.sh
+curl -fLo ~/fix-my-bar.sh https://raw.githubusercontent.com/janszafranski/desktop-manager/master/scripts/fix-my-bar.sh
+bash ~/fix-my-bar.sh
 ```
+
+(If someone sent you the file instead, skip the first line and run
+`bash ~/Downloads/fix-my-bar.sh`, or wherever you saved it.)
 
 It reads your package log, tries to start the bar, and tells you in plain words
 what happened. If the bar is fine it just starts it again and you have it back
@@ -357,18 +362,23 @@ usually `sudo pacman -Syu` to finish the half-done update. It never installs,
 removes or upgrades anything itself, and never edits a config file; commands
 that need `sudo` are printed for you to read.
 
-`./scripts/bar-doctor.sh --dry-run` diagnoses without starting anything, and
+It also saves everything it printed to **`bar-report.txt` in your home
+folder** — if it did not fix things, send that file to whoever is helping you
+rather than describing the screen.
+
+`bash ~/fix-my-bar.sh --dry-run` diagnoses without starting anything, and
 `--log-only` just shows what packages changed recently.
 
 Two things it is **not**:
 
 - It is not about Desktop Manager's **Install** buttons. If you pressed
   **Install** on the first card ("KDE Plasma (default)"), that is a separate
-  thing which replaces your Hyprland config — `./scripts/restore-backup.sh`
-  undoes that one. `bar-doctor.sh` will tell you if that is what happened,
-  because it shows you what actually changed.
+  thing which replaces your Hyprland config, and Desktop Manager's own
+  `./scripts/restore-backup.sh` undoes that one. `fix-my-bar.sh` will tell you
+  if that is what happened, because it shows you what actually changed.
 - It only knows **waybar**, Omarchy's bar. On a desktop whose bar is something
-  else it says so and stops rather than guessing.
+  else it says so and stops rather than guessing — the report lists the bars it
+  did find.
 
 ## Known limitations
 
