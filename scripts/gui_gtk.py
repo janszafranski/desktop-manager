@@ -468,24 +468,30 @@ class Card(Gtk.Frame):
 
 
 class ReplicaWindow(Gtk.Window):
-    # Fixed height (px) of the scrollable card-grid viewport. This is the one
-    # scroll area in the window, so it is also where the height the Apps list
-    # needs comes from: the two together are what the window is tall enough for.
-    GRID_VIEWPORT_H = 620
+    # Floor (px) for the scrollable card-grid viewport. The grid is no longer a
+    # fixed height: it takes every pixel the window has spare, so resizing or
+    # maximizing reveals more cards instead of leaving dead space under the Apps
+    # box. This is only how far it may be *shrunk*, i.e. the window's minimum.
+    GRID_MIN_H = 300
     # Fixed height (px) of the Apps-list viewport. Kept above the natural
     # height of the current rows (244px) so the list is never squeezed and
     # needs no scrollbar of its own — see the note at the widget.
     APPS_VIEWPORT_H = 270
+    # Fraction of the monitor work area the window may occupy when it first
+    # opens. The preferred opening height is "tall enough for every card row",
+    # which on a short screen is taller than the screen itself.
+    SCREEN_FRACTION = 0.9
 
     def __init__(self, image_override, image_full=None):
         super().__init__()
         self.result = None
 
-        # Float (don't tile) on tiling WMs like Krohnkite, pop up centered at a
-        # fixed size, but stay resizable / maximizable from the title bar.
+        # Float (don't tile) on tiling WMs like Krohnkite, pop up centered, but
+        # stay resizable / maximizable from the title bar. The opening size is
+        # set by _fit_default_size() at the end of __init__, once there is a
+        # widget tree to measure.
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.set_resizable(True)
-        self.set_default_size(500, 540)
         self.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
         self.set_border_width(0)
 
@@ -560,25 +566,27 @@ class ReplicaWindow(Gtk.Window):
             card.radio.set_active(i == 0)
             grid.attach(card, i % COLUMNS, i // COLUMNS, 1, 1)
             self.cards.append(card)
-        # Put the card grid in a fixed-height scroll area so the window keeps its
-        # size as more thumbnail rows are added: extra rows scroll instead of
-        # growing the window. The vertical scrollbar is always shown as a track
-        # (line) with a proportional thumb — full now (all rows fit), shrinking
-        # with every extra row added.
+        # Put the card grid in a scroll area, because more thumbnail rows than
+        # fit on the screen will always be possible. The vertical scrollbar is
+        # always shown as a track (line) with a proportional thumb, so the fact
+        # that there is more grid than viewport is never invisible.
         grid_scroll = Gtk.ScrolledWindow()
         grid_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.ALWAYS)
         # Disable overlay scrolling so the bar is a permanent visible track with
-        # a proportional thumb (full now, shrinking as rows are added), rather
-        # than an overlay that hides until hovered.
+        # a proportional thumb, rather than an overlay that hides until hovered.
         grid_scroll.set_overlay_scrolling(False)
         grid_scroll.add(grid)
-        # Fixed viewport sized to the current two rows so the scrollbar track
-        # ends at the base of the cards (no overhang). Extra rows added later
-        # exceed this and scroll, keeping the window size.
-        grid_scroll.set_min_content_height(self.GRID_VIEWPORT_H)
-        grid_scroll.set_max_content_height(self.GRID_VIEWPORT_H)
-        grid_scroll.set_propagate_natural_height(False)
-        outer.pack_start(grid_scroll, False, False, 0)
+        # The viewport is elastic, not fixed. GRID_MIN_H is only the floor it can
+        # be shrunk to; `propagate_natural_height` makes "every card row fits"
+        # the natural height, which is what the window opens at (clamped to the
+        # screen below); and the expand/fill packing hands it every spare pixel
+        # when the user resizes. A fixed height here meant the grid was allocated
+        # the same few hundred px whatever the window size, so row 2 was cut off
+        # at *every* size and growing the window only added dead space under the
+        # Apps box.
+        grid_scroll.set_min_content_height(self.GRID_MIN_H)
+        grid_scroll.set_propagate_natural_height(True)
+        outer.pack_start(grid_scroll, True, True, 0)
 
         # --- Apps: launchers for this desktop's bundled tools -----------------
         apps_frame = Gtk.Frame(label="Apps")
@@ -664,7 +672,45 @@ class ReplicaWindow(Gtk.Window):
         apps_frame.set_margin_top(3)
         outer.pack_start(apps_frame, False, False, 0)
 
+        self._fit_default_size(outer)
+
         self.connect("destroy", Gtk.main_quit)
+
+    def _work_area_height(self):
+        """Usable height (px) of the monitor this window will open on, or 0."""
+        try:
+            display = Gdk.Display.get_default()
+            monitor = (display.get_primary_monitor()
+                       or display.get_monitor(0))
+            return monitor.get_workarea().height
+        except Exception:
+            return 0
+
+    def _fit_default_size(self, content):
+        """Open tall enough to show every card row, but never taller than the
+        screen.
+
+        Now that the grid propagates its natural height, the window's own
+        natural height is "all cards visible" — which on a short screen is
+        taller than the screen, and GTK will happily place the Install buttons
+        below the bottom edge. So clamp the opening height to a fraction of the
+        monitor work area; the grid scrolls for whatever is left over, and
+        resizing or maximizing hands it back. Width is left at GTK's natural
+        value (-1), which the three columns already determine.
+
+        `content` is shown first because GTK3 leaves not-yet-visible children
+        out of a preferred-size request, and without that the measurement below
+        collapses to the bare minimum. Nothing in this window is ever
+        deliberately hidden, and the caller's show_all() follows anyway, so this
+        only brings that forward — the toplevel itself stays unmapped until the
+        caller shows it.
+        """
+        content.show_all()
+        want_h = self.get_preferred_height()[1]
+        work_h = self._work_area_height()
+        if work_h:
+            want_h = min(want_h, int(work_h * self.SCREEN_FRACTION))
+        self.set_default_size(-1, want_h)
 
     def _apply_visual(self, dark):
         # Adwaita is a real, always-present base whose dark variant is toggled
