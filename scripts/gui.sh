@@ -53,11 +53,13 @@ elif command -v zenity  >/dev/null 2>&1; then DLG=zenity
 else echo "Need python-gobject, yad, kdialog or zenity for the GUI." >&2; exit 1; fi
 
 # Set by the chooser below.
-#   MODE   = "stages" (run install.sh stages) or "profile" (run a profile script)
+#   MODE   = "stages" (run install.sh stages), "profile" (run a profile script)
+#            or "restore" (undo a files deploy via restore-backup.sh)
 #   STAGES = space-separated stage list (MODE=stages)
 #   CMD    = absolute path of an apply/revert script (MODE=profile)
+#   BACKUP = ~/.config-backup-* directory to restore from (MODE=restore)
 #   DRY    = "--dry-run" or ""
-MODE="stages"; STAGES=""; CMD=""; DRY=""
+MODE="stages"; STAGES=""; CMD=""; BACKUP=""; DRY=""
 
 choose_gtk() {
   local img full out; img="$(prepare_preview)"; full="$(prepare_preview_large)"
@@ -65,11 +67,14 @@ choose_gtk() {
   [[ -n "$img" ]]  && a+=(--image "$img")
   [[ -n "$full" ]] && a+=(--image-full "$full")
   out="$("${a[@]}")" || return 1     # cancel/close -> non-zero
-  MODE="$(sed -n 1p <<<"$out")"      # "stages" | "profile"
+  MODE="$(sed -n 1p <<<"$out")"      # "stages" | "profile" | "restore"
   local payload; payload="$(sed -n 2p <<<"$out")"
   DRY="$(sed -n 3p <<<"$out")"
-  if [[ $MODE == profile ]]; then CMD="$payload"; [[ -n $CMD ]]
-  else STAGES="$payload"; [[ -n $STAGES ]]; fi
+  case $MODE in
+    profile) CMD="$payload";    [[ -n $CMD ]] ;;
+    restore) BACKUP="$payload"; [[ -n $BACKUP ]] ;;
+    *)       STAGES="$payload"; [[ -n $STAGES ]] ;;
+  esac
 }
 
 choose_yad() {
@@ -158,6 +163,11 @@ if [[ $MODE == profile ]]; then
   else
     inner+=" echo '==== running: $CMD ===='; bash $(printf '%q' "$CMD") || rc=1;"
   fi
+elif [[ $MODE == restore ]]; then
+  # undo a files deploy. restore-backup.sh takes --dry-run itself, so the
+  # preview here is the real listing rather than an "I would have run..." line.
+  inner+=" echo '==== restoring your own settings ${DRY} ====';"
+  inner+=" bash ./restore-backup.sh ${DRY} $(printf '%q' "$BACKUP") || rc=1;"
 else
   for s in $STAGES; do
     inner+=" echo; echo '==== stage: $s ${DRY} ===='; bash ./install.sh $s $DRY || rc=1;"

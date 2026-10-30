@@ -9,11 +9,13 @@ as additional cells — see CONFIGS below.
 
 On "Install" it prints the chosen stages and dry-run flag to stdout and exits 0;
 the calling script (gui.sh) launches the actual work in a terminal. Cancel/close
-exits non-zero.
+exits non-zero. "Restore my own settings" prints a "restore" request instead,
+which gui.sh runs through scripts/restore-backup.sh.
 
 Usage: gui_gtk.py [--image PATH]   # PATH = preview thumbnail for the first card
 """
 import argparse
+import glob
 import os
 import subprocess
 import sys
@@ -271,6 +273,116 @@ APPS = [
 COLUMNS = 3  # cards per row in the grid
 
 
+# --- what the "files" stage would replace ------------------------------------
+# The paths are read out of scripts/manifest.sh at runtime rather than listed
+# again here: install.sh deploys exactly that manifest, so a second copy in this
+# file would drift from it the first time someone edited one and not the other.
+# (array name, display root, subdirectory under files/) — one per deploy_into()
+# loop in install.sh's install_files(), in the same order.
+MANIFEST_ROOTS = [
+    ("HOME_ITEMS",       "~",              "home"),
+    ("CONFIG_ITEMS",     "~/.config",      "config"),
+    ("LOCALSHARE_ITEMS", "~/.local/share", "local-share"),
+    ("ICONS_ITEMS",      "~/.icons",       "icons"),
+    ("BIN_ITEMS",        "~/bin",          "bin"),
+    ("PICTURES_ITEMS",   "~",              "pictures"),
+]
+
+
+def manifest_items():
+    """[(array_name, relative_path)] for every entry in scripts/manifest.sh.
+
+    Sourced with bash rather than parsed, so the list is produced by the same
+    shell install.sh reads it with. Returns [] if it cannot be read — callers
+    treat that as "no list to show", never as "nothing would be replaced"."""
+    prog = 'source "$1" || exit 1\n' + "".join(
+        'for i in "${%s[@]}"; do printf "%s\\t%%s\\n" "$i"; done\n' % (arr, arr)
+        for arr, _, _ in MANIFEST_ROOTS)
+    try:
+        proc = subprocess.run(
+            ["bash", "-c", prog, "bash", _p("scripts", "manifest.sh")],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, timeout=10)
+    except Exception:
+        return []
+    if proc.returncode != 0:
+        return []
+    items = []
+    for line in proc.stdout.splitlines():
+        arr, _, rel = line.partition("\t")
+        if rel:
+            items.append((arr, rel))
+    return items
+
+
+def files_stage_targets():
+    """(replaced, added) — the paths `install.sh files` would write on this box.
+
+    `replaced` already exist here: the destructive half, and the only ones the
+    backup is for. `added` are new files, which cost you nothing.
+
+    Mirrors deploy_into()'s first guard — an item this repo does not actually
+    ship is skipped by the deploy, so it is not claimed as at risk either."""
+    repo_files = _p("files")
+    ships_pictures = os.path.isdir(os.path.join(repo_files, "pictures"))
+    roots = {arr: (disp, sub) for arr, disp, sub in MANIFEST_ROOTS}
+    replaced, added = [], []
+    for arr, rel in manifest_items():
+        disp, sub = roots[arr]
+        # install.sh only walks PICTURES_ITEMS when files/pictures was bundled.
+        if sub == "pictures" and not ships_pictures:
+            continue
+        if not os.path.exists(os.path.join(repo_files, sub, rel)):
+            continue
+        dest = os.path.join(os.path.expanduser(disp), rel)
+        (replaced if os.path.lexists(dest) else added).append(disp + "/" + rel)
+    return replaced, added
+
+
+def _running(name):
+    """True if a process named exactly `name` is running."""
+    try:
+        return subprocess.run(["pgrep", "-x", name],
+                              stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL,
+                              timeout=5).returncode == 0
+    except Exception:
+        return False
+
+
+def foreign_desktop_signals():
+    """Reasons to think this is not the machine the snapshot was captured on.
+
+    install_files() already reads "live session + plasmashell running" as "this
+    is the KDE desktop the snapshot describes", and takes the live-apply path.
+    The inverse of that probe is the thing worth saying out loud: a live
+    Hyprland session with no plasmashell, or Omarchy's own config tree, means
+    the deploy is about to replace a desktop it did not come from."""
+    signals = []
+    in_hyprland = bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")) or (
+        bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
+        and _running("Hyprland"))
+    if in_hyprland and not _running("plasmashell"):
+        signals.append(
+            "You are in a live Hyprland session, not KDE Plasma. This card is a "
+            "KDE Plasma snapshot, and the files it replaces include the Hyprland "
+            "config your current session is running on.")
+    if os.path.isdir(os.path.expanduser("~/.config/omarchy")):
+        signals.append(
+            "~/.config/omarchy is present, so this looks like an Omarchy "
+            "desktop. Omarchy's bar and keybindings come from the Hyprland and "
+            "shell files below, and would be replaced by this repo's versions.")
+    return signals
+
+
+def backup_dirs():
+    """~/.config-backup-* directories, oldest first.
+
+    Name order is chronological: install.sh stamps them -<date>-<time>."""
+    return sorted(d for d in glob.glob(os.path.expanduser("~/.config-backup-*"))
+                  if os.path.isdir(d))
+
+
 def show_enlarged(parent, path):
     """Open a modal window showing `path` at a larger size, with an X to close.
     Also closes on Escape or a click on the image."""
@@ -314,6 +426,135 @@ def show_enlarged(parent, path):
     win.connect("key-press-event",
                 lambda _w, e: win.destroy() if e.keyval == Gdk.KEY_Escape else None)
     win.show_all()
+
+
+def needs_files_confirmation(replaced, added, signals):
+    """Whether to put the confirmation in front of the `files` stage.
+
+    Skipped only when there is demonstrably nothing of the user's to lose: this
+    machine has none of the manifest's paths yet and looks like the desktop the
+    snapshot came from — i.e. the fresh install the card is written for. An
+    empty `added` as well means the manifest could not be read, so what the
+    deploy would touch is unknown and the confirmation stays."""
+    return bool(replaced) or bool(signals) or not added
+
+
+def _tilde(path):
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path.startswith(home + "/") else path
+
+
+class ConfirmReplaceDialog(Gtk.Dialog):
+    """The guard in front of `install.sh files`.
+
+    The card's description says what the stage does, but a description sits in
+    the same grey body text as every other card and the person most at risk is
+    the one least likely to read it (JAN-55). This says it at the moment of the
+    click, names the files by path, and defaults to Cancel.
+
+    Only the `files` stage gets this. `packages`, `services` and the SDDM theme
+    do not take a desktop down, so a dialog in front of them would just be
+    noise that teaches people to click through."""
+
+    LIST_H = 190       # px of visible path list before it scrolls
+    ROW_H = 17         # px per path row, at the <small> monospace it is drawn in
+
+    def __init__(self, parent, replaced, added, signals):
+        super().__init__(title="Replace your desktop config?",
+                         transient_for=parent, modal=True)
+        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        go = self.add_button("Replace my config", Gtk.ResponseType.ACCEPT)
+        go.get_style_context().add_class("destructive-action")
+        # Cancel is the default action, so Enter *and* Escape both back out: a
+        # keypress aimed at the window behind this cannot turn into a deploy.
+        self.set_default_response(Gtk.ResponseType.CANCEL)
+
+        body = self.get_content_area()
+        body.set_spacing(8)
+        body.set_border_width(12)
+
+        head = Gtk.Label()
+        if replaced:
+            head.set_markup(
+                "<b>%d of your own files and folders will be replaced with this "
+                "repo's versions.</b>" % len(replaced))
+        else:
+            head.set_markup(
+                "<b>This deploys another machine's desktop config into your "
+                "home directory.</b>")
+        head.set_line_wrap(True)
+        head.set_xalign(0.0)
+        head.set_max_width_chars(62)
+        body.pack_start(head, False, False, 0)
+
+        # Why this might be the wrong machine — the loudest thing in the dialog,
+        # because it is the part that turns a routine deploy into Miya's bug.
+        for sig in signals:
+            warn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            icon = Gtk.Image.new_from_icon_name("dialog-warning",
+                                                Gtk.IconSize.LARGE_TOOLBAR)
+            icon.set_valign(Gtk.Align.START)
+            warn_row.pack_start(icon, False, False, 0)
+            lbl = Gtk.Label()
+            lbl.set_markup("<b>%s</b>" % GLib.markup_escape_text(sig))
+            lbl.set_line_wrap(True)
+            lbl.set_xalign(0.0)
+            lbl.set_max_width_chars(58)
+            warn_row.pack_start(lbl, True, True, 0)
+            body.pack_start(warn_row, False, False, 0)
+
+        if replaced:
+            caption = Gtk.Label()
+            caption.set_markup("<small>Replaced (copied to %s first):</small>"
+                               % GLib.markup_escape_text(
+                                   "~/.config-backup-<date>"))
+            caption.set_xalign(0.0)
+            body.pack_start(caption, False, False, 0)
+
+            paths = Gtk.Label()
+            paths.set_markup("<tt><small>%s</small></tt>"
+                             % GLib.markup_escape_text("\n".join(replaced)))
+            paths.set_xalign(0.0)
+            paths.set_valign(Gtk.Align.START)
+            paths.set_selectable(True)      # so they can be copied out
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            # As tall as the list, up to LIST_H and scrolling past that: no dead
+            # space under a short list, no row half-cut at the bottom edge.
+            # Sized by row count rather than by measuring the label — an
+            # unrealised label reports its minimum, not the height of its text.
+            list_h = max(44, min(self.LIST_H, self.ROW_H * len(replaced) + 8))
+            scroll.set_min_content_height(list_h)
+            scroll.set_max_content_height(list_h)
+            scroll.set_propagate_natural_height(False)
+            scroll.set_shadow_type(Gtk.ShadowType.IN)
+            scroll.add(paths)
+            body.pack_start(scroll, True, True, 0)
+
+        foot = Gtk.Label()
+        if added:
+            foot_text = ("%d more %s this machine does not have yet %s added. "
+                         % (len(added),
+                            "file" if len(added) == 1 else "files",
+                            "is" if len(added) == 1 else "are"))
+        elif replaced:
+            foot_text = ""
+        else:
+            foot_text = ("The file list could not be read from "
+                         "scripts/manifest.sh, so what this would touch is not "
+                         "known here — run Dry run first. ")
+        foot.set_markup(
+            "<small>%sUse <b>Dry run</b> to see the whole change without making "
+            "it. Afterwards, <b>Restore my own settings</b> puts your files back "
+            "from the backup.</small>"
+            % GLib.markup_escape_text(foot_text))
+        foot.set_line_wrap(True)
+        foot.set_xalign(0.0)
+        foot.set_max_width_chars(62)
+        body.pack_start(foot, False, False, 0)
+
+        self.show_all()
 
 
 class Card(Gtk.Frame):
@@ -644,6 +885,24 @@ class ReplicaWindow(Gtk.Window):
         actions.set_margin_end(11)
         self.dry = Gtk.CheckButton(label="Dry run (preview only, no changes)")
 
+        # The undo, offered where the thing that needs undoing was pressed.
+        # Enabled only when there is a backup to restore from, so it can never
+        # look like a general "reset my desktop" button.
+        self.restore = Gtk.Button(label="Restore my own settings")
+        self._backups = backup_dirs()
+        if self._backups:
+            self.restore.set_tooltip_text(
+                "Put your own shell, Hyprland and KDE config files back from "
+                + _tilde(self._backups[-1])
+                + ", the backup taken when they were replaced.")
+        else:
+            self.restore.set_sensitive(False)
+            self.restore.set_tooltip_text(
+                "Nothing to restore: there is no ~/.config-backup-* directory, "
+                "so this repo's config files have never been deployed here.")
+        self.restore.connect("clicked", self.on_restore)
+        actions.pack_start(self.restore, False, False, 0)
+
         cancel = Gtk.Button(label="Cancel")
         cancel.connect("clicked", lambda *_: self.close())
         install = Gtk.Button(label="Install")
@@ -653,7 +912,7 @@ class ReplicaWindow(Gtk.Window):
         actions.pack_end(install, False, False, 0)
         actions.pack_end(cancel, False, False, 0)
         actions.pack_end(self.dry, False, False, 0)
-        for _w in (self.dry, cancel, install):
+        for _w in (self.dry, cancel, install, self.restore):
             _w.set_valign(Gtk.Align.CENTER)
         # Vertically centre the action row in the gap between the card grid and
         # the Apps frame: equal space above and below (was 4px above / 10px
@@ -766,6 +1025,20 @@ class ReplicaWindow(Gtk.Window):
         dlg.run()
         dlg.destroy()
 
+    def confirm_files_stage(self):
+        """Ask before `install.sh files` overwrites this user's own config.
+
+        True = go ahead. Returns True without asking on a machine with nothing
+        of the manifest's paths to lose — see needs_files_confirmation()."""
+        replaced, added = files_stage_targets()
+        signals = foreign_desktop_signals()
+        if not needs_files_confirmation(replaced, added, signals):
+            return True
+        dlg = ConfirmReplaceDialog(self, replaced, added, signals)
+        resp = dlg.run()
+        dlg.destroy()
+        return resp == Gtk.ResponseType.ACCEPT
+
     def on_install(self, *_):
         card = self.active_card()
         dry = "--dry-run" if self.dry.get_active() else ""
@@ -778,7 +1051,36 @@ class ReplicaWindow(Gtk.Window):
             if not stages:
                 self._warn("Select at least one thing to install.")
                 return
+            # Only the files stage replaces the user's own config, and a dry run
+            # replaces nothing at all — so that is the one combination guarded.
+            if "files" in stages and not dry and not self.confirm_files_stage():
+                return
             self.result = ("stages", " ".join(stages), dry)
+        self.close()
+
+    def on_restore(self, *_):
+        """Run scripts/restore-backup.sh against the newest backup."""
+        if not self._backups:
+            return
+        backup = self._backups[-1]
+        dry = "--dry-run" if self.dry.get_active() else ""
+        if not dry:
+            dlg = Gtk.MessageDialog(
+                transient_for=self, modal=True,
+                message_type=Gtk.MessageType.QUESTION,
+                text="Restore your own settings from %s?" % _tilde(backup))
+            dlg.format_secondary_text(
+                "Your files as they were before this repo's config was deployed "
+                "are put back, and the files the deploy added where you had none "
+                "are removed. Log out and back in afterwards.")
+            dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            dlg.add_button("Restore", Gtk.ResponseType.ACCEPT)
+            dlg.set_default_response(Gtk.ResponseType.CANCEL)
+            resp = dlg.run()
+            dlg.destroy()
+            if resp != Gtk.ResponseType.ACCEPT:
+                return
+        self.result = ("restore", backup, dry)
         self.close()
 
 
@@ -801,7 +1103,7 @@ def main():
 
     if not win.result:
         sys.exit(1)
-    # 3 lines: mode ("stages"|"profile"), payload, dry-flag
+    # 3 lines: mode ("stages"|"profile"|"restore"), payload, dry-flag
     mode, payload, dry = win.result
     print(mode)
     print(payload)
