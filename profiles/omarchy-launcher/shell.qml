@@ -21,7 +21,7 @@
 // Toggle over IPC:   qs -c omarchy-launcher ipc call launcher toggle
 // Wrapper (starts the daemon on first use):   omarchy-launcher
 //
-// Categories are user data, not code: ~/.config/omarchy-launcher/categories.json
+// Categories are user data, not code: $XDG_CONFIG_HOME/omarchy-launcher/categories.json
 // The file is watched, so edits appear on the next open — no restart needed.
 
 import QtQuick
@@ -32,6 +32,17 @@ import Quickshell.Widgets
 
 ShellRoot {
     id: root
+
+    // ----------------------------------------------------------------- config
+    // The session's config root, not a hardcoded ~/.config. Jan's Hyprland
+    // session runs with XDG_CONFIG_HOME=/home/jan/.config-ii, so the two are
+    // different directories — and the wrapper, which resolves
+    // ${XDG_CONFIG_HOME:-$HOME/.config}, was already using the first while
+    // this file used the second. `omarchy-launcher edit` therefore edited a
+    // categories.json the panel never read, and App List Config saved into a
+    // file the launcher ignored (JAN-82). One resolution, shared by both.
+    readonly property string configDir: (Quickshell.env("XDG_CONFIG_HOME")
+        || Quickshell.env("HOME") + "/.config") + "/omarchy-launcher"
 
     // ------------------------------------------------------------------ state
     property bool shown: false
@@ -168,7 +179,7 @@ ShellRoot {
     // change in the popup repaints the launcher behind it without a restart.
     FileView {
         id: apprFile
-        path: Quickshell.env("HOME") + "/.config/omarchy-launcher/appearance.json"
+        path: root.configDir + "/appearance.json"
         printErrors: false
         watchChanges: true
         onFileChanged: reload()
@@ -189,11 +200,11 @@ ShellRoot {
     // ------------------------------------------------------------- categories
     FileView {
         id: catsFile
-        path: Quickshell.env("HOME") + "/.config/omarchy-launcher/categories.json"
+        path: root.configDir + "/categories.json"
         watchChanges: true
         onFileChanged: reload()
         onLoadFailed: {
-            root.configError = "Could not read ~/.config/omarchy-launcher/categories.json";
+            root.configError = "Could not read " + root.configDir + "/categories.json";
             root.cats = [];
         }
         onLoaded: {
@@ -1157,7 +1168,7 @@ ShellRoot {
 
             dirty = false;
             configNoteBad = false;
-            configNote = "Saved to ~/.config/omarchy-launcher/";
+            configNote = "Saved to " + root.configDir + "/";
         } catch (e) {
             configNoteBad = true;
             configNote = "Could not save: " + e;
@@ -2185,7 +2196,7 @@ ShellRoot {
                             if (root.configNote)
                                 return root.configNote;
                             if (root.dirty)
-                                return "Unsaved changes — Save writes ~/.config/omarchy-launcher/categories.json and appearance.json";
+                                return "Unsaved changes — Save writes " + root.configDir + "/categories.json and appearance.json";
                             return "Changes are previewed live; nothing is written until you save.";
                         }
                     }
@@ -3173,7 +3184,7 @@ ShellRoot {
                             Text {
                                 width: parent.width
                                 wrapMode: Text.WordWrap
-                                text: "Saved to ~/.config/omarchy-launcher/appearance.json. Delete that file and the launcher falls back to these defaults."
+                                text: "Saved to " + root.configDir + "/appearance.json. Delete that file and the launcher falls back to these defaults."
                                 font.family: root.uiFont
                                 font.pixelSize: 12
                                 color: root.colSubtle

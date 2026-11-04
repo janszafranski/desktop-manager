@@ -219,9 +219,11 @@ APPS = [
     {
         "name": "Keyboard shortcuts",
         "desc": "On-screen cheat-sheet of every keybinding (Quickshell widget). "
-                "Opens with Super+/ (or the top-left hot corner).",
+                "Opens with Super+/ (or the top-left hot corner) — unless your "
+                "desktop already uses that key, in which case the install says "
+                "so instead of binding it twice.",
         "install": _p("profiles", "keybinds", "install.sh"),
-        "launch": "bash $HOME/.config/hypr/scripts/keybinds-toggle.sh",
+        "launch": "bash $HOME/.local/bin/keybinds-toggle.sh",
         "button": "Show",
         "group": "utilities",
     },
@@ -237,8 +239,9 @@ APPS = [
         "name": "App launcher",
         "desc": "Omarchy-style categorised app launcher (Quickshell) — a centred "
                 "portrait popup opening on Favourites, with folders you walk in and "
-                "out of. Toggle with Super+Space (Caelestia's own launcher moves to "
-                "Super+Shift+Space). Edit categories, favourites and appearance from "
+                "out of. Toggle with Super+Space — unless your desktop already uses "
+                "that key, in which case the install says so instead of binding it "
+                "twice. Edit categories, favourites and appearance from "
                 "the in-launcher App List Config window (no JSON editing). Built by "
                 "Coding Colin.",
         "install": _p("profiles", "omarchy-launcher", "install.sh"),

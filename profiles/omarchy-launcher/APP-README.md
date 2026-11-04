@@ -81,13 +81,13 @@ It has two halves:
   keep matching the desktop through a wallpaper recolour.
 
 An **Unsaved changes** banner tracks a working draft; **Save** writes both
-`~/.config/omarchy-launcher/categories.json` **and** `~/.config/omarchy-launcher/appearance.json`.
+`$XDG_CONFIG_HOME/omarchy-launcher/categories.json` **and** `$XDG_CONFIG_HOME/omarchy-launcher/appearance.json`.
 `appearance.json` is a new file the popup owns — delete it and the launcher falls back to the
 built-in defaults. Both files are watched, so a save applies on the next open, no restart.
 
 ## Categories
 
-Everything about the categories lives in `~/.config/omarchy-launcher/categories.json`
+Everything about the categories lives in `$XDG_CONFIG_HOME/omarchy-launcher/categories.json`
 (`omarchy-launcher edit` opens it, or edit it from the App List Config window above). The file
 is watched — save it and the next open picks the change up, no restart.
 
@@ -142,7 +142,7 @@ environment is deliberately left alone.
 
 ## How it's wired up
 
-- **UI**: `~/.config/quickshell/omarchy-launcher/shell.qml` — its own Quickshell instance.
+- **UI**: `$XDG_CONFIG_HOME/quickshell/omarchy-launcher/shell.qml` — its own Quickshell instance.
 - **Control**: `~/.local/bin/omarchy-launcher` — `toggle` (default), `open`, `close`,
   `config` (open the App List Config window), `category <id>` (open straight into one folder),
   `type TEXT` (open with the search seeded — the desktop type-to-open binds), `restart` (after

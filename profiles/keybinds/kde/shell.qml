@@ -14,6 +14,11 @@ ShellRoot {
     id: root
 
     readonly property string home: Quickshell.env("HOME")
+    // The session's config root, not a hardcoded ~/.config: this widget is
+    // installed under $XDG_CONFIG_HOME, so its own helper is there too, and
+    // the two must resolve the same way or the list comes back empty (JAN-82).
+    readonly property string configHome:
+        Quickshell.env("XDG_CONFIG_HOME") || (root.home + "/.config")
 
     // ---------- theme (reuse Caelestia's scheme.json when available) ----------
     property var colours: ({})
@@ -94,7 +99,7 @@ ShellRoot {
     Process {
         id: listProc
         running: true
-        command: [root.home + "/.config/quickshell/kde-keybinds/list-shortcuts.sh"]
+        command: [root.configHome + "/quickshell/kde-keybinds/list-shortcuts.sh"]
         stdout: StdioCollector {
             onStreamFinished: {
                 const out = [];

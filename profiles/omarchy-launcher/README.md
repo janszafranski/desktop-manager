@@ -15,9 +15,19 @@ Built by **Coding Colin** (Paperclip agent) for this desktop.
 Desktop Manager → Apps → **App launcher → Install**, or `./install.sh`.
 Requires **quickshell**. Deploys the launcher (`qs -c omarchy-launcher`), the
 `omarchy-launcher` wrapper, and `categories.json`, then adds the **Super+Space**
-binding + login autostart to `~/.config/hypr/hyprland.lua` (marker-guarded,
-idempotent). Caelestia's own launcher is moved to **Super+Shift+Space** so
-nothing is lost. An existing `categories.json` is never overwritten.
+binding + login autostart to your Hyprland config (marker-guarded, idempotent).
+An existing `categories.json` is never overwritten.
+
+Everything goes under the **session's** `$XDG_CONFIG_HOME`, resolved from the
+running compositor rather than from the shell that runs the installer — see
+`../../scripts/xdg-session-paths.sh`. `./install.sh --where` prints the
+destinations and where each one came from; `./install.sh --check` says whether
+the install matches this source *and* is somewhere your session will find it.
+
+If **Super+Space** is already bound by your config, the installer says so and
+adds no bind rather than giving you two launchers on one keypress. Bind a free
+key yourself (e.g. in `custom/keybinds.lua` on end-4 / ii layouts), or replace
+the existing bind.
 
 `./uninstall.sh` reverses the wiring and removes the files (your
 `categories.json` is kept).
@@ -56,13 +66,13 @@ or `omarchy-launcher config`. It lets you:
   plus a strength/opacity slider. Every source but Custom is read live from
   Caelestia's scheme, so a wallpaper recolour still drives the theme.
 
-**Save** writes `~/.config/omarchy-launcher/categories.json` **and**
+**Save** writes `$XDG_CONFIG_HOME/omarchy-launcher/categories.json` **and**
 `appearance.json` (a new file — delete it to fall back to defaults). Both are
 watched, so changes apply on the next open, no restart.
 
 ## Categories
 
-Everything lives in `~/.config/omarchy-launcher/categories.json`
+Everything lives in `$XDG_CONFIG_HOME/omarchy-launcher/categories.json`
 (`omarchy-launcher edit` opens it, or use the App List Config window above). The
 file is watched — save it and the next open picks the change up, no restart. See
 **[APP-README.md](APP-README.md)** for the full category schema, XDG
@@ -79,6 +89,15 @@ apps by desktop id, and an `exclude` in any auto-filled category that would
 otherwise pull them back in.
 
 ## Files
+
+Destinations are the session's, not a hardcoded `~/.config` — run
+`./install.sh --where` to see where they resolve on your machine.
+
 - `omarchy-launcher` → `~/.local/bin/` — the wrapper you bind to a key (toggle / open / close / restart / edit / daemon)
-- `shell.qml` → `~/.config/quickshell/omarchy-launcher/` — the Quickshell UI
-- `categories.json` → `~/.config/omarchy-launcher/` — category + favourites definitions
+- `shell.qml` → `$XDG_CONFIG_HOME/quickshell/omarchy-launcher/` — the Quickshell UI
+- `categories.json` → `$XDG_CONFIG_HOME/omarchy-launcher/` — category + favourites definitions
+
+The wrapper and `shell.qml` resolve that config root the *same* way
+(`$XDG_CONFIG_HOME`, else `$HOME/.config`). They once disagreed, which meant
+`omarchy-launcher edit` opened a different file from the one the panel read —
+`./install.sh --check` now fails if they ever drift apart again.

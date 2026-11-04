@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Emit "<combo>\t<action>" for every ACTIVE KDE global shortcut, sorted by key combo.
-# Parses ~/.config/kglobalshortcutsrc: component action lines
+# Parses $XDG_CONFIG_HOME/kglobalshortcutsrc: component action lines
 # (Action=shortcut,default,friendly) and [services][*.desktop] _launch= entries.
 # Reads a plain file, so it works from any session.
 set -uo pipefail
-CONF="${1:-$HOME/.config/kglobalshortcutsrc}"
+# Plasma writes kglobalshortcutsrc under the session's config root, which is not
+# always ~/.config — see desktop-manager/scripts/xdg-session-paths.sh (JAN-82).
+CONF="${1:-${XDG_CONFIG_HOME:-$HOME/.config}/kglobalshortcutsrc}"
 
 awk '
   function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
