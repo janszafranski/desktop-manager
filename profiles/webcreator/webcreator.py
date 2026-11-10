@@ -38,7 +38,7 @@ VERSION = "1.3"
 # app has a repository to itself, a subdirectory if it ships inside a bigger
 # one. All three are overridable in the app (Help ▸ Update Settings…).
 UPDATE_REPO = "janszafranski/desktop-manager"
-UPDATE_BRANCH = "main"
+UPDATE_BRANCH = "master"   # that repository's default branch
 UPDATE_PATH = "profiles/webcreator/webcreator.py"
 
 # ----------------------------------------------------------------------------
@@ -4052,7 +4052,7 @@ class MainWindow(QMainWindow):
                           QLabel('Updates are read from that file in that repository, which must be public.\n'
                                  f'Now: {self.update_url()}'))
         if not dlg.exec(): return
-        self.settings.setValue('updateRepo', repo.text().strip()); self.settings.setValue('updateBranch', branch.text().strip() or 'main')
+        self.settings.setValue('updateRepo', repo.text().strip()); self.settings.setValue('updateBranch', branch.text().strip() or UPDATE_BRANCH)
         self.settings.setValue('updatePath', path.text().strip() or UPDATE_PATH)
         self.settings.setValue('autoUpdate', auto.isChecked())
         if repo.text().strip(): self.check_updates(quiet=False)

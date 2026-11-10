@@ -72,7 +72,8 @@ dialog shows the exact URL it will use. If the copy there has a higher
 toolbar; installing keeps the old version as `webcreator.py.bak` and offers to
 restart.
 
-To release one: raise `VERSION` in `webcreator.py`, commit, push to `main`.
+To release one: raise `VERSION` in `webcreator.py`, commit, push to `master`
+(this repository's default branch — the URL above is read from exactly there).
 
 Because the app can replace its own installed file, the installed copy can drift
 from this one without anything here being edited.
