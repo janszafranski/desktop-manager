@@ -10,6 +10,14 @@ desktop theme — Plasma colours, accent, fonts and icons.
 The first of the **just a... HANDFUL of apps** — see the section of that name in
 the [repository README](../../README.md#just-a-handful-of-apps).
 
+> **Its home is now its own repository**:
+> [janszafranski/just-a-collection-of-apps](https://github.com/janszafranski/just-a-collection-of-apps),
+> with a site at
+> [janszafranski.github.io/just-a-collection-of-apps](https://janszafranski.github.io/just-a-collection-of-apps/).
+> That is where **Help ▸ Check for Updates…** reads from, and where the app is
+> developed. The copy here is kept in step so the Desktop Manager GUI can still
+> install it; edit it there, not here.
+
 ## Install
 
 From the Desktop Manager GUI: **Apps ▸ just a… HANDFUL of apps ▸ Install**.
@@ -34,7 +42,7 @@ saved settings. Neither touches a site you made.
 
 | | |
 |---|---|
-| **New site** | From a template (Harbour, Meadow, Folio) or empty, through the Startup Assistant |
+| **New site** | From any of **92 templates** — three of its own and 89 following the page trees Serif WebPlus X8 shipped — or empty, through the Startup Assistant |
 | **Pages** | Add, delete, reorder, nest — the Site tab draws the tree to whatever depth it has |
 | **Master pages** | Create, edit, and assign per page, so headers and menus are written once |
 | **Objects** | Text, pictures, shapes, buttons, navigation bars, tables, embedded HTML — drag, resize, rotate, align |

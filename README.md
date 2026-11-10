@@ -68,11 +68,17 @@ those could do and none of them makes quick.
 
 | App | What it is |
 | --- | --- |
-| **[just a... WEBcreator](profiles/webcreator)** | Design a website by laying pages out — drag text, pictures, buttons and menus where you want them, share the header on a master page, preview in your browser, publish plain HTML to a folder you can upload anywhere. Saves `.webc`. Also opens a Serif **WebPlus** `.wpp` site, read-only on your original. Needs `pyside6`. |
+| **[just a... WEBcreator](profiles/webcreator)** | Design a website by laying pages out — drag text, pictures, buttons and menus where you want them, share the header on a master page, preview in your browser, publish plain HTML to a folder you can upload anywhere. Starts from any of **92 templates**. Saves `.webc`. Also opens a Serif **WebPlus** `.wpp` site, read-only on your original. Needs `pyside6`. |
 
 Install from the GUI — **Apps → just a… HANDFUL of apps → Install** — or run
 `profiles/webcreator/install.sh` directly. More apps will join the section; it
 is a handful, not a suite, and each one stands on its own.
+
+These apps are developed in their own public repository,
+**[just a... COLLECTION of apps](https://github.com/janszafranski/just-a-collection-of-apps)**
+([site](https://janszafranski.github.io/just-a-collection-of-apps/)), which is
+also where each one checks for its own updates. The copies under `profiles/` are
+kept in step so this GUI can install them; edit them there, not here.
 
 ## Layout
 

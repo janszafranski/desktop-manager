@@ -15,7 +15,7 @@ PURGE=0; [[ "${1:-}" == "--purge" ]] && PURGE=1
 log "Removing the app and its launcher"
 rm -f "$BIN/webcreator"
 rm -f "$DATA/webcreator/webcreator.py" "$DATA/webcreator/webcreator.py.bak" \
-      "$DATA/webcreator/test_webplus_import.py"
+      "$DATA/webcreator/test_webplus_import.py" "$DATA/webcreator/serif-templates.json"
 rm -rf "$DATA/webcreator/__pycache__"
 # Leave the directory if anything else is in it (a git checkout of the app, say).
 rmdir "$DATA/webcreator" 2>/dev/null || true

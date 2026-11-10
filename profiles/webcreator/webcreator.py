@@ -20,7 +20,8 @@ try:
                                    QToolButton, QPushButton, QVBoxLayout, QHBoxLayout, QGridLayout,
                                    QFormLayout, QDialog, QDialogButtonBox, QLineEdit, QCheckBox,
                                    QRadioButton, QButtonGroup, QListWidget, QListWidgetItem,
-                                   QTreeWidget, QTreeWidgetItem, QStackedWidget, QFileDialog,
+                                   QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
+                                   QStackedWidget, QFileDialog,
                                    QMessageBox, QColorDialog, QSlider, QPlainTextEdit,
                                    QTableWidget, QTableWidgetItem, QMenu, QFrame, QSizePolicy,
                                    QGroupBox, QAbstractItemView, QStyle)
@@ -31,15 +32,15 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.3"
+VERSION = "1.4"
 
 # Where updates come from: a public GitHub repository holding a copy of this
 # file. UPDATE_PATH is where in that repository it sits — the top level if the
 # app has a repository to itself, a subdirectory if it ships inside a bigger
 # one. All three are overridable in the app (Help ▸ Update Settings…).
-UPDATE_REPO = "janszafranski/desktop-manager"
-UPDATE_BRANCH = "master"   # that repository's default branch
-UPDATE_PATH = "profiles/webcreator/webcreator.py"
+UPDATE_REPO = "janszafranski/just-a-collection-of-apps"
+UPDATE_BRANCH = "main"     # that repository's default branch
+UPDATE_PATH = "apps/webcreator/webcreator.py"
 
 # ----------------------------------------------------------------------------
 # Data model
@@ -312,6 +313,397 @@ def tpl_blank(name='My Site', width=960, height=1100):
 
 TEMPLATES = [('Harbour', 'Small business', tpl_harbour), ('Meadow', 'Community group', tpl_meadow),
              ('Folio', 'Portfolio', tpl_folio)]
+
+# ----------------------------------------------------------------------------
+# The 89 templates WebPlus X8 shipped
+# ----------------------------------------------------------------------------
+# serif-templates.json carries what Serif's own Startup Assistant needed to
+# offer a template and nothing more: each one's page tree — the names, the
+# filenames they publish as, and which page hangs off which — and the colour
+# schemes its picker offered, with their twelve colours.
+#
+# It carries no artwork, no copy and no objects, because this app is a
+# recreation and not a copy: the structure is Serif's, every page below is
+# drawn here, from this file, in the scheme you pick. A site you start from
+# Active gets Active's nine pages with Active's filenames in Active 01's
+# colours, and then it is yours.
+
+SERIF_CATALOGUE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'serif-templates.json')
+_SERIF = None
+
+def serif_catalogue():
+    """The shipped catalogue, read once. An empty dict if it isn't there."""
+    global _SERIF
+    if _SERIF is None:
+        try:
+            with open(SERIF_CATALOGUE, encoding='utf-8') as fh:
+                _SERIF = json.load(fh)
+        except Exception:
+            _SERIF = {}
+    return _SERIF
+
+def serif_tree(chooser_only=True):
+    """[(category, [(surface, [row, ...]), ...]), ...] in the catalogue's order.
+
+    ``chooser_only`` leaves out the eleven Sample documents, which Serif
+    catalogued but never offered as something to start a site from.
+    """
+    out = []
+    for row in serif_catalogue().get('templates', []):
+        if chooser_only and not row.get('in_chooser'):
+            continue
+        cat, surf = row.get('category', ''), row.get('surface', '')
+        if not out or out[-1][0] != cat:
+            out.append((cat, []))
+        surfaces = out[-1][1]
+        if not surfaces or surfaces[-1][0] != surf:
+            surfaces.append((surf, []))
+        surfaces[-1][1].append(row)
+    return out
+
+def serif_row(key):
+    return next((r for r in serif_catalogue().get('templates', []) if r.get('key') == key), None)
+
+def serif_schemes(row):
+    """What the scheme picker offers: the template's own first, then the 21."""
+    cat = serif_catalogue()
+    return list(row.get('schemes') or []) + list(cat.get('generic_schemes') or [])
+
+def serif_pages(row):
+    """The page tree in tree order, which is not the order it is stored in.
+
+    Four of the 89 — Bygone, Doodle, Eco, Quote — keep their nine Product
+    sub-pages after Terms & Conditions, because that is the order Serif saved
+    the spreads in. ``parent`` is what actually says which page a sub-page
+    hangs off, and the Site tab nests by position, so walk the tree: each
+    page, then its children, before the next one at its own level.
+    """
+    pages = list(row.get('pages') or [])
+    kids = {}
+    for i, p in enumerate(pages):
+        kids.setdefault(p.get('parent', -1), []).append(i)
+    out, seen = [], set()
+
+    def walk(i, depth):
+        if i in seen:
+            return                                  # a loop; none on the disc has one
+        seen.add(i)
+        p = dict(pages[i]); p['depth'] = depth
+        out.append(p)
+        for child in kids.get(i, []):
+            walk(child, depth + 1)
+
+    for i in kids.get(-1, []):
+        walk(i, 0)
+    for i in range(len(pages)):                     # an orphan beats a lost page
+        if i not in seen:
+            walk(i, 0)
+    return out
+
+# --- scheme colours -> the roles a page layout actually needs ----------------
+# Serif's twelve are numbered, not named, and what each number does is up to
+# the template using it. So the roles are read off the colours themselves —
+# the lightest is the paper, the darkest is the ink, the one with the most
+# colour in it is the accent. Every one of the 138 schemes gets a usable
+# answer that way, which guessing at Serif's intent would not give.
+
+def _lum(c):
+    col = QColor(c)
+    f = lambda v: v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4
+    return .2126 * f(col.redF()) + .7152 * f(col.greenF()) + .0722 * f(col.blueF())
+
+def _chroma(c):
+    col = QColor(c)
+    v = [col.red(), col.green(), col.blue()]
+    return (max(v) - min(v)) / 255.0
+
+def shade(c, pct):
+    col = QColor(c)
+    return (col.lighter(100 + pct) if pct > 0 else col.darker(100 - pct)).name()
+
+def _ink_on(c):
+    return '#ffffff' if _lum(c) < .45 else '#1b1b1b'
+
+def scheme_roles(cols):
+    uniq = list(dict.fromkeys(QColor(c).name() for c in (cols or []) if QColor(c).isValid()))
+    if not uniq:
+        uniq = ['#ffffff', '#3a3a3a', '#2a7d6b']
+    by_lum = sorted(uniq, key=_lum)
+    lights = [c for c in by_lum if _lum(c) >= .5] or [by_lum[-1]]
+    darks = [c for c in by_lum if _lum(c) < .5] or [by_lum[0]]
+    page = lights[-1]
+    panel = lights[-2] if len(lights) > 1 else shade(page, -5)
+    rule = lights[0] if len(lights) > 2 else shade(page, -14)
+    mids = [c for c in uniq if .03 <= _lum(c) <= .7] or uniq
+    accent = max(mids, key=lambda c: (round(_chroma(c), 2), -abs(_lum(c) - .22)))
+    rest = [c for c in darks if c != accent] or darks
+    bar = max(rest, key=_lum)
+    ink = min(rest, key=_lum)
+    if _lum(ink) > .3:
+        ink = shade(bar, -40)
+    return dict(page=page, panel=panel, rule=rule, bar=bar, barInk=_ink_on(bar),
+                ink=ink, head=bar if _lum(bar) < .4 else ink,
+                accent=accent, accentInk=_ink_on(accent),
+                mute=shade(ink, 45) if _lum(ink) < .4 else shade(ink, -20))
+
+# --- placeholder copy, varied per template so no two read the same ----------
+
+def _pick(seq, key, salt=0):
+    # 37 is prime and bigger than every list below, so a step of it never
+    # lands back on the same entry — three cards on one page read as three.
+    return seq[(sum(ord(c) for c in key) + salt * 37) % len(seq)]
+
+SERIF_TAGLINE = [
+    'Made properly, made to last', 'Everything in one place', 'Good work, close to home',
+    'Simple, honest, done right', 'A warm welcome awaits', 'One thing, done well',
+    'Clear advice and fair prices', 'Built around what you need',
+]
+SERIF_INTRO = [
+    'This is the opening paragraph of your home page. Say who you are and what you do, in one or two plain sentences — it is the first thing anybody reads.',
+    'Replace this with a short welcome. Visitors want to know what you offer and whether they are in the right place, and nothing else yet.',
+    'A few lines here about what you do and who you do it for. Keep it short; the pages behind this one have room for the detail.',
+    'Write your introduction here. One idea per sentence reads best on a screen, and the menu above takes people wherever they need to go next.',
+]
+SERIF_BODY = [
+    'This is a text frame. Click it twice to type in it, and drag its handles to change its shape — the words reflow to fit.',
+    'Everything on this page is an object you can move, resize or delete. Nothing here is fixed, and nothing is locked.',
+    'The header and the menu live on a master page, so changing them once changes them on every page of the site.',
+    'Add your own pictures with Insert ▸ Picture, or drop an image file straight onto the page.',
+    'When the site reads the way you want it, File ▸ Publish writes plain HTML into a folder you can upload anywhere.',
+]
+SERIF_CARDS = [
+    ('What we do', 'A short description of your main service or product, and who it suits.'),
+    ('How it works', 'Three or four lines on what happens after someone gets in touch.'),
+    ('Why us', 'What you do differently. Specifics read better here than adjectives.'),
+    ('Get started', 'Tell people the one next step you want them to take, and make it easy.'),
+    ('Where we are', 'Your area, your opening times, and how to find you.'),
+    ('Who we help', 'The kind of customer, client or member you are looking for.'),
+]
+SERIF_ART = ['waves', 'hills', 'blocks', 'rings', 'grid', 'sun', 'stripes']
+
+SERIF_KINDS = (
+    (r'contact|enquir|e-?mail|find us|get in touch|book|reserv', 'contact'),
+    (r'galler|photo|picture|portfolio|our work|showcase|image', 'gallery'),
+    (r'price|rate|tariff|menu|package|plan|fee|cost|timetable|schedule|opening', 'table'),
+    (r'product|service|room|class|course|treatment|what we do|facilit|range|shop', 'cards'),
+    (r'term|privacy|condition|cookie|legal|disclaimer|policy', 'legal'),
+    (r'link|resource|partner|supplier|useful', 'links'),
+    (r'news|blog|article|event|diary|journal|update|press|offer', 'news'),
+    (r'faq|question|help|support', 'faq'),
+)
+
+def serif_kind(name, index):
+    if index == 0:
+        return 'home'
+    low = (name or '').lower()
+    for pattern, kind in SERIF_KINDS:
+        if re.search(pattern, low):
+            return kind
+    return 'about'
+
+class _Flow:
+    """Stack objects down a column and remember where the bottom got to."""
+
+    def __init__(self, objects, x, y, w, gap=22):
+        self.o, self.x, self.y, self.w, self.gap = objects, x, y, w, gap
+
+    def add(self, kind, h, **kw):
+        w = kw.pop('w', self.w)
+        obj = mk(kind, kw.pop('x', self.x), self.y, w, h, **kw)
+        self.o.append(obj)
+        self.y += h + self.gap
+        return obj
+
+    def at(self, kind, x, y, w, h, **kw):
+        obj = mk(kind, x, y, w, h, **kw)
+        self.o.append(obj)
+        self.y = max(self.y, y + h + self.gap)
+        return obj
+
+    def heading(self, text, C, size):
+        return self.add('artistic', int(size * 1.35), html=f'<p>{H.escape(text)}</p>',
+                        font=SERIF, size=size, color=C['head'], bold=False)
+
+def serif_site(row, scheme=None):
+    """Build an editable site from one catalogue row, in one colour scheme."""
+    cat = serif_catalogue()
+    offered = serif_schemes(row)
+    if scheme not in offered:
+        scheme = offered[0] if offered else None
+    C = scheme_roles(cat.get('schemes', {}).get(scheme) or [])
+    key = row.get('key') or row.get('name') or 'template'
+    brand = row.get('name') or 'My Site'
+    mobile = 'Mobile' in (row.get('surface') or '')
+    W = 480 if mobile else 960
+    M = 20 if mobile else 40
+    CW = W - 2 * M
+    top = 150 if mobile else 128
+
+    s = base_site(brand, width=W, bg=C['page'],
+                  palette=[C['bar'], C['accent'], C['page'], C['panel'], C['ink'], C['rule']])
+    s['pages'] = []
+    s['serif'] = {'key': key, 'name': brand, 'scheme': scheme,
+                  'category': row.get('category', ''), 'surface': row.get('surface', '')}
+    for p in serif_pages(row):
+        add_page(s, p.get('name') or 'Page', level=max(0, int(p.get('depth') or 0)),
+                 file=p.get('file') or None)
+    if not s['pages']:
+        add_page(s, 'Home', file='index.html')
+
+    A = lambda i, light=False: add_asset(s, make_art(
+        _pick(SERIF_ART, key, i),
+        [C['panel'] if light else C['bar'], shade(C['bar'], 25 if light else -25),
+         C['accent'], C['page']], 720, 480))
+    title_size = 30 if mobile else 46
+    head_size = 24 if mobile else 36
+
+    second = s['pages'][1] if len(s['pages']) > 1 else None
+    for i, page in enumerate(s['pages']):
+        kind = serif_kind(page['title'], i)
+        f = _Flow(page['objects'], M, top, CW)
+        if kind == 'home':
+            f.add('picture', 200 if mobile else 330, src=A(0), radius=4)
+            f.add('artistic', int(title_size * 1.4), html=f'<p>{H.escape(brand)}</p>',
+                  font=SERIF, size=title_size, color=C['head'], bold=False)
+            f.add('text', 46 if mobile else 38, pad=0, size=17 if mobile else 20,
+                  color=C['mute'], html=f"<p>{_pick(SERIF_TAGLINE, key)}</p>")
+            f.add('text', 150 if mobile else 92, pad=0, size=15 if mobile else 17,
+                  color=C['ink'], html=f'<p>{_pick(SERIF_INTRO, key)}</p>')
+            btn = f.add('button', 48, w=min(CW, 240), html='<p>Find out more</p>',
+                        fill=C['accent'], color=C['accentInk'], radius=4)
+            if second:
+                btn['link'] = {'type': 'page', 'target': second['id']}
+            cards = [_pick(SERIF_CARDS, key, n) for n in range(3)]
+            cw = CW if mobile else (CW - 2 * 24) // 3
+            y0 = f.y
+            for n, (t, d) in enumerate(cards):
+                x = M if mobile else M + n * (cw + 24)
+                y = y0 + (n * 330 if mobile else 0)
+                f.at('picture', x, y, cw, 160, src=A(n + 1, light=True), radius=4)
+                f.at('artistic', x, y + 176, cw, 30, html=f'<p>{H.escape(t)}</p>',
+                     font=SERIF, size=20, color=C['head'], bold=False)
+                f.at('text', x, y + 212, cw, 100, pad=0, size=15, color=C['ink'],
+                     html=f'<p>{H.escape(d)}</p>')
+        else:
+            f.heading(page['title'], C, head_size)
+            if kind == 'about':
+                paras = ''.join(f'<p>{_pick(SERIF_BODY, key, n + i)}</p>' for n in range(3))
+                if mobile:
+                    f.add('text', 230, pad=0, size=15, color=C['ink'], html=paras)
+                    f.add('picture', 200, src=A(i + 2, light=True), radius=4)
+                else:
+                    tw = int(CW * .56)
+                    f.at('text', M, f.y, tw, 300, pad=0, size=16, color=C['ink'], html=paras)
+                    f.at('picture', M + tw + 32, f.y, CW - tw - 32, 300,
+                         src=A(i + 2, light=True), radius=4)
+            elif kind == 'gallery':
+                f.add('text', 50, pad=0, size=15, color=C['mute'],
+                      html='<p>Replace these with your own pictures — Insert ▸ Picture, or drop an image file onto the page.</p>')
+                across = 2 if mobile else 3
+                tw = (CW - (across - 1) * 18) // across
+                y0 = f.y
+                for n in range(6):
+                    f.at('picture', M + (n % across) * (tw + 18),
+                         y0 + (n // across) * (int(tw * .72) + 18), tw, int(tw * .72),
+                         src=A(n + i, light=n % 2 == 0), radius=4)
+            elif kind == 'table':
+                f.add('text', 50, pad=0, size=15, color=C['ink'],
+                      html='<p>Type over these cells, and use Table ▸ Insert Row to add more.</p>')
+                f.add('table', 200, size=14, color=C['ink'], fill=C['page'],
+                      head=C['panel'], stroke=C['rule'],
+                      cells=[['Item', 'Detail', 'From'],
+                             ['First item', 'What it includes', '£00'],
+                             ['Second item', 'What it includes', '£00'],
+                             ['Third item', 'What it includes', '£00'],
+                             ['Fourth item', 'What it includes', '£00']])
+            elif kind == 'cards':
+                f.add('text', 50, pad=0, size=15, color=C['ink'],
+                      html='<p>One panel each. Copy a panel and its text to add another.</p>')
+                across = 1 if mobile else 2
+                tw = (CW - (across - 1) * 24) // across
+                y0 = f.y
+                for n in range(4):
+                    x = M + (n % across) * (tw + 24)
+                    y = y0 + (n // across) * 190
+                    t, d = _pick(SERIF_CARDS, key, n + 2)
+                    f.at('shape', x, y, tw, 170, fill=C['panel'], radius=4)
+                    f.at('artistic', x + 20, y + 20, tw - 40, 30, html=f'<p>{H.escape(t)}</p>',
+                         font=SERIF, size=20, color=C['head'], bold=False)
+                    f.at('text', x + 20, y + 58, tw - 40, 96, pad=0, size=15, color=C['ink'],
+                         html=f'<p>{H.escape(d)}</p>')
+            elif kind == 'contact':
+                if mobile:
+                    f.add('text', 150, pad=0, size=15, color=C['ink'], html=(
+                        f'<p><b>{H.escape(brand)}</b><br>Your address here</p>'
+                        '<p>Phone 01234 567890<br>Open Monday to Friday</p>'))
+                    f.add('form', 320, accent=C['accent'], color=C['ink'],
+                          fields=['Name', 'Email', 'Message'], submit='Send')
+                else:
+                    tw = int(CW * .44)
+                    f.at('text', M, f.y, tw, 180, pad=0, size=16, color=C['ink'], html=(
+                        f'<p><b>{H.escape(brand)}</b><br>Your address here</p>'
+                        '<p>Phone 01234 567890<br>Open Monday to Friday</p>'))
+                    f.at('picture', M, f.y + 200, tw, 200, src=A(i, light=True), radius=4)
+                    f.at('form', M + tw + 32, f.y, CW - tw - 32, 340, accent=C['accent'],
+                         color=C['ink'], fields=['Name', 'Email', 'Phone', 'Message'],
+                         submit='Send enquiry')
+            elif kind == 'news':
+                f.add('text', 46, pad=0, size=15, color=C['mute'],
+                      html='<p>Newest at the top. Each entry is a heading and a text frame.</p>')
+                for n in range(4):
+                    f.add('artistic', 28, html=f'<p>Headline {n + 1}</p>', font=SERIF,
+                          size=19, color=C['head'], bold=False)
+                    f.add('text', 62, pad=0, size=15, color=C['ink'],
+                          html=f'<p>{_pick(SERIF_BODY, key, n + i + 1)}</p>')
+                    f.add('line', 2, stroke=C['rule'], strokeW=1)
+            elif kind == 'faq':
+                for n in range(4):
+                    f.add('artistic', 26, html=f'<p>A question people ask ({n + 1})</p>',
+                          font=SERIF, size=18, color=C['accent'], bold=False)
+                    f.add('text', 60, pad=0, size=15, color=C['ink'],
+                          html=f'<p>{_pick(SERIF_BODY, key, n + i)}</p>')
+            elif kind == 'links':
+                f.add('text', 46, pad=0, size=15, color=C['ink'],
+                      html='<p>Select a line and use Insert ▸ Hyperlink to point it somewhere.</p>')
+                for n in range(5):
+                    f.add('text', 44, pad=0, size=16, color=C['accent'], underline=True,
+                          html=f'<p>A useful link ({n + 1})</p>')
+            else:                                     # legal
+                f.add('text', 420, pad=0, size=14, color=C['ink'], html=''.join(
+                    f'<p>{_pick(SERIF_BODY, key, n)}</p>' for n in range(5)) + (
+                    '<p>This page is a placeholder. Write your own terms, or delete the '
+                    'page from the Site tab if you do not need it.</p>'))
+
+    bottom = max([max([o['y'] + o['h'] for o in p['objects']], default=0) for p in s['pages']],
+                 default=0)
+    s['height'] = int(max(900, bottom + (150 if mobile else 170)))
+
+    m = s['masters'][0]
+    m['bg'] = C['page']
+    fy = s['height'] - (92 if mobile else 96)
+    if mobile:
+        m['objects'] = [
+            mk('shape', 0, 0, W, 108, fill=C['bar']),
+            mk('artistic', M, 22, CW, 34, html=f'<p>{H.escape(brand)}</p>', font=SERIF,
+               size=24, color=C['barInk'], bold=False),
+            mk('nav', M, 66, CW, 32, style='pills', align='center', size=13, color=C['barInk'],
+               accent=C['accent'], accentInk=C['accentInk']),
+            mk('line', M, fy, CW, 2, stroke=C['rule'], strokeW=2),
+            mk('text', M, fy + 16, CW, 54, pad=0, size=12, color=C['mute'],
+               html=f'<p>© {H.escape(brand)}. Made with just a... WEBcreator.</p>'),
+        ]
+    else:
+        m['objects'] = [
+            mk('shape', 0, 0, W, 96, fill=C['bar']),
+            mk('artistic', M, 26, 380, 44, html=f'<p>{H.escape(brand)}</p>', font=SERIF,
+               size=30, color=C['barInk'], bold=False),
+            mk('nav', W - M - 480, 28, 480, 40, style='underline', align='right', size=15,
+               color=C['barInk'], accent=C['accent'], accentInk=C['accentInk']),
+            mk('shape', 0, fy, W, 96, fill=C['bar']),
+            mk('text', M, fy + 24, CW, 48, pad=0, size=13, color=C['barInk'],
+               html=f'<p>© {H.escape(brand)} · Your address here · 01234 567890</p>'),
+        ]
+    return s
 
 # ----------------------------------------------------------------------------
 # Painting objects (canvas, thumbnails)
@@ -2419,7 +2811,7 @@ class StartupAssistant(QDialog):
         super().__init__(win)
         self.win = win; self.result_site = None; self.result_path = None; self.result_import = False; self.result_update = False
         self.result_webplus = None
-        self.setWindowTitle(f'{APP} — Startup Assistant'); self.resize(860, 560)
+        self.setWindowTitle(f'{APP} — Startup Assistant'); self.resize(1040, 660)
         root = QVBoxLayout(self)
         self.upd = QFrame(); self.upd.setAutoFillBackground(True)
         pal = self.upd.palette(); pal.setColor(QPalette.Window, pal.color(QPalette.Highlight))
@@ -2439,24 +2831,44 @@ class StartupAssistant(QDialog):
         self.stack = QStackedWidget(); top.addWidget(self.stack, 1)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
 
-        # Templates
+        # Templates — Serif's five steps: pick a branch, pick a template,
+        # pick a colour scheme, untick the pages you don't want, open it.
         tp = QWidget(); tl = QVBoxLayout(tp)
-        h = QLabel('<b>Choose a design template</b><br>Pick a design, tick the pages you want, then open it.'); h.setWordWrap(True); tl.addWidget(h)
+        h = QLabel('<b>Choose a design template</b><br>Pick a design, choose a colour scheme, '
+                   'untick any pages you don’t want, then open it.')
+        h.setWordWrap(True); tl.addWidget(h)
         row = QHBoxLayout(); tl.addLayout(row, 1)
-        self.tlist = QListWidget(); self.tlist.setViewMode(QListWidget.IconMode); self.tlist.setIconSize(QSize(220, 150))
-        self.tlist.setResizeMode(QListWidget.Adjust); self.tlist.setMovement(QListWidget.Static); self.tlist.setSpacing(8)
-        self.tsites = []
-        for name, kind, fn in TEMPLATES:
-            s = fn(); self.tsites.append(s)
-            img = render_page_image(s, s['pages'][0], 220, crop=int(s['width'] * 150 / 220))
-            self.tlist.addItem(QListWidgetItem(QIcon(QPixmap.fromImage(img)), f'{name}\n{kind}'))
-        row.addWidget(self.tlist, 1)
+
+        left = QVBoxLayout(); row.addLayout(left)
+        self.tfind = QLineEdit(); self.tfind.setPlaceholderText('Find a template…')
+        self.tfind.setClearButtonEnabled(True); self.tfind.setFixedWidth(240)
+        self.tfind.textChanged.connect(self.filter_templates); left.addWidget(self.tfind)
+        self.ttree = QTreeWidget(); self.ttree.setHeaderHidden(True); self.ttree.setFixedWidth(240)
+        left.addWidget(self.ttree, 1)
+        self.tsites = {}            # (what, which, scheme) -> built site, built once
+        self.build_template_tree()
+
+        mid = QVBoxLayout(); row.addLayout(mid, 1)
+        self.tprev = QLabel(); self.tprev.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.tprev.setMinimumSize(QSize(300, 280)); self.tprev.setFrameShape(QFrame.StyledPanel)
+        # Ignored, so the preview fits the pane rather than the pane growing to
+        # fit the preview: these are 480 and 960px pages in the same dialog.
+        self.tprev.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self._tprev_img = None
+        mid.addWidget(self.tprev, 1)
+        self.tcap = QLabel(); self.tcap.setWordWrap(True); self.tcap.setTextFormat(Qt.RichText)
+        mid.addWidget(self.tcap)
+
         pc = QVBoxLayout(); row.addLayout(pc)
+        pc.addWidget(QLabel('Colour scheme:'))
+        self.tscheme = QComboBox(); self.tscheme.setFixedWidth(210)
+        self.tscheme.currentIndexChanged.connect(self.scheme_changed); pc.addWidget(self.tscheme)
         pc.addWidget(QLabel('Pages to include:'))
-        self.plist = QListWidget(); self.plist.setFixedWidth(190); pc.addWidget(self.plist, 1)
-        ob = QPushButton(ticon(['document-open'], ''), 'Open Template'); ob.setDefault(True); ob.clicked.connect(self.open_template); pc.addWidget(ob)
-        self.tlist.currentRowChanged.connect(self.show_pages)
-        self.tlist.itemDoubleClicked.connect(lambda *_: self.open_template())
+        self.plist = QListWidget(); self.plist.setFixedWidth(210); pc.addWidget(self.plist, 1)
+        ob = QPushButton(ticon(['document-open'], ''), 'Open Template')
+        ob.setDefault(True); ob.clicked.connect(self.open_template); pc.addWidget(ob)
+        self.ttree.currentItemChanged.connect(lambda *_: self.show_template())
+        self.ttree.itemDoubleClicked.connect(lambda *_: self.open_template())
         self.stack.addWidget(tp)
 
         # New
@@ -2490,7 +2902,7 @@ class StartupAssistant(QDialog):
         self.show_cb = QCheckBox('Show the Startup Assistant when the app opens')
         self.show_cb.setChecked(win.settings.value('showStartup', True, type=bool)); bottom.addWidget(self.show_cb); bottom.addStretch()
         close = QPushButton('Close'); close.clicked.connect(self.reject); bottom.addWidget(close)
-        self.nav.setCurrentRow(0); self.tlist.setCurrentRow(0)
+        self.nav.setCurrentRow(0); self.show_template()
 
         if getattr(win, 'update_source', None): self.show_update(win.update_version)
 
@@ -2506,18 +2918,143 @@ class StartupAssistant(QDialog):
         if self.win.startup_dlg is self: self.win.startup_dlg = None
         super().done(r)
 
-    def show_pages(self, i):
+    # --- the template chooser ----------------------------------------------
+
+    def build_template_tree(self):
+        """The left-hand pane: our own designs, then Serif's own tree."""
+        self.ttree.clear()
+        ours = QTreeWidgetItem(self.ttree, ['Design templates'])
+        for i, (name, kind, _fn) in enumerate(TEMPLATES):
+            leaf = QTreeWidgetItem(ours, [f'{name} — {kind}'])
+            leaf.setData(0, Qt.UserRole, ('ours', i))
+        ours.setExpanded(True)
+        for category, surfaces in serif_tree(chooser_only=False):
+            node = QTreeWidgetItem(self.ttree, [category])
+            if not any(r.get('in_chooser') for _s, rows in surfaces for r in rows):
+                node.setToolTip(0, 'Sample documents. Serif catalogued these but '
+                                   'never offered them as something to start from.')
+            for surface, rows in surfaces:
+                under = QTreeWidgetItem(node, [surface or 'All']) if surface else node
+                for r in rows:
+                    leaf = QTreeWidgetItem(under, [r['name']])
+                    leaf.setData(0, Qt.UserRole, ('serif', r['key']))
+                    leaf.setToolTip(0, f"{len(r['pages'])} pages · {r['category']}"
+                                       + (f" · {r['surface']}" if r['surface'] else ''))
+            node.setExpanded(category == 'Theme Layouts')
+        first = ours.child(0)
+        if first: self.ttree.setCurrentItem(first)
+
+    def filter_templates(self, text):
+        want = (text or '').strip().lower()
+        it = QTreeWidgetItemIterator(self.ttree)
+        while it.value():
+            node = it.value()
+            if node.data(0, Qt.UserRole):
+                node.setHidden(bool(want) and want not in node.text(0).lower())
+            it += 1
+        for i in range(self.ttree.topLevelItemCount()):
+            self.prune_branch(self.ttree.topLevelItem(i), bool(want))
+
+    def prune_branch(self, node, searching):
+        """Hide a branch with nothing left under it; open the ones with hits."""
+        kids = [node.child(i) for i in range(node.childCount())]
+        if not kids:
+            return not node.isHidden()
+        alive = [self.prune_branch(k, searching) for k in kids]
+        node.setHidden(searching and not any(alive))
+        if searching and any(alive): node.setExpanded(True)
+        return any(alive)
+
+    def chosen_template(self):
+        it = self.ttree.currentItem()
+        return it.data(0, Qt.UserRole) if it else None
+
+    def template_site(self, what, which, scheme=None):
+        """Build it once and keep it: 89 of these is too many to build eagerly."""
+        key = (what, which, scheme)
+        if key not in self.tsites:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                self.tsites[key] = (TEMPLATES[which][2]() if what == 'ours'
+                                    else serif_site(serif_row(which), scheme))
+            finally:
+                QApplication.restoreOverrideCursor()
+        return self.tsites[key]
+
+    def show_template(self, keep_scheme=False):
+        chosen = self.chosen_template()
         self.plist.clear()
-        if i < 0: return
-        for p in self.tsites[i]['pages']:
-            it = QListWidgetItem(('    ' if p.get('level') else '') + p['title']); it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(Qt.Checked); it.setData(Qt.UserRole, p['id']); self.plist.addItem(it)
+        if not chosen:
+            self.tprev.clear(); self.tcap.clear(); self.tscheme.clear(); return
+        what, which = chosen
+        if not keep_scheme:
+            self.tscheme.blockSignals(True); self.tscheme.clear()
+            if what == 'serif':
+                self.tscheme.addItems(serif_schemes(serif_row(which)))
+            self.tscheme.setEnabled(what == 'serif')
+            self.tscheme.blockSignals(False)
+        scheme = self.tscheme.currentText() if what == 'serif' else None
+        s = self.template_site(what, which, scheme or None)
+        self._tprev_img = render_page_image(s, s['pages'][0], 560,
+                                            crop=int(s['width'] * 1.45))
+        self.fit_preview()
+        if what == 'serif':
+            r = serif_row(which)
+            self.tcap.setText(
+                f"<b>{H.escape(r['name'])}</b> — {H.escape(r['category'])}, "
+                f"{H.escape(r['surface'])}<br>{len(r['pages'])} pages, "
+                f"{s['width']}px wide, in {H.escape(scheme or '')}.")
+        else:
+            name, kind, _ = TEMPLATES[which]
+            self.tcap.setText(f"<b>{H.escape(name)}</b> — {H.escape(kind)}<br>"
+                              f"{len(s['pages'])} pages, {s['width']}px wide.")
+        for i, p in enumerate(s['pages']):
+            it = QListWidgetItem('    ' * min(3, p.get('level') or 0) + p['title'])
+            it.setData(Qt.UserRole, p['id']); it.setCheckState(Qt.Checked)
+            if i == 0:          # a site with no home page is not a site
+                it.setFlags(Qt.ItemIsEnabled)
+                it.setToolTip('Every site has a home page.')
+            else:
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+            self.plist.addItem(it)
+
+    def fit_preview(self):
+        # resize() is called in __init__, before this pane exists.
+        if getattr(self, '_tprev_img', None) is None:
+            if hasattr(self, 'tprev'): self.tprev.clear()
+            return
+        pm = QPixmap.fromImage(self._tprev_img)
+        box = self.tprev.contentsRect().size() - QSize(12, 12)
+        if box.width() > 40 and box.height() > 40:
+            pm = pm.scaled(box, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.tprev.setPixmap(pm)
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev); self.fit_preview()
+
+    def scheme_changed(self, *_):
+        if self.tscheme.isEnabled(): self.show_template(keep_scheme=True)
 
     def open_template(self):
-        i = self.tlist.currentRow()
-        if i < 0: return
-        s = copy.deepcopy(self.tsites[i])
-        keep = {self.plist.item(j).data(Qt.UserRole) for j in range(self.plist.count()) if self.plist.item(j).checkState() == Qt.Checked}
+        chosen = self.chosen_template()
+        if not chosen: return
+        what, which = chosen
+        scheme = self.tscheme.currentText() if what == 'serif' else None
+        s = copy.deepcopy(self.template_site(what, which, scheme or None))
+        ticked = {self.plist.item(j).data(Qt.UserRole) for j in range(self.plist.count())
+                  if self.plist.item(j).checkState() == Qt.Checked}
+        ticked.add(s['pages'][0]['id'])
+        # Unticking a page takes its sub-pages with it. The alternative is a
+        # sub-page with no parent — in the Site tree, in the breadcrumb and in
+        # every navigation bar on the site, which is where it would be seen.
+        keep, dropped_at = set(), None
+        for p in s['pages']:
+            level = p.get('level') or 0
+            if dropped_at is not None and level > dropped_at:
+                continue
+            dropped_at = None
+            if p['id'] in ticked: keep.add(p['id'])
+            else: dropped_at = level
         if not keep:
             QMessageBox.information(self, APP, 'Tick at least one page to include.'); return
         s['pages'] = [p for p in s['pages'] if p['id'] in keep]
@@ -3973,6 +4510,37 @@ class MainWindow(QMainWindow):
         path = (self.settings.value('updatePath', '') or UPDATE_PATH).strip().strip('/')
         return f'https://raw.githubusercontent.com/{repo}/{branch}/{path}'
 
+    def fetch_catalogue(self):
+        """After an update, fetch serif-templates.json if it isn't here yet.
+
+        Check for Updates replaces one file — this one. A machine that
+        updated into a version which knows about the 89 templates would
+        otherwise have the code and not the catalogue, and quietly offer
+        three templates instead of ninety-two. It sits beside this file in
+        the repository, so the URL is the update URL with the name swapped.
+        """
+        if os.path.exists(SERIF_CATALOGUE) or not self.update_repo():
+            return
+        from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+        if not hasattr(self, 'nam'): self.nam = QNetworkAccessManager(self)
+        url = self.update_url().rsplit('/', 1)[0] + '/' + os.path.basename(SERIF_CATALOGUE)
+        req = QNetworkRequest(QUrl(url)); req.setTransferTimeout(20000)
+        reply = self.nam.get(req)
+
+        def done():
+            global _SERIF
+            try:
+                if reply.error() != QNetworkReply.NoError: return
+                data = bytes(reply.readAll())
+                json.loads(data)                     # don't write half a catalogue
+                with open(SERIF_CATALOGUE, 'wb') as fh: fh.write(data)
+                _SERIF = None
+            except Exception:
+                pass
+            finally:
+                reply.deleteLater()
+        reply.finished.connect(done)
+
     def check_updates(self, quiet=True):
         if not self.update_repo():
             if not quiet: self.update_settings()
@@ -4033,6 +4601,7 @@ class MainWindow(QMainWindow):
         except OSError as ex:
             QMessageBox.warning(self, 'Update', f"Couldn't replace {target}.\n{ex}"); return
         self.a['update'].setVisible(False); self.update_source = None
+        self.fetch_catalogue()
         if QMessageBox.question(self, 'Update', f'Updated to {ver}. Restart now to use it?') == QMessageBox.Yes and self.maybe_save():
             self.dirty = False
             self.settings.setValue('geometry', self.saveGeometry()); self.settings.setValue('state', self.saveState())

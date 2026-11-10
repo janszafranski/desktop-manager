@@ -26,6 +26,10 @@ python3 -c 'import PySide6.QtWebEngineWidgets' 2>/dev/null \
 log "Installing the app"
 install -Dm755 "$SELF/webcreator.py" "$DATA/webcreator/webcreator.py"
 install -Dm644 "$SELF/test_webplus_import.py" "$DATA/webcreator/test_webplus_import.py"
+# The 89 template page trees and their colour schemes. The app runs without
+# it — the Startup Assistant just falls back to the three design templates —
+# so this is installed beside the app, not demanded by it.
+install -Dm644 "$SELF/serif-templates.json" "$DATA/webcreator/serif-templates.json"
 
 log "Installing the launcher"
 install -d "$BIN"
