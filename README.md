@@ -48,9 +48,31 @@ configs), **Micro** (Catppuccin), and the GTK/Qt theming to match.
 
 Every one of these installs from the GUI's **Apps** list, independently of the
 theme cards above; the small single-purpose tools sit behind **Apps → Utilities**
-— see [Apps and the Utilities flyout](#apps-and-the-utilities-flyout). *Mic
-Fixer* (microphone tester, also by Coding Colin) ships the same way and lives in
+— see [Apps and the app groups](#apps-and-the-app-groups). *Mic Fixer*
+(microphone tester, also by Coding Colin) ships the same way and lives in
 [`profiles/mic-fixer`](profiles/mic-fixer).
+
+## just a... HANDFUL of apps
+
+Simple applications for people who don't want to learn a great but complex app —
+the **ARTcraft** ones, say — and would rather use something that works the way
+everything else already does. Familiar menus, a toolbar, a page in front of you:
+open it and get on with the job. No subscription, no account, no cloud, no
+tutorial. They save ordinary files to ordinary folders on your own disk.
+
+Not a replacement for the big suites and not trying to be. If you need what
+ARTcraft can do, use ARTcraft. This is for the far more common job that any of
+those could do and none of them makes quick.
+
+<p align="center"><a href="profiles/webcreator"><img src="profiles/webcreator/assets/screenshot.png" alt="just a... WEBcreator — menu bar, toolbar, tool palette, canvas and the Site tree" width="760"></a></p>
+
+| App | What it is |
+| --- | --- |
+| **[just a... WEBcreator](profiles/webcreator)** | Design a website by laying pages out — drag text, pictures, buttons and menus where you want them, share the header on a master page, preview in your browser, publish plain HTML to a folder you can upload anywhere. Saves `.webc`. Also opens a Serif **WebPlus** `.wpp` site, read-only on your original. Needs `pyside6`. |
+
+Install from the GUI — **Apps → just a… HANDFUL of apps → Install** — or run
+`profiles/webcreator/install.sh` directly. More apps will join the section; it
+is a handful, not a suite, and each one stands on its own.
 
 ## Layout
 
@@ -122,7 +144,7 @@ The preview image comes from `preview.png` in the repo root (a desktop
 screenshot); it's scaled to fit the dialog (full desktop, not cropped) and a
 larger copy backs the click-to-enlarge popup. Replace that file to change it.
 
-#### Apps and the Utilities flyout
+#### Apps and the app groups
 
 Under the theme cards, the GTK front-end carries an **Apps** frame: one row per
 bundled standalone app, each with its own **Install** button that runs just that
@@ -130,11 +152,21 @@ app's `profiles/<name>/install.sh` (ticking **Dry run** prints the command
 instead of running it). The row list is the `APPS` array in
 `scripts/gui_gtk.py`.
 
-An app tagged `"group": "utilities"` is *not* shown inline. Instead a single
-**Utilities** row appears at the bottom of the frame, and its **Open** button
-pops a separate flyout window — same row style, same Install buttons — so small
-single-purpose tools can be added indefinitely without the main window growing.
-Currently in the flyout:
+An app tagged with a `"group"` is *not* shown inline. Instead one row stands for
+the whole group at the bottom of the frame, and its **Open** button pops a
+separate flyout window — same row style, same Install buttons — so apps can be
+added indefinitely without the main window growing. Two groups so far:
+
+**`"group": "handful"` — just a… HANDFUL of apps**, the section described
+[above](#just-a-handful-of-apps): simple applications for people who don't want
+to learn a complex one. Its heading and the sentence under it are
+`HANDFUL_TITLE` / `HANDFUL_DESC` in `scripts/gui_gtk.py`.
+
+| App | What it is |
+| --- | --- |
+| [just a... WEBcreator](profiles/webcreator) | lay out a website, publish plain HTML; opens Serif WebPlus `.wpp` |
+
+**`"group": "utilities"` — Utilities**, small single-purpose tools:
 
 | Utility | What it is |
 | --- | --- |
@@ -144,8 +176,10 @@ Currently in the flyout:
 | [Desktop icons](profiles/omarchy-desktop-icons) | app icons on the wallpaper, double-click to open |
 
 To add one: drop a `profiles/<name>/` directory with an `install.sh`, then append
-an entry to `APPS` with `"group": "utilities"`. Leave `group` off and it becomes
-a top-level Apps row instead.
+an entry to `APPS` with the `"group"` it belongs in. Leave `group` off and it
+becomes a top-level Apps row instead. Adding any row makes the list taller, so
+re-run `scripts/tests/gui-layout-test.sh` afterwards — it measures the height
+the list now needs and fails if `APPS_VIEWPORT_H` is below it.
 
 > **TODO — float the GUI window on tiling setups (UNRESOLVED).** On KDE +
 > Krohnkite the window still tiles. Tried, none of which worked on Wayland:

@@ -271,7 +271,30 @@ APPS = [
         "button": "Toggle",
         "group": "utilities",
     },
+    {
+        "name": "just a... WEBcreator",
+        "desc": "Design a website the way you would lay out a page — drag text, "
+                "pictures, buttons and menus where you want them, share the header "
+                "on a master page, then publish plain HTML to a folder. Opens a "
+                "Serif WebPlus .wpp site too, read-only on the original. Needs "
+                "pyside6. Built by Coding Colin.",
+        "install": _p("profiles", "webcreator", "install.sh"),
+        "launch": "webcreator",
+        "button": "Open",
+        "group": "handful",
+    },
 ]
+
+# The "just a... HANDFUL of apps" section. Its own group rather than another
+# Utilities entry: these are full applications, and what they have in common is
+# who they are for, not how small they are.
+HANDFUL_TITLE = "just a... HANDFUL of apps"
+HANDFUL_DESC = (
+    "Simple applications for people who don't want to learn a great but complex "
+    "app — the ARTcraft ones, say — and would rather use something that works "
+    "the way everything else already does. Familiar menus, a toolbar, a page in "
+    "front of you: open it and get on with the job."
+)
 
 COLUMNS = 3  # cards per row in the grid
 
@@ -717,9 +740,11 @@ class ReplicaWindow(Gtk.Window):
     # needs comes from: the two together are what the window is tall enough for.
     GRID_VIEWPORT_H = 620
     # Fixed height (px) of the Apps-list viewport. Kept above the natural
-    # height of the current rows (244px) so the list is never squeezed and
-    # needs no scrollbar of its own — see the note at the widget.
-    APPS_VIEWPORT_H = 270
+    # height of the current rows (353px, measured by
+    # scripts/tests/gui-layout-test.sh) so the list is never squeezed and needs
+    # no scrollbar of its own — see the note at the widget. Raise it whenever a
+    # row is added; that test says by how much.
+    APPS_VIEWPORT_H = 360
 
     def __init__(self, image_override, image_full=None):
         super().__init__()
@@ -846,39 +871,27 @@ class ReplicaWindow(Gtk.Window):
         # bottom, so single-purpose tools don't make the visible list grow.
         top_apps = [a for a in APPS if not a.get("group")]
         util_apps = [a for a in APPS if a.get("group") == "utilities"]
+        handful_apps = [a for a in APPS if a.get("group") == "handful"]
 
         self._pack_app_rows(apps_box, top_apps)
 
+        # Grouped apps: one row apiece that looks like any other app row, but
+        # whose button opens a separate flyout window listing that group — so
+        # the main popup stays short instead of growing inline.
+        if handful_apps:
+            self._pack_group_row(
+                apps_box, HANDFUL_TITLE,
+                HANDFUL_DESC + " So far: "
+                + ", ".join(a["name"].replace("just a... ", "")
+                            for a in handful_apps) + ".",
+                handful_apps)
+
         if util_apps:
-            # Utilities: a single row that looks like any other app row, but its
-            # button opens a separate flyout window listing the utility apps —
-            # so the main popup stays short instead of growing inline.
-            apps_box.pack_start(
-                Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
-                False, False, 0)
-            urow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            utext = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            uname = Gtk.Label()
-            uname.set_markup("<b>Utilities</b>")
-            uname.set_xalign(0.0)
-            udesc = Gtk.Label()
-            udesc.set_markup(
-                "<small>Small single-purpose tools — "
-                + GLib.markup_escape_text(
-                    ", ".join(a["name"] for a in util_apps))
-                + ".</small>")
-            udesc.set_xalign(0.0)
-            udesc.set_line_wrap(True)
-            udesc.set_max_width_chars(52)
-            utext.pack_start(uname, False, False, 0)
-            utext.pack_start(udesc, False, False, 0)
-            urow.pack_start(utext, True, True, 0)
-            ubtn = Gtk.Button(label="Open")
-            ubtn.set_valign(Gtk.Align.CENTER)
-            ubtn.connect("clicked",
-                         lambda _b: self._open_utilities(util_apps))
-            urow.pack_end(ubtn, False, False, 0)
-            apps_box.pack_start(urow, False, False, 0)
+            self._pack_group_row(
+                apps_box, "Utilities",
+                "Small single-purpose tools — "
+                + ", ".join(a["name"] for a in util_apps) + ".",
+                util_apps)
 
         # --- action row (kept above the Apps list) ---------------------------
         # Inset to match the Apps frame's content padding (border_width 10 + the
@@ -993,8 +1006,33 @@ class ReplicaWindow(Gtk.Window):
                 row.pack_end(ib, False, False, 0)
             container.pack_start(row, False, False, 0)
 
-    def _open_utilities(self, util_apps):
-        """Pop a separate flyout window listing the utility apps — same row style
+    def _pack_group_row(self, container, title, summary, apps):
+        """One row standing for a group of apps: bold title, a sentence saying
+        what the group is and who is in it, and a button opening the flyout."""
+        container.pack_start(
+            Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL),
+            False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        name = Gtk.Label()
+        name.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
+        name.set_xalign(0.0)
+        desc = Gtk.Label()
+        desc.set_markup(f"<small>{GLib.markup_escape_text(summary)}</small>")
+        desc.set_xalign(0.0)
+        desc.set_line_wrap(True)
+        desc.set_max_width_chars(52)
+        text.pack_start(name, False, False, 0)
+        text.pack_start(desc, False, False, 0)
+        row.pack_start(text, True, True, 0)
+        btn = Gtk.Button(label="Open")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.connect("clicked", lambda _b: self._open_group(title, apps))
+        row.pack_end(btn, False, False, 0)
+        container.pack_start(row, False, False, 0)
+
+    def _open_group(self, title, apps):
+        """Pop a separate flyout window listing one group's apps — same row style
         as the main Apps list, so the main popup stays short."""
         win = Gtk.Window()
         win.set_transient_for(self)
@@ -1002,13 +1040,16 @@ class ReplicaWindow(Gtk.Window):
         win.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         win.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
         win.set_border_width(0)
-        header = Gtk.HeaderBar(title="Utilities")
+        # Wide enough that a group holding one app doesn't come out as a narrow
+        # column of two-word lines; it still grows for longer rows.
+        win.set_default_size(470, -1)
+        header = Gtk.HeaderBar(title=title)
         header.set_show_close_button(True)
         win.set_titlebar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_border_width(12)
-        self._pack_app_rows(box, util_apps)
+        self._pack_app_rows(box, apps)
         win.add(box)
         win.connect("key-press-event",
                     lambda _w, e: win.destroy() if e.keyval == Gdk.KEY_Escape else None)

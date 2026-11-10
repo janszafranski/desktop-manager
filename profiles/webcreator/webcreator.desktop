@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=just a... WEBcreator
+GenericName=Website Designer
+Comment=Design websites by laying out pages, then publish them as HTML
+Exec=webcreator %f
+Icon=applications-development-web
+Terminal=false
+Categories=Development;WebDevelopment;Graphics;
+MimeType=application/x-webcreator-site;
+StartupWMClass=webcreator
