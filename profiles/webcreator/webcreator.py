@@ -4,7 +4,7 @@
 # It follows your desktop theme: colours, accent, fonts and icons all come
 # from the system (KDE Plasma colour scheme, Breeze/your icon theme, etc).
 
-import sys, os, re, json, copy, uuid, base64, hashlib, math, tempfile, html as H
+import sys, os, re, json, copy, uuid, base64, hashlib, math, tempfile, collections, html as H
 
 try:
     from PySide6.QtCore import (Qt, QRectF, QPointF, QSizeF, QTimer, QSettings, QUrl,
@@ -32,7 +32,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.4"
+VERSION = "1.6"
 
 # Where updates come from: a public GitHub repository holding a copy of this
 # file. UPDATE_PATH is where in that repository it sits — the top level if the
@@ -65,10 +65,23 @@ DEF = {
                      cells=[['Heading', 'Heading', 'Heading'], ['Cell', 'Cell', 'Cell'], ['Cell', 'Cell', 'Cell']]),
     'html':     dict(w=300, h=120, code='<p style="font:14px sans-serif">Your HTML here</p>'),
     'gallery':  dict(w=600, h=300, images=[], interval=5, fade=0.5, fit='cover', radius=0, strokeW=0, stroke='#333333', fill=''),
+    'share':    dict(w=480, h=40, nets=['facebook', 'x', 'linkedin', 'email'], style='colour', font='Arial', size=14, radius=6, gap=8),
     'form':     dict(w=360, h=300, font='Noto Sans', size=14, color='#2b2b2b', accent='#2a7d6b', fields=['Name', 'Email', 'Message'], submit='Send'),
 }
+SHARE_NETS = [  # id, label, button colour, share address ({u} = page address, {t} = page title)
+    ('facebook', 'Facebook', '#1877f2', 'https://www.facebook.com/sharer/sharer.php?u={u}'),
+    ('x', 'X (Twitter)', '#111111', 'https://twitter.com/intent/tweet?url={u}&text={t}'),
+    ('linkedin', 'LinkedIn', '#0a66c2', 'https://www.linkedin.com/sharing/share-offsite/?url={u}'),
+    ('whatsapp', 'WhatsApp', '#1f9e57', 'https://wa.me/?text={t}%20{u}'),
+    ('bluesky', 'Bluesky', '#1185fe', 'https://bsky.app/intent/compose?text={t}%20{u}'),
+    ('reddit', 'Reddit', '#e0461b', 'https://www.reddit.com/submit?url={u}&title={t}'),
+    ('threads', 'Threads', '#000000', 'https://www.threads.net/intent/post?text={t}%20{u}'),
+    ('email', 'Email', '#5a6872', 'mailto:?subject={t}&body={u}'),
+]
+NET = {n[0]: n for n in SHARE_NETS}
+
 TYPE_NAMES = dict(text='Text frame', artistic='Artistic text', shape='QuickShape', line='Line', picture='Picture',
-                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery')
+                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery', share='Share buttons')
 
 def mk(t, x, y, w=None, h=None, **p):
     o = dict(id=uid(), type=t, x=x, y=y, rot=0, opacity=1.0, hidden=False, locked=False, link=None)
@@ -916,11 +929,35 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
         br = QRectF(0, y, bw, fm.height() + 20); p.drawRoundedRect(br, 6, 6)
         fb = QFont(f); fb.setBold(True); p.setFont(fb); p.setPen(QColor('#ffffff'))
         p.drawText(br, Qt.AlignCenter, o.get('submit', 'Send'))
+    elif t == 'share':
+        f = qfont(dict(o, bold=True)); p.setFont(f); fm = QFontMetrics(f)
+        x, bh, gap = 0, fm.height() + 18, o.get('gap', 8)
+        for nid in o.get('nets', []):
+            if nid not in NET: continue
+            _, label, col, _ = NET[nid]; bw = fm.horizontalAdvance(label) + 28
+            br = QRectF(x, (h - bh) / 2, bw, bh)
+            if o.get('style') == 'outline':
+                p.setPen(QPen(QColor(col), 1.5)); p.setBrush(Qt.NoBrush); p.drawRoundedRect(br.adjusted(.75, .75, -.75, -.75), o.get('radius', 6), o.get('radius', 6))
+                p.setPen(QColor(col))
+            else:
+                p.setPen(Qt.NoPen); p.setBrush(QColor(col)); p.drawRoundedRect(br, o.get('radius', 6), o.get('radius', 6)); p.setPen(QColor('#ffffff'))
+            p.drawText(br, Qt.AlignCenter, label); x += bw + gap
     elif t == 'html':
         p.setPen(QPen(QColor('#7a858b'), 1, Qt.DashLine)); p.setBrush(QColor(240, 243, 245, 230)); p.drawRect(r.adjusted(.5, .5, -.5, -.5))
         f = QFont('monospace'); f.setPixelSize(12); p.setFont(f); p.setPen(QColor('#3b454b'))
         first = (o.get('code', '').strip().splitlines() or [''])[0]
-        p.drawText(r.adjusted(10, 8, -10, -8), Qt.AlignLeft | Qt.AlignTop, '</> HTML fragment\n' + first)
+        p.drawText(r.adjusted(10, 8, -10, -8), Qt.AlignLeft | Qt.AlignTop, '</> HTML fragment (shows when you preview or publish)\n' + first)
+
+def placed(o, site, page_h):
+    """A master object set to stay at the bottom of the page keeps its distance from the bottom edge."""
+    if o.get('anchor') == 'bottom':
+        return dict(o, y=o['y'] + (page_h - site['height']))
+    return o
+
+def page_objects(site, page):
+    m = next((x for x in site['masters'] if x['id'] == page['master']), site['masters'][0])
+    ph = page.get('height') or site['height']
+    return [placed(o, site, ph) for o in m['objects']] + page['objects']
 
 def render_page_image(site, page, width=240, crop=None):
     W, Hh = site['width'], page.get('height') or site['height']
@@ -930,7 +967,7 @@ def render_page_image(site, page, width=240, crop=None):
     m = next((x for x in site['masters'] if x['id'] == page['master']), site['masters'][0])
     img.fill(QColor(page.get('bg') or m.get('bg') or site.get('bg') or '#ffffff'))
     p = QPainter(img); p.setRenderHint(QPainter.Antialiasing); p.setRenderHint(QPainter.SmoothPixmapTransform); p.scale(sc, sc)
-    for o in m['objects'] + page['objects']:
+    for o in page_objects(site, page):
         if o.get('hidden'): continue
         p.save(); p.translate(o['x'], o['y'])
         if o.get('rot'):
@@ -1083,6 +1120,19 @@ def obj_html(o, site, page, img):
                 f'{fl}<button type="submit">{esc(o.get("submit", "Send"))}</button></form>')
     elif t == 'html':
         inner = o.get('code', '')
+    elif t == 'share':
+        st += text_css(dict(o, bold=True)) + 'display:flex;flex-wrap:wrap;align-items:center;' + f"gap:{o.get('gap', 8)}px;"
+        rad = o.get('radius', 6); links = ''
+        for nid in o.get('nets', []):
+            if nid not in NET: continue
+            _, label, col, _ = NET[nid]
+            look = (f'border:1.5px solid {col};color:{col};background:transparent' if o.get('style') == 'outline' else f'background:{col};color:#fff')
+            ext = '' if nid == 'email' else ' target="_blank" rel="noopener"'
+            links += f'<a data-net="{nid}" style="{look};padding:9px 14px;border-radius:{rad}px;text-decoration:none;line-height:1"{ext}>{esc(label)}</a>'
+        tpl = json.dumps({n[0]: n[3] for n in SHARE_NETS})
+        script = ('<script>(function(g){var u=encodeURIComponent(location.href),t=encodeURIComponent(document.title),m=' + tpl +
+                  ';g.querySelectorAll("a[data-net]").forEach(function(a){a.href=m[a.dataset.net].replace("{u}",u).replace("{t}",t)})})(document.currentScript.parentNode)</script>')
+        return f'<div class="obj obj-share" style="{st}">{links}{script}</div>'
     elif t == 'gallery':
         st += box_css(o) + 'overflow:hidden;'
         fade = o.get('fade', .5)
@@ -1097,7 +1147,7 @@ def obj_html(o, site, page, img):
 
 def page_html(site, page, img):
     m = next((x for x in site['masters'] if x['id'] == page['master']), site['masters'][0])
-    objs = [o for o in m['objects'] + page['objects'] if not o.get('hidden')]
+    objs = [o for o in page_objects(site, page) if not o.get('hidden')]
     fams = sorted({o.get('font') for o in objs if o.get('font') in GOOGLE})
     flink = ''
     if fams:
@@ -2388,6 +2438,7 @@ TOOLS = [
     ('nav', 'Navigation Bar', ['application-menu', 'view-list-details'], '☰', 'Drag to place a navigation bar. It lists the pages in your site automatically.'),
     ('button', 'Button', ['insert-button', 'dialog-ok'], '⬭', 'Drag to place a button, then give it a hyperlink.'),
     ('form', 'Form', ['view-form', 'document-edit'], '✎', 'Drag to place a contact form.'),
+    ('share', 'Share Buttons', ['document-share', 'emblem-shared-symbolic', 'mail-forward'], '⇪', 'Drag to place a row of buttons that let visitors share the page on social media.'),
     ('html', 'HTML Code', ['text-html', 'code-context'], '</>', 'Drag to place an HTML fragment.'),
 ]
 
@@ -2399,12 +2450,13 @@ class ObjItem(QGraphicsItem):
     def __init__(self, o, win, master=False):
         super().__init__()
         self.o, self.win, self.master, self.editing = o, win, master, False
+        self.dy = 0
         self.sync()
 
     def sync(self):
         o = self.o
         self.prepareGeometryChange()
-        self.setPos(o['x'], o['y'])
+        self.setPos(o['x'], o['y'] + self.dy)
         self.setTransformOriginPoint(o['w'] / 2, o['h'] / 2)
         self.setRotation(o.get('rot', 0))
         self.setOpacity(o.get('opacity', 1))
@@ -2540,7 +2592,7 @@ class Canvas(QGraphicsView):
             if abs(v.x() - vpos.x()) <= 6 and abs(v.y() - vpos.y()) <= 6: return k
         return None
 
-    def obj_at(self, vpos):
+    def obj_at(self, vpos, include_master=True):
         for it in self.items(vpos):
             if isinstance(it, ObjItem):
                 return it
@@ -2566,6 +2618,10 @@ class Canvas(QGraphicsView):
                 win.select([it.o['id']])
             win.context_menu(e.globalPosition().toPoint()); return
         if e.button() != Qt.LeftButton: return
+        if win.tool == 'pointer' and e.modifiers() & Qt.ControlModifier:
+            it = self.obj_at(vpos)
+            L = win.link_at(it, sp) if it else None
+            if L: win.follow_link(L); return
         if win.tool == 'zoom':
             self.set_zoom(self.zoom / 1.25 if e.modifiers() & (Qt.ShiftModifier | Qt.AltModifier) else self.zoom * 1.25, vpos); return
         hk = self.handle_at(vpos)
@@ -2597,6 +2653,16 @@ class Canvas(QGraphicsView):
         d = self.drag
         if not d:
             if win.editor: super().mouseMoveEvent(e); return
+            if win.tool == 'pointer':
+                it = self.obj_at(vpos, include_master=True)
+                L = win.link_at(it, sp) if it else None
+                if L:
+                    words, ok = win.describe_link(L)
+                    win.hint(('⚠ Broken link: ' if ok is False else 'Link → ') + words + '   (Ctrl+click to follow it)')
+                    self._over_link = L
+                    if e.modifiers() & Qt.ControlModifier: self.viewport().setCursor(Qt.PointingHandCursor); return
+                elif getattr(self, '_over_link', None):
+                    self._over_link = None; win.update_hint()
             hk = self.handle_at(vpos) if win.tool == 'pointer' else None
             cur = {'nw': Qt.SizeFDiagCursor, 'se': Qt.SizeFDiagCursor, 'ne': Qt.SizeBDiagCursor, 'sw': Qt.SizeBDiagCursor,
                    'n': Qt.SizeVerCursor, 's': Qt.SizeVerCursor, 'e': Qt.SizeHorCursor, 'w': Qt.SizeHorCursor}.get(hk)
@@ -3218,6 +3284,7 @@ class MainWindow(QMainWindow):
             saveas=A('Save &As…', self.save_as, QKeySequence.SaveAs, 'document-save-as'),
             import_=None,
             siteprops=A('Site &Properties…', self.site_props, None, 'document-properties'),
+            checklinks=A('Check &Links…', self.check_links, None, ['tools-check-spelling', 'insert-link', 'link']),
             prevpage=A('Preview &Page in Browser', self.preview_page, 'F12', ['document-preview', 'view-preview']),
             prevsite=A('Preview &Site in Browser', self.preview_site, 'Shift+F12', ['internet-web-browser', 'applications-internet']),
             publish=A('Publish to &Disk…', self.publish_disk, None, ['document-export', 'folder-publicshare']),
@@ -3273,7 +3340,7 @@ class MainWindow(QMainWindow):
                 elif isinstance(it, tuple): sub = m.addMenu(it[0]); [sub.addAction(x) if x else sub.addSeparator() for x in it[1]]
                 else: m.addAction(it)
             return m
-        menu('&File', [a['new'], a['open'], self.recent_menu_action(), a['openwpp'], a['import'], None, a['save'], a['saveas'], None, a['siteprops'], None,
+        menu('&File', [a['new'], a['open'], self.recent_menu_action(), a['openwpp'], a['import'], None, a['save'], a['saveas'], None, a['siteprops'], a['checklinks'], None,
                        a['prevpage'], a['prevsite'], a['publish'], None, a['quit']])
         menu('&Edit', [a['undo'], a['redo'], None, a['cut'], a['copy'], a['paste'], a['dup'], a['delete'], None, a['selall']])
         self.view_menu = menu('&View', [a['rulers'], a['grid'], a['snap'], None, a['zin'], a['zout'], a['z100'], a['zfit'], None])
@@ -3288,7 +3355,8 @@ class MainWindow(QMainWindow):
             ('vcenter', 'Align Middles Vertically', 'align-vertical-center'), ('bottom', 'Align Bottom Edges', 'align-vertical-bottom'),
             ('page', 'Centre on Page Horizontally', 'align-horizontal-center'))]
         self.a['lock'] = self.act('&Lock / Unlock', self.toggle_lock, 'Ctrl+L', ['object-locked', 'lock'])
-        menu('&Arrange', [a['front'], a['fwd'], a['back1'], a['back'], None, ('Align', al), None, self.a['lock']])
+        self.a['tomaster'] = self.act('Move Repeated Objects to &Master Page…', self.move_common_to_master, None, ['document-multiple', 'edit-copy'])
+        menu('&Arrange', [a['front'], a['fwd'], a['back1'], a['back'], None, ('Align', al), None, self.a['lock'], None, self.a['tomaster']])
         self.a['update'] = self.act('Update Available', self.install_update, None, ['system-software-update', 'update-none', 'download'])
         self.a['update'].setVisible(False)
         self.a['checkupdate'] = self.act('Check for &Updates…', lambda: self.check_updates(quiet=False), None, ['system-software-update', 'view-refresh'])
@@ -3451,6 +3519,10 @@ class MainWindow(QMainWindow):
                                     ('h', 'Height:', 1, 20000, ' px'), ('rot', 'Rotation:', -180, 180, '°')):
             sp = QDoubleSpinBox(); sp.setRange(lo, hi); sp.setSuffix(suf); sp.setDecimals(0 if k != 'rot' else 1)
             sp.valueChanged.connect(lambda v, k=k: self.studio_set(k, v)); xf.addRow(lbl, sp); self.tf[k] = sp
+        self.anchor_cb = QCheckBox('Keep at bottom of every page')
+        self.anchor_cb.setToolTip('For master page objects such as a footer: they stay the same distance from the bottom on pages of any height.')
+        self.anchor_cb.toggled.connect(self.anchor_toggled)
+        xf.addRow('', self.anchor_cb)
         self.d_xform = self.dock('Transform', xw, 'transform')
 
         # Layers
@@ -3500,7 +3572,9 @@ class MainWindow(QMainWindow):
         if not self.edit_master:
             for o in self.master_of(self.page())['objects']:
                 if o.get('hidden'): continue
-                it = ObjItem(o, self, master=True); it.setZValue(z); z += 1; sc.addItem(it); self.items['m:' + o['id']] = it
+                it = ObjItem(o, self, master=True)
+                if o.get('anchor') == 'bottom': it.dy = Hh - self.site['height']; it.sync()
+                it.setZValue(z); z += 1; sc.addItem(it); self.items['m:' + o['id']] = it
         for o in self.layer():
             if o.get('hidden'): continue
             it = ObjItem(o, self); it.setZValue(1000 + z); z += 1; sc.addItem(it); self.items[o['id']] = it
@@ -3528,7 +3602,12 @@ class MainWindow(QMainWindow):
         self.view.viewport().update(); self.update_rulers(); self.refresh_props()
 
     def update_title(self):
-        name = os.path.basename(self.path) if self.path else self.site['name']
+        if self.path:
+            folder = os.path.dirname(self.path); home = os.path.expanduser('~')
+            if folder == home or folder.startswith(home + os.sep): folder = '~' + folder[len(home):]
+            name = f'{os.path.basename(self.path)} ({folder})'
+        else:
+            name = f'{self.site["name"]} (not saved yet)'
         self.setWindowTitle(f'{"● " if self.dirty else ""}{name} — {APP}')
 
     def update_hint(self):
@@ -3540,6 +3619,7 @@ class MainWindow(QMainWindow):
                         ' Double-click to replace the picture.' if o['type'] == 'picture' else \
                         ' Double-click to edit the cells.' if o['type'] == 'table' else \
                         ' Double-click to choose its photos and timing.' if o['type'] == 'gallery' else \
+                        ' Each button shares whichever page it is on. Double-click to choose the sites.' if o['type'] == 'share' else \
                         ' It updates automatically when you add or rename pages.' if o['type'] == 'nav' else ''
                 self.hint(f'{TYPE_NAMES[o["type"]]} selected.{extra}' + (' (Locked)' if o.get('locked') else ''))
             else:
@@ -3625,6 +3705,8 @@ class MainWindow(QMainWindow):
                 label('Button'); add(ColorButton(o.get('accent'), lambda c: self.set_prop('accent', c), 'Button colour'))
             if t == 'html':
                 btn(['document-edit'], 'Edit HTML…', lambda: self.edit_object(o))
+            if t == 'share':
+                btn(['document-edit'], 'Choose Sites…', lambda: self.edit_object(o))
             if t == 'gallery':
                 btn(['document-edit'], 'Edit Gallery…', lambda: self.edit_object(o))
             tb.addSeparator()
@@ -3680,6 +3762,8 @@ class MainWindow(QMainWindow):
             for k, sp in self.tf.items(): sp.setValue(o.get(k, 0))
             self.ln_w.setValue(o.get('strokeW', 0)); self.ln_style.setCurrentText(o.get('dash', 'solid')); self.ln_rad.setValue(int(o.get('radius', 0)))
             v = round((1 - o.get('opacity', 1)) * 100); self.op_spin.setValue(v); self.op_slider.setValue(v)
+            self.anchor_cb.setChecked(o.get('anchor') == 'bottom')
+        self.anchor_cb.setVisible(bool(self.edit_master)); self.anchor_cb.setEnabled(bool(o))
         self._updating = False
 
     def refresh_layers(self):
@@ -3696,9 +3780,11 @@ class MainWindow(QMainWindow):
         if not self.edit_master:
             m = self.master_of(self.page())
             if m['objects']:
-                sep = QListWidgetItem(f'From master page “{m["name"]}”'); sep.setFlags(Qt.NoItemFlags); self.layers.addItem(sep)
+                sep = QListWidgetItem(f'Shown from master page “{m["name"]}” (edit the master to change)'); sep.setFlags(Qt.NoItemFlags)
+                f = sep.font(); f.setItalic(True); sep.setFont(f); self.layers.addItem(sep)
                 for o in reversed(m['objects']):
-                    it = QListWidgetItem('    ' + TYPE_NAMES[o['type']]); it.setFlags(Qt.NoItemFlags); self.layers.addItem(it)
+                    it = QListWidgetItem('    🔒 ' + TYPE_NAMES[o['type']]); it.setFlags(Qt.NoItemFlags)
+                    it.setForeground(self.palette().color(QPalette.PlaceholderText)); self.layers.addItem(it)
         self.layers.blockSignals(False)
 
     def layers_selected(self):
@@ -3778,6 +3864,7 @@ class MainWindow(QMainWindow):
         elif t == 'html': self.html_dialog(o)
         elif t == 'form': self.form_dialog(o)
         elif t == 'gallery': self.gallery_dialog(o)
+        elif t == 'share': self.share_dialog(o)
         elif t == 'nav': self.hint('The navigation bar lists your pages. Change pages in the Site tab; change its look on the context toolbar.')
 
     def start_edit(self, o, select_all=False):
@@ -3947,6 +4034,27 @@ class MainWindow(QMainWindow):
         ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly); img.save(buf, 'PNG')
         return 'data:image/png;base64,' + bytes(ba.toBase64()).decode()
 
+    def share_dialog(self, o):
+        dlg = QDialog(self); dlg.setWindowTitle('Share Buttons'); lay = QVBoxLayout(dlg)
+        lab = QLabel('Visitors click a button to share the page they are on. Tick the sites to show; drag to change the order.')
+        lab.setWordWrap(True); lay.addWidget(lab)
+        lst = QListWidget(); lst.setDragDropMode(QAbstractItemView.InternalMove); lay.addWidget(lst)
+        order = list(o.get('nets', [])) + [n[0] for n in SHARE_NETS if n[0] not in o.get('nets', [])]
+        for nid in order:
+            it = QListWidgetItem(swatch_icon(NET[nid][2], 16), NET[nid][1]); it.setData(Qt.UserRole, nid)
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable); it.setCheckState(Qt.Checked if nid in o.get('nets', []) else Qt.Unchecked)
+            lst.addItem(it)
+        form = QFormLayout(); lay.addLayout(form)
+        style = QComboBox(); style.addItems(['Coloured buttons', 'Outlined buttons']); style.setCurrentIndex(1 if o.get('style') == 'outline' else 0)
+        size = QSpinBox(); size.setRange(9, 32); size.setSuffix(' px'); size.setValue(int(o.get('size', 14)))
+        form.addRow('Look:', style); form.addRow('Text size:', size)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
+        if dlg.exec():
+            self.commit()
+            o['nets'] = [lst.item(i).data(Qt.UserRole) for i in range(lst.count()) if lst.item(i).checkState() == Qt.Checked]
+            o['style'] = 'outline' if style.currentIndex() else 'colour'; o['size'] = size.value()
+            self.refresh()
+
     def gallery_dialog(self, o):
         dlg = QDialog(self); dlg.setWindowTitle('Photo Gallery'); dlg.resize(560, 460); lay = QVBoxLayout(dlg)
         lay.addWidget(QLabel('The photos are shown one after another, in this order.'))
@@ -4001,36 +4109,297 @@ class MainWindow(QMainWindow):
             self.commit(); o['fields'] = [x.strip() for x in fields.toPlainText().splitlines() if x.strip()]; o['submit'] = sub.text() or 'Send'
             o['h'] = max(o['h'], 60 + 70 * len(o['fields'])); self.refresh()
 
-    def hyperlink_dialog(self):
-        objs = [o for o in self.sel_objs() if o['type'] not in ('nav', 'form')]
-        if not objs: self.hint('Select an object to give it a hyperlink.'); return
-        L = objs[0].get('link') or {}
-        dlg = QDialog(self); dlg.setWindowTitle('Hyperlinks'); lay = QVBoxLayout(dlg)
-        grp = QButtonGroup(dlg); rbs = {}
-        form = QGridLayout(); lay.addLayout(form)
-        pages = QComboBox(); [pages.addItem(('   ' if p.get('level') else '') + p['title'], p['id']) for p in self.site['pages']]
-        url = QLineEdit(L.get('target', 'https://') if L.get('type') == 'url' else 'https://')
-        mail = QLineEdit(L.get('target', '') if L.get('type') == 'email' else '')
-        for i, (k, lbl, w) in enumerate((('none', 'No hyperlink', None), ('page', 'A page in your site', pages),
-                                         ('url', 'An internet page', url), ('email', 'An email address', mail))):
+    # ------------------------------------------------------------ hyperlinks
+    def link_to_href(self, L):
+        if not L: return ''
+        return {'page': 'wcpage:', 'file': 'wcfile:', 'email': 'mailto:'}.get(L['type'], '') + L['target']
+
+    def href_to_link(self, href):
+        if not href: return None
+        for pre, kind in (('wcpage:', 'page'), ('wcfile:', 'file'), ('mailto:', 'email')):
+            if href.startswith(pre): return {'type': kind, 'target': href[len(pre):]}
+        return {'type': 'url', 'target': href}
+
+    def describe_link(self, L):
+        """Where a link goes, in words, and whether it can work."""
+        if not L: return 'No link', None
+        t, v = L['type'], L.get('target', '')
+        if t == 'page':
+            pg = self.page_by_id(v)
+            return (f'Page in this site: {pg["title"]}', True) if pg else ('Page that no longer exists', False)
+        if t == 'file':
+            name = self.site.get('assetnames', {}).get(v, 'document')
+            return (f'Document: {name}', True) if v in self.site.get('assets', {}) else ('Document that is missing', False)
+        if t == 'email': return f'Email: {v}', True
+        return f'Website: {v}', None
+
+    def documents(self):
+        an = self.site.get('assetnames', {})
+        return [(k, an.get(k, 'document')) for k, v in self.site.get('assets', {}).items() if not v.startswith('data:image/')]
+
+    def ask_link(self, L, title='Hyperlink'):
+        """Returns a link, None for 'no link', or False if cancelled."""
+        L = L or {}
+        dlg = QDialog(self); dlg.setWindowTitle(title); dlg.setMinimumWidth(560); lay = QVBoxLayout(dlg)
+        grp = QButtonGroup(dlg); rbs = {}; form = QGridLayout(); lay.addLayout(form)
+        pages = QComboBox(); [pages.addItem(('    ' if p.get('level') else '') + p['title'], p['id']) for p in self.site['pages']]
+        url = QLineEdit(L.get('target', '') if L.get('type') == 'url' else ''); url.setPlaceholderText('https://www.example.org/page')
+        mail = QLineEdit(L.get('target', '') if L.get('type') == 'email' else ''); mail.setPlaceholderText('name@example.org')
+        docs = QComboBox()
+        for k, n in sorted(self.documents(), key=lambda d: d[1].lower()): docs.addItem(n, k)
+        docrow = QWidget(); dl = QHBoxLayout(docrow); dl.setContentsMargins(0, 0, 0, 0); dl.addWidget(docs, 1)
+        add = QPushButton(ticon(['document-open'], ''), 'Add a File…'); dl.addWidget(add)
+        def add_file():
+            path, _ = QFileDialog.getOpenFileName(dlg, 'Choose a document to link to', os.path.expanduser('~/Documents'),
+                                                  'Documents (*.pdf *.doc *.docx *.odt *.xls *.xlsx *.ods *.ppt *.pptx *.zip *.txt *.mp3 *.mp4 *.jpg *.png);;All files (*)')
+            if not path: return
+            ext = os.path.splitext(path)[1].lower().lstrip('.')
+            with open(path, 'rb') as fh: data = fh.read()
+            k = add_asset(self.site, f'data:{MIME.get(ext, "application/octet-stream")};base64,' + base64.b64encode(data).decode())
+            self.site.setdefault('assetnames', {})[k] = os.path.basename(path)
+            if docs.findData(k) < 0: docs.addItem(os.path.basename(path), k)
+            docs.setCurrentIndex(docs.findData(k)); rbs['file'].setChecked(True)
+        add.clicked.connect(add_file)
+        rows = (('none', 'No link', None), ('page', 'A page in this site', pages), ('url', 'A website', url),
+                ('file', 'A document (PDF, Word…)', docrow), ('email', 'An email address', mail))
+        for i, (k, lbl, w) in enumerate(rows):
             rb = QRadioButton(lbl); grp.addButton(rb); rbs[k] = rb; form.addWidget(rb, i, 0)
             if w: form.addWidget(w, i, 1)
-        if L.get('type') == 'page':
-            idx = pages.findData(L.get('target')); pages.setCurrentIndex(max(0, idx))
+        if L.get('type') == 'page': pages.setCurrentIndex(max(0, pages.findData(L.get('target'))))
+        if L.get('type') == 'file' and docs.findData(L.get('target')) >= 0: docs.setCurrentIndex(docs.findData(L.get('target')))
         rbs.get(L.get('type') or 'none', rbs['none']).setChecked(True)
         pages.activated.connect(lambda *_: rbs['page'].setChecked(True)); url.textEdited.connect(lambda *_: rbs['url'].setChecked(True))
-        mail.textEdited.connect(lambda *_: rbs['email'].setChecked(True))
+        mail.textEdited.connect(lambda *_: rbs['email'].setChecked(True)); docs.activated.connect(lambda *_: rbs['file'].setChecked(True))
+        if L.get('type') == 'url':
+            tb = QPushButton(ticon(['internet-web-browser'], ''), 'Open in Browser')
+            tb.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url.text().strip()))); form.addWidget(tb, 2, 2)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
-        if not dlg.exec(): return
-        if rbs['page'].isChecked(): link = {'type': 'page', 'target': pages.currentData()}
-        elif rbs['url'].isChecked() and url.text().strip() not in ('', 'https://'):
-            u = url.text().strip(); link = {'type': 'url', 'target': u if re.match(r'^[a-z]+:', u) else 'https://' + u}
-        elif rbs['email'].isChecked() and mail.text().strip(): link = {'type': 'email', 'target': mail.text().strip()}
-        else: link = None
+        if not dlg.exec(): return False
+        if rbs['page'].isChecked(): return {'type': 'page', 'target': pages.currentData()}
+        if rbs['url'].isChecked() and url.text().strip():
+            u = url.text().strip(); return {'type': 'url', 'target': u if re.match(r'^[a-z]+:', u, re.I) else 'https://' + u}
+        if rbs['file'].isChecked() and docs.currentData(): return {'type': 'file', 'target': docs.currentData()}
+        if rbs['email'].isChecked() and mail.text().strip(): return {'type': 'email', 'target': mail.text().strip()}
+        return None
+
+    def hyperlink_dialog(self):
+        if self.editor: return self.text_link_dialog()
+        objs = [o for o in self.sel_objs() if o['type'] not in ('nav', 'form', 'share')]
+        if not objs:
+            self.hint('Select a picture, button or box to link it, or double-click into text and select some words.'); return
+        link = self.ask_link(objs[0].get('link'), 'Hyperlink for ' + TYPE_NAMES[objs[0]['type']].lower())
+        if link is False: return
         self.commit()
         for o in objs: o['link'] = link
         self.refresh()
-        self.hint('Hyperlink set.' if link else 'Hyperlink removed.')
+        self.hint(('Link set: ' + self.describe_link(link)[0]) if link else 'Link removed.')
+
+    def text_link_dialog(self):
+        ed = self.editor; c = ed.textCursor()
+        if not c.hasSelection():
+            href = c.charFormat().anchorHref()
+            if not href:
+                self.hint('Select the words you want to turn into a link, then choose Hyperlink again (Ctrl+K).'); return
+            # select the whole existing link around the cursor
+            b = c.block(); it = b.begin()
+            while not it.atEnd():
+                f = it.fragment()
+                if f.charFormat().anchorHref() == href and f.position() <= c.position() <= f.position() + f.length():
+                    c.setPosition(f.position()); c.setPosition(f.position() + f.length(), QTextCursor.KeepAnchor); break
+                it += 1
+        cur = self.href_to_link(c.charFormat().anchorHref() if c.charFormat().isAnchor() else '')
+        link = self.ask_link(cur, 'Link selected text')
+        ed.setFocus()
+        if link is False: ed.setTextCursor(c); return
+        o = self.find(self.edit_id)
+        fmt = QTextCharFormat()
+        if link:
+            fmt.setAnchor(True); fmt.setAnchorHref(self.link_to_href(link))
+            fmt.setForeground(QColor('#1155cc')); fmt.setFontUnderline(True)
+        else:
+            fmt.setAnchor(False); fmt.setAnchorHref('')
+            fmt.setForeground(QColor((o or {}).get('color', '#000000'))); fmt.setFontUnderline(False)
+        c.mergeCharFormat(fmt); ed.setTextCursor(c)
+        self.hint(('Link set: ' + self.describe_link(link)[0]) if link else 'Link removed.')
+
+    def link_at(self, it, sp):
+        """The link under a point on the canvas: the object's own link, or a link inside its text."""
+        o = it.o
+        if o['type'] in ('text', 'artistic', 'button') and o.get('html') and 'href=' in o['html']:
+            key = (o['id'], o['html'], o['w'], o.get('size'), o.get('font'))
+            cache = self.__dict__.setdefault('_doc_cache', {})
+            if key not in cache:
+                if len(cache) > 200: cache.clear()
+                cache[key] = make_doc(o)
+            doc = cache[key]; pad = o.get('pad', 8) if o['type'] == 'text' else 0
+            y0 = (o['h'] - doc.size().height()) / 2 if o['type'] == 'button' else pad
+            lp = it.mapFromScene(sp) - QPointF(pad, y0)
+            href = doc.documentLayout().anchorAt(lp)
+            if href: return self.href_to_link(href)
+        return o.get('link')
+
+    def follow_link(self, L):
+        if not L: return
+        t, v = L['type'], L['target']
+        if t == 'page' and self.page_by_id(v): self.goto_page(v)
+        elif t == 'url': QDesktopServices.openUrl(QUrl(v))
+        elif t == 'email': QDesktopServices.openUrl(QUrl('mailto:' + v))
+        elif t == 'file' and v in self.site.get('assets', {}):
+            name = re.sub(r'[^A-Za-z0-9._-]+', '-', self.site.get('assetnames', {}).get(v, v))
+            path = os.path.join(self.preview_dir, name)
+            with open(path, 'wb') as fh: fh.write(base64.b64decode(self.site['assets'][v].split(',', 1)[1]))
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    # ------------------------------------------------------------ link checker
+    def all_links(self):
+        rows = []
+        layers = [(p, p['title'], p['objects']) for p in self.site['pages']] + \
+                 [(m, f'Master page: {m["name"]}', m['objects']) for m in self.site['masters']]
+        for owner, where, objs in layers:
+            for o in objs:
+                if o.get('link'):
+                    rows.append(dict(owner=owner, where=where, obj=o, kind='obj', link=o['link'], label=TYPE_NAMES[o['type']], n=0))
+                seen = collections.Counter()
+                for m in re.finditer(r'<a\s[^>]*href="([^"]*)"[^>]*>(.*?)</a>', o.get('html', ''), re.S):
+                    href = H.unescape(m.group(1)); seen[href] += 1
+                    txt = re.sub(r'\s+', ' ', H.unescape(re.sub('<[^>]+>', '', m.group(2)))).strip() or '(link)'
+                    rows.append(dict(owner=owner, where=where, obj=o, kind='text', link=self.href_to_link(href), href=href,
+                                     label=f'“{txt[:60]}”', n=seen[href] - 1))
+        return rows
+
+    def check_links(self):
+        if self.editor: self.finish_edit()
+        rows = self.all_links()
+        dlg = QDialog(self); dlg.setWindowTitle('Check Links'); dlg.resize(1000, 600); lay = QVBoxLayout(dlg)
+        summary = QLabel(); summary.setWordWrap(True); lay.addWidget(summary)
+        top = QHBoxLayout(); lay.addLayout(top)
+        show = QComboBox(); show.addItems(['All links', 'Problems only', 'Website links', 'Links to pages', 'Documents', 'Email'])
+        top.addWidget(QLabel('Show:')); top.addWidget(show); top.addStretch()
+        test = QPushButton(ticon(['network-connect', 'view-refresh'], ''), 'Test Website Links'); top.addWidget(test)
+        tbl = QTableWidget(0, 4); tbl.setHorizontalHeaderLabels(['Page', 'Link', 'Goes to', 'Status'])
+        tbl.setEditTriggers(QAbstractItemView.NoEditTriggers); tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
+        tbl.verticalHeader().hide(); tbl.setWordWrap(False)
+        hh = tbl.horizontalHeader(); hh.setStretchLastSection(True)
+        for i, wdt in enumerate((230, 250, 330)): tbl.setColumnWidth(i, wdt)
+        lay.addWidget(tbl, 1)
+        bot = QHBoxLayout(); lay.addLayout(bot)
+        bot.addWidget(QLabel('Double-click a row to go to it.')); bot.addStretch()
+        change = QPushButton(ticon(['insert-link', 'document-edit'], ''), 'Change Link…'); bot.addWidget(change)
+        close = QPushButton('Close'); close.clicked.connect(dlg.accept); bot.addWidget(close)
+        web = {}   # url -> (ok: True/False/None, words)
+        good, bad, warn = QColor('#2e7d32'), QColor('#c62828'), QColor('#b26a00')
+
+        def status(r):
+            words, ok = self.describe_link(r['link'])
+            if r['link'] and r['link']['type'] == 'url':
+                res = web.get(r['link']['target'])
+                if res: return words, res[1], res[0]
+                return words, 'Not tested yet', None
+            return words, ('Works' if ok else 'Broken'), ok
+
+        def fill():
+            mode = show.currentIndex(); tbl.setRowCount(0); n_bad = n_ok = n_unk = 0
+            for r in rows:
+                words, st, ok = status(r)
+                if ok is False: n_bad += 1
+                elif ok: n_ok += 1
+                else: n_unk += 1
+                t = (r['link'] or {}).get('type')
+                if mode == 1 and ok is not False: continue
+                if mode == 2 and t != 'url': continue
+                if mode == 3 and t != 'page': continue
+                if mode == 4 and t != 'file': continue
+                if mode == 5 and t != 'email': continue
+                i = tbl.rowCount(); tbl.insertRow(i)
+                for j, v in enumerate((r['where'], r['label'], words, st)):
+                    it = QTableWidgetItem(v); it.setToolTip(v); tbl.setItem(i, j, it)
+                tbl.item(i, 0).setData(Qt.UserRole, rows.index(r))
+                if ok is not None: tbl.item(i, 3).setForeground(good if ok else bad)
+                elif st != 'Not tested yet': tbl.item(i, 3).setForeground(warn)
+            untested = sum(1 for r in rows if r['link'] and r['link']['type'] == 'url' and r['link']['target'] not in web)
+            summary.setText(f'<b>{len(rows)} links.</b> {n_ok} work, <span style="color:{bad.name()}">{n_bad} broken</span>, {n_unk} to check'
+                            + (f' ({untested} website links not tested yet: click <i>Test Website Links</i>, it needs an internet connection).' if untested else '.'))
+        show.currentIndexChanged.connect(fill)
+
+        def current():
+            i = tbl.currentRow()
+            return rows[tbl.item(i, 0).data(Qt.UserRole)] if i >= 0 and tbl.item(i, 0) else None
+
+        def go(*_):
+            r = current()
+            if not r: return
+            if r['owner'] in self.site['masters']: self.goto_master(r['owner']['id'])
+            else: self.goto_page(r['owner']['id'])
+            self.select([r['obj']['id']])
+            it = self.items.get(r['obj']['id'])
+            if it: self.view.centerOn(it)
+        tbl.cellDoubleClicked.connect(go)
+
+        def change_link():
+            r = current()
+            if not r: return
+            link = self.ask_link(r['link'], 'Change Link')
+            if link is False: return
+            self.commit(); o = r['obj']
+            if r['kind'] == 'obj': o['link'] = link
+            else:
+                old = 'href="' + H.escape(r['href'], quote=True) + '"'
+                parts = o['html'].split(old)
+                if len(parts) > r['n'] + 1:
+                    if link:
+                        o['html'] = old.join(parts[:r['n'] + 1]) + 'href="' + H.escape(self.link_to_href(link), quote=True) + '"' + old.join(parts[r['n'] + 1:])
+                    else:   # unlink: keep the words
+                        m = re.compile(r'<a\s[^>]*' + re.escape(old) + r'[^>]*>(.*?)</a>', re.S)
+                        hits = list(m.finditer(o['html']))
+                        if len(hits) > r['n']:
+                            h = hits[r['n']]; o['html'] = o['html'][:h.start()] + h.group(1) + o['html'][h.end():]
+            rows[:] = self.all_links(); self.refresh(); fill()
+        change.clicked.connect(change_link)
+
+        def run_test():
+            from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+            urls = sorted({r['link']['target'] for r in rows if r['link'] and r['link']['type'] == 'url' and r['link']['target'] not in web})
+            if not urls: return
+            nam = QNetworkAccessManager(dlg); queue = list(urls); live = [0]; total = len(urls)
+            test.setEnabled(False); test.setText('Checking the internet connection…')
+            def probe_done(pr):
+                ok = pr.attribute(QNetworkRequest.HttpStatusCodeAttribute) is not None
+                why = pr.errorString(); pr.deleteLater()
+                if not ok:
+                    test.setText('Test Website Links'); test.setEnabled(True)
+                    QMessageBox.warning(dlg, 'Check Links', "Couldn't reach the internet, so website links can't be tested right now.\n\n" + why)
+                    return
+                start_next()
+            pr = nam.get(QNetworkRequest(QUrl('https://www.wikipedia.org/')))
+            pr.metaDataChanged.connect(lambda: pr.attribute(QNetworkRequest.HttpStatusCodeAttribute) and pr.abort())
+            pr.finished.connect(lambda: probe_done(pr))
+            def start_next():
+                while queue and live[0] < 6:
+                    u = queue.pop(0); live[0] += 1
+                    req = QNetworkRequest(QUrl(u)); req.setTransferTimeout(15000)
+                    req.setAttribute(QNetworkRequest.RedirectPolicyAttribute, QNetworkRequest.NoLessSafeRedirectPolicy)
+                    req.setRawHeader(b'User-Agent', b'Mozilla/5.0 (X11; Linux x86_64) WEBcreator-link-check')
+                    rep_ = nam.get(req); rep_.setProperty('u', u)
+                    rep_.metaDataChanged.connect(lambda r_=rep_: r_.attribute(QNetworkRequest.HttpStatusCodeAttribute) and r_.abort())
+                    rep_.finished.connect(lambda r_=rep_: done(r_))
+            def done(r_):
+                u = r_.property('u'); code = r_.attribute(QNetworkRequest.HttpStatusCodeAttribute); err = r_.error()
+                if code:
+                    code = int(code)
+                    if code < 400: web[u] = (True, 'Works')
+                    elif code in (404, 410): web[u] = (False, f'Broken: page not found ({code})')
+                    elif code in (401, 403, 405, 429, 999): web[u] = (None, f'Site refused the check ({code}); open it to be sure')
+                    else: web[u] = (False if code >= 500 else None, f'Site error ({code})')
+                elif err == QNetworkReply.HostNotFoundError: web[u] = (False, 'Broken: website no longer exists')
+                elif err in (QNetworkReply.TimeoutError, QNetworkReply.OperationCanceledError): web[u] = (None, 'No reply (site slow or down)')
+                else: web[u] = (False, 'Broken: ' + r_.errorString()[:60])
+                r_.deleteLater(); live[0] -= 1
+                test.setText(f'Testing… {len([x for x in urls if x in web])} of {total}')
+                if len([x for x in urls if x in web]) % 10 == 0 or not queue: fill()
+                if queue: start_next()
+                elif live[0] == 0: test.setText('Test Website Links'); test.setEnabled(True); fill()
+        test.clicked.connect(run_test)
+        fill(); dlg.exec()
 
     # ------------------------------------------------------------ pages
     def goto_page(self, pid):
@@ -4135,6 +4504,10 @@ class MainWindow(QMainWindow):
                           QLabel('The browser background (and picture, tiled) fills the window around your pages when published.'))
         if not dlg.exec(): return
         self.commit()
+        dh = h.value() - self.site['height']
+        for m in self.site['masters']:
+            for o in m['objects']:
+                if o.get('anchor') == 'bottom': o['y'] += dh
         self.site.update(name=name.text().strip() or self.site['name'], width=w.value(), height=h.value(), bg=bgc[0], bgimage=pic[0])
         self.refresh()
 
@@ -4252,6 +4625,95 @@ class MainWindow(QMainWindow):
                 elif how == 'vcenter': o['y'] = round((t + b - o['h']) / 2)
         self.refresh()
 
+    def anchor_toggled(self, v):
+        if self._updating: return
+        self.studio_set('anchor', 'bottom' if v else None)
+        if v: self.make_room_at_bottom()
+
+    def make_room_at_bottom(self, quiet=False):
+        """Pages grow where needed, so master objects kept at the bottom never cover page content."""
+        grown = 0
+        for m in self.site['masters']:
+            anchored = [o for o in m['objects'] if o.get('anchor') == 'bottom' and not o.get('hidden')]
+            if not anchored: continue
+            need = self.site['height'] - min(o['y'] for o in anchored)        # depth of the bottom area
+            for p in self.site['pages']:
+                if p['master'] != m['id'] or not p['objects']: continue
+                ph = p.get('height') or self.site['height']
+                bottom = max(o['y'] + o['h'] for o in p['objects'] if not o.get('hidden')) if any(not o.get('hidden') for o in p['objects']) else 0
+                extra = bottom + 16 - (ph - need)
+                if extra > 0: p['height'] = round(ph + extra); grown += 1
+        if grown:
+            self.refresh()
+            if not quiet: self.hint(f'Made {grown} page(s) taller so the bottom of the master page doesn\'t cover their content.')
+        return grown
+
+    def find_repeated(self, share=.8):
+        """Objects that appear on most pages using the same master: same kind, same content, same
+        horizontal place, and either the same distance from the top or from the bottom."""
+        an = self.site.get('assetnames', {})
+        def text(o): return re.sub(r'\s+', ' ', H.unescape(re.sub('<[^>]+>', '', o.get('html', '') or o.get('code', '')))).strip()
+        def key(o): return (o['type'], o.get('src') or '', text(o), json.dumps(o.get('images')), o.get('shape'), o.get('fill', ''))
+        found = []
+        for m in self.site['masters']:
+            pages = [p for p in self.site['pages'] if p['master'] == m['id']]
+            if len(pages) < 2: continue
+            groups = {}
+            for p in pages:
+                ph = p.get('height') or self.site['height']
+                for o in p['objects']:
+                    if o['type'] == 'shape' and not o.get('fill') and not o.get('strokeW'): continue
+                    if o['type'] in ('text', 'artistic', 'button') and not text(o): continue
+                    groups.setdefault(key(o), []).append((p, o, ph))
+            have = {key(o) for o in m['objects']}
+            for k, occ in groups.items():
+                pg = {p['id'] for p, _, _ in occ}
+                if len(pg) < max(2, share * len(pages)): continue
+                geo = collections.Counter((round(o['x']), round(o['w']), round(o['h'])) for _, o, _ in occ).most_common(1)[0][0]
+                tops = collections.Counter(round(o['y']) for _, o, _ in occ)
+                bots = collections.Counter(round(ph - o['y']) for _, o, ph in occ)
+                (top, nt), (bot, nb) = tops.most_common(1)[0], bots.most_common(1)[0]
+                if max(nt, nb) < .8 * len(occ): continue          # not in a consistent place
+                anchor = 'bottom' if nb > nt else None
+                model = next(o for _, o, _ in occ if (round(o['x']), round(o['w']), round(o['h'])) == geo)
+                label = an.get(k[1]) or k[2][:60] or TYPE_NAMES[k[0]]
+                found.append(dict(master=m, objs=[(p, o) for p, o, _ in occ], model=model, anchor=anchor,
+                                  y=top if not anchor else self.site['height'] - bot, pages=len(pg), total=len(pages),
+                                  label=f'{TYPE_NAMES[k[0]]}: {label}', already=k in have))
+        return found
+
+    def move_common_to_master(self):
+        if self.editor: self.finish_edit()
+        found = self.find_repeated()
+        if not found:
+            QMessageBox.information(self, 'Move to Master Page', 'No object appears on most pages, so there is nothing to move.\n\n'
+                                    'Objects already on a master page are shown on every page that uses it.'); return
+        dlg = QDialog(self); dlg.setWindowTitle('Move Repeated Objects to Master Page'); dlg.resize(620, 360); lay = QVBoxLayout(dlg)
+        lab = QLabel('These objects are repeated on most pages. Tick the ones to keep once, on the master page; '
+                     'the copies on the individual pages are removed. Your existing master page is kept as it is.')
+        lab.setWordWrap(True); lay.addWidget(lab)
+        lst = QListWidget(); lay.addWidget(lst)
+        for i, f in enumerate(found):
+            where = 'kept at the bottom of every page' if f['anchor'] else 'same place on every page'
+            extra = ' · already on the master page' if f['already'] else ''
+            it = QListWidgetItem(f"{f['label']}\n    on {f['pages']} of {f['total']} pages · {where}{extra}")
+            it.setFlags(it.flags() | Qt.ItemIsUserCheckable); it.setCheckState(Qt.Checked); it.setData(Qt.UserRole, i); lst.addItem(it)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); bb.button(QDialogButtonBox.Ok).setText('Move to Master Page')
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
+        if not dlg.exec(): return
+        chosen = [found[lst.item(i).data(Qt.UserRole)] for i in range(lst.count()) if lst.item(i).checkState() == Qt.Checked]
+        if not chosen: return
+        self.commit(); removed = 0
+        for f in chosen:
+            if not f['already']:
+                o = copy.deepcopy(f['model']); o['id'] = uid(); o['y'] = f['y']; o['locked'] = False
+                if f['anchor']: o['anchor'] = 'bottom'
+                f['master']['objects'].append(o)
+            for p, o in f['objs']:
+                if o in p['objects']: p['objects'].remove(o); removed += 1
+        self.sel = []; self.refresh(); self.make_room_at_bottom(quiet=True)
+        self.hint(f'Moved {len(chosen)} object(s) to the master page and removed {removed} copies from the pages.')
+
     def toggle_lock(self):
         objs = self.sel_objs()
         if not objs: return
@@ -4312,6 +4774,14 @@ class MainWindow(QMainWindow):
         return r == QMessageBox.Discard
 
     def set_site(self, site, path=None):
+        for layer in [p['objects'] for p in site['pages']] + [m['objects'] for m in site['masters']]:
+            for i, o in enumerate(layer):
+                if o['type'] == 'html' and 'class="share"' in o.get('code', '') and 'data-net' in o.get('code', ''):
+                    nets = [{'fb': 'facebook', 'li': 'linkedin', 'mail': 'email'}.get(n, n) for n in re.findall(r'data-net="(\w+)"', o['code'])]
+                    n = mk('share', o['x'], o['y'], o['w'], o['h'], nets=[x for x in nets if x in NET]); n['id'] = o['id']
+                    for k in ('anchor', 'locked', 'hidden'):
+                        if o.get(k): n[k] = o[k]
+                    layer[i] = n
         self.site = site; self.site.setdefault('assets', {}); self.path = path; self.dirty = False
         self.undo, self.redo = [], []; self.cur_page = site['pages'][0]['id']; self.edit_master = None; self.sel = []
         _PIX.clear(); self.refresh(); QTimer.singleShot(0, self.view.fit_width)
@@ -4460,7 +4930,7 @@ class MainWindow(QMainWindow):
         except OSError as ex:
             QMessageBox.warning(self, APP, f"Couldn't save to {path}.\n{ex}"); return False
         self.path = path; self.dirty = False; self.add_recent(path); self.update_title()
-        self.hint(f'Saved {os.path.basename(path)}.'); return True
+        self.hint(f'Saved to {path}'); return True
 
     # ------------------------------------------------------------ preview & publish
     def preview_page(self):
