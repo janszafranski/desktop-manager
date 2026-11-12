@@ -11,7 +11,7 @@ try:
                                 QByteArray, QBuffer, QIODevice, QSize, QLineF, QEvent)
     from PySide6.QtGui import (QAction, QActionGroup, QIcon, QPixmap, QImage, QPainter, QColor,
                                QPen, QBrush, QFont, QFontMetrics, QPainterPath, QPalette, QTransform,
-                               QTextDocument, QTextOption, QTextCursor, QTextCharFormat,
+                               QTextDocument, QTextOption, QTextCursor, QTextCharFormat, QTextFormat,
                                QTextBlockFormat, QAbstractTextDocumentLayout, QKeySequence,
                                QDesktopServices, QPolygonF, QCursor)
     from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QGraphicsView, QGraphicsScene,
@@ -32,7 +32,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.7"
+VERSION = "1.8"
 
 # Where updates come from: a public GitHub repository holding a copy of this
 # file. UPDATE_PATH is where in that repository it sits — the top level if the
@@ -766,6 +766,78 @@ def make_doc(o):
     pad = o.get('pad', 8) if o['type'] == 'text' else 0
     doc.setTextWidth(max(10, o['w'] - 2 * pad))
     return doc
+
+TEXT_PROPS = {
+    'font': ('FontFamilies', 'FontFamily'), 'size': ('FontPixelSize', 'FontPointSize'), 'color': ('ForegroundBrush',),
+    'bold': ('FontWeight',), 'italic': ('FontItalic',), 'underline': ('FontUnderline', 'TextUnderlineStyle'),
+}
+
+def _prop_ids(keys):
+    from PySide6.QtGui import QTextFormat
+    return [getattr(QTextFormat.Property, n) for k in keys for n in TEXT_PROPS[k]]
+
+def _doc_body(doc):
+    m = re.search(r'<body[^>]*>(.*)</body>', doc.toHtml(), re.S)
+    return m.group(1).strip() if m else doc.toHtml()
+
+def clear_text_format(o, keys):
+    """Remove formatting set on individual words for these settings, so the frame's own setting applies.
+    Links keep their colour and underline."""
+    if not o.get('html'): return o.get('html')
+    doc = make_doc(o); ids = _prop_ids(keys); changed = False
+    link_keep = set(_prop_ids([k for k in ('color', 'underline') if k in keys]))
+    # read everything first: changing the text while stepping through it is not safe
+    blocks, frags = [], []
+    blk = doc.begin()
+    while blk.isValid():
+        bcf = blk.charFormat()
+        if any(bcf.hasProperty(i) for i in ids):
+            for i in ids: bcf.clearProperty(i)
+            blocks.append((blk.position(), bcf))
+        it = blk.begin()
+        while not it.atEnd():
+            f = it.fragment(); cf = f.charFormat()
+            drop = [i for i in ids if cf.hasProperty(i) and not (cf.isAnchor() and i in link_keep)]
+            if drop:
+                for i in drop: cf.clearProperty(i)
+                frags.append((f.position(), f.length(), cf))
+            it += 1
+        blk = blk.next()
+    if not blocks and not frags: return o['html']
+    cur = QTextCursor(doc)
+    for pos, bcf in blocks:
+        cur.setPosition(pos); cur.setBlockCharFormat(bcf)
+    for pos, ln, cf in frags:
+        cur.setPosition(pos); cur.setPosition(pos + ln, QTextCursor.KeepAnchor); cur.setCharFormat(cf)
+    return _doc_body(doc)
+
+def lift_text_format(o):
+    """If every word shares one size / colour / font set on the words themselves, make it the frame's
+    setting instead, so the toolbar shows and changes what you actually see."""
+    if not o.get('html') or o['type'] not in ('text', 'artistic', 'button'): return False
+    from PySide6.QtGui import QTextFormat
+    P = QTextFormat.Property
+    doc = make_doc(o); seen = {'size': set(), 'color': set(), 'font': set()}; n = 0
+    blk = doc.begin()
+    while blk.isValid():
+        it = blk.begin()
+        while not it.atEnd():
+            f = it.fragment(); cf = f.charFormat()
+            if f.text().strip() and not cf.isAnchor():
+                n += 1
+                seen['size'].add(cf.intProperty(P.FontPixelSize) if cf.hasProperty(P.FontPixelSize) else
+                                 (round(cf.doubleProperty(P.FontPointSize) * 4 / 3) if cf.hasProperty(P.FontPointSize) else None))
+                seen['color'].add(cf.foreground().color().name() if cf.hasProperty(P.ForegroundBrush) else None)
+                fam = cf.fontFamilies() if cf.hasProperty(P.FontFamilies) else None
+                seen['font'].add(fam[0] if fam else None)
+            it += 1
+        blk = blk.next()
+    if not n: return False
+    lift = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1 and next(iter(v))}
+    if not lift: return False
+    for k, v in lift.items(): o[k] = v
+    o['html'] = clear_text_format(o, list(lift))
+    return True
 
 def obj_pen(o):
     if o.get('strokeW', 0) > 0 and o.get('stroke'):
@@ -3928,10 +4000,20 @@ class MainWindow(QMainWindow):
         if not objs: return
         val = not objs[0].get(key)
         self.commit()
-        for o in objs: o[key] = val
+        for o in objs:
+            o[key] = val
+            if o.get('html'): o['html'] = clear_text_format(o, [key])
         self.refresh()
 
     def set_prop(self, key, val):
+        if self.editor and key in ('font', 'size', 'color'):
+            c = self.editor.textCursor()
+            if c.hasSelection():          # change only the selected words
+                fmt = QTextCharFormat()
+                if key == 'font': fmt.setFontFamilies([val])
+                elif key == 'size': fmt.setProperty(QTextFormat.Property.FontPixelSize, int(val))
+                else: fmt.setForeground(QColor(val))
+                c.mergeCharFormat(fmt); self.editor.setTextCursor(c); self.editor.setFocus(); return
         if self.editor: self.finish_edit()
         objs = self.sel_objs()
         if not objs: return
@@ -3939,6 +4021,10 @@ class MainWindow(QMainWindow):
         for o in objs:
             if o.get('locked'): continue
             o[key] = val
+            if key in TEXT_PROPS and o.get('html'):
+                o['html'] = clear_text_format(o, [key])
+                if o['type'] == 'text':   # grow the frame so bigger text isn't cut off
+                    o['h'] = max(o['h'], math.ceil(make_doc(o).size().height()) + 2 * o.get('pad', 8) + 2)
             if key == 'align' and 'html' in o:
                 o['html'] = re.sub(r'\s+align="\w+"', '', o['html'])
             if key == 'size' and o['type'] == 'artistic':
@@ -4789,6 +4875,9 @@ class MainWindow(QMainWindow):
                     for k in ('anchor', 'locked', 'hidden'):
                         if o.get(k): n[k] = o[k]
                     layer[i] = n
+        for layer in [p['objects'] for p in site['pages']] + [m['objects'] for m in site['masters']]:
+            for o in layer:
+                if o['type'] in ('text', 'artistic', 'button') and 'style=' in o.get('html', ''): lift_text_format(o)
         self.site = site; self.site.setdefault('assets', {}); self.path = path; self.dirty = False
         self.undo, self.redo = [], []; self.cur_page = site['pages'][0]['id']; self.edit_master = None; self.sel = []
         _PIX.clear(); self.refresh(); QTimer.singleShot(0, self.view.fit_width)
