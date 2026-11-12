@@ -1,4 +1,4 @@
-"""Tests for File ▸ Open Serif WebPlus Site…
+"""Tests for File ▸ Open WebPlus Site…
 
     cd ~/.local/share/webcreator && python3 -m unittest -v test_webplus_import
 
@@ -301,8 +301,8 @@ class WhereTheCommandIs(unittest.TestCase):
         win = W.MainWindow()
         try:
             items = [a.text() for a in win.menuBar().actions()[0].menu().actions()]
-            self.assertIn('Open Serif &WebPlus Site…', items)
-            self.assertLess(items.index('Open Serif &WebPlus Site…'), items.index('&Save'))
+            self.assertIn('Open &WebPlus Site…', items)
+            self.assertLess(items.index('Open &WebPlus Site…'), items.index('&Save'))
             self.assertTrue(win.a['openwpp'].isEnabled())
         finally:
             win.close()
@@ -313,7 +313,7 @@ class WhereTheCommandIs(unittest.TestCase):
             from PySide6.QtWidgets import QPushButton
             dlg = W.StartupAssistant(win)
             labels = [b.text() for b in dlg.findChildren(QPushButton)]
-            self.assertIn('Open Serif WebPlus Site…', labels)
+            self.assertIn('Open WebPlus Site…', labels)
             dlg.deleteLater()
         finally:
             win.close()

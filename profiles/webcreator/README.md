@@ -47,7 +47,7 @@ saved settings. Neither touches a site you made.
 | **Master pages** | Create, edit, and assign per page, so headers and menus are written once |
 | **Objects** | Text, pictures, shapes, buttons, navigation bars, tables, embedded HTML — drag, resize, rotate, align |
 | **Import** | **File ▸ Import Website Folder…** reads a folder of HTML back into an editable site |
-| **Open a WebPlus site** | **File ▸ Open Serif WebPlus Site…** (`Ctrl+Shift+O`) opens a Serif WebPlus `.wpp` — see below |
+| **Open a WebPlus site** | **File ▸ Open WebPlus Site…** (`Ctrl+Shift+O`) opens a Serif WebPlus `.wpp` — see below |
 | **Publish** | Plain HTML + assets into a folder, previewable in your browser first |
 | **Saves as** | `.webc`, a single file, registered as a file type so double-clicking one opens it |
 

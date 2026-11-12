@@ -62,7 +62,7 @@ for p in ('~/src/serif-linux', '~/Documents/Development/serif-linux', '~/serif-l
 sys.exit(1)
 PY
 then
-  warn "No Serif-for-Linux checkout found, so File ▸ Open Serif WebPlus Site… will ask where it is.
+  warn "No Serif-for-Linux checkout found, so File ▸ Open WebPlus Site… will ask where it is.
      Everything else — new sites, templates, importing a website folder, publishing — works without it."
 fi
 

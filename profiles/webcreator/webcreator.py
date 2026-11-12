@@ -32,7 +32,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.6"
+VERSION = "1.7"
 
 # Where updates come from: a public GitHub repository holding a copy of this
 # file. UPDATE_PATH is where in that repository it sits — the top level if the
@@ -373,6 +373,13 @@ def serif_tree(chooser_only=True):
             surfaces.append((surf, []))
         surfaces[-1][1].append(row)
     return out
+
+#: What a catalogue category is called in the file list. The catalogue keeps
+#: the name the disc used; the chooser shows the short one.
+CATEGORY_LABELS = {'WebPlus X8 Pro Templates': 'Pro Templates'}
+
+def category_label(cat):
+    return CATEGORY_LABELS.get(cat, cat)
 
 def serif_row(key):
     return next((r for r in serif_catalogue().get('templates', []) if r.get('key') == key), None)
@@ -2959,8 +2966,8 @@ class StartupAssistant(QDialog):
         b1 = QPushButton('Open Selected'); b1.clicked.connect(lambda: self.open_recent(self.rlist.currentItem())); bh.addWidget(b1)
         b2 = QPushButton(ticon(['document-open-folder', 'folder-open'], ''), 'Browse…'); b2.clicked.connect(self.browse); bh.addWidget(b2)
         b3 = QPushButton(ticon(['document-import'], ''), 'Import Website Folder…'); b3.clicked.connect(self.import_site); bh.addWidget(b3)
-        b4 = QPushButton(ticon(['document-open', 'document-import'], ''), 'Open Serif WebPlus Site…')
-        b4.setToolTip('Open a Serif WebPlus .wpp publication as an editable site'); b4.clicked.connect(self.open_wpp)
+        b4 = QPushButton(ticon(['document-open', 'document-import'], ''), 'Open WebPlus Site…')
+        b4.setToolTip('Open a WebPlus .wpp publication as an editable site'); b4.clicked.connect(self.open_wpp)
         bh.addWidget(b4); bh.addStretch()
         self.stack.addWidget(op)
 
@@ -2989,13 +2996,13 @@ class StartupAssistant(QDialog):
     def build_template_tree(self):
         """The left-hand pane: our own designs, then Serif's own tree."""
         self.ttree.clear()
-        ours = QTreeWidgetItem(self.ttree, ['Design templates'])
+        ours = QTreeWidgetItem(self.ttree, ['Basic Templates'])
         for i, (name, kind, _fn) in enumerate(TEMPLATES):
             leaf = QTreeWidgetItem(ours, [f'{name} — {kind}'])
             leaf.setData(0, Qt.UserRole, ('ours', i))
         ours.setExpanded(True)
         for category, surfaces in serif_tree(chooser_only=False):
-            node = QTreeWidgetItem(self.ttree, [category])
+            node = QTreeWidgetItem(self.ttree, [category_label(category)])
             if not any(r.get('in_chooser') for _s, rows in surfaces for r in rows):
                 node.setToolTip(0, 'Sample documents. Serif catalogued these but '
                                    'never offered them as something to start from.')
@@ -3004,7 +3011,7 @@ class StartupAssistant(QDialog):
                 for r in rows:
                     leaf = QTreeWidgetItem(under, [r['name']])
                     leaf.setData(0, Qt.UserRole, ('serif', r['key']))
-                    leaf.setToolTip(0, f"{len(r['pages'])} pages · {r['category']}"
+                    leaf.setToolTip(0, f"{len(r['pages'])} pages · {category_label(r['category'])}"
                                        + (f" · {r['surface']}" if r['surface'] else ''))
             node.setExpanded(category == 'Theme Layouts')
         first = ours.child(0)
@@ -3067,7 +3074,7 @@ class StartupAssistant(QDialog):
         if what == 'serif':
             r = serif_row(which)
             self.tcap.setText(
-                f"<b>{H.escape(r['name'])}</b> — {H.escape(r['category'])}, "
+                f"<b>{H.escape(r['name'])}</b> — {H.escape(category_label(r['category']))}, "
                 f"{H.escape(r['surface'])}<br>{len(r['pages'])} pages, "
                 f"{s['width']}px wide, in {H.escape(scheme or '')}.")
         else:
@@ -3145,8 +3152,8 @@ class StartupAssistant(QDialog):
         root = self.win.webplus_root()
         if not root: return
         last = self.win.settings.value('wppDir', os.path.expanduser('~'))
-        path, _ = QFileDialog.getOpenFileName(self, 'Open Serif WebPlus Site', last,
-                                              f'Serif WebPlus publications (*{WPP_EXT});;All files (*)')
+        path, _ = QFileDialog.getOpenFileName(self, 'Open WebPlus Site', last,
+                                              f'WebPlus publications (*{WPP_EXT});;All files (*)')
         if not path: return
         self.win.settings.setValue('wppDir', os.path.dirname(path))
         self.result_webplus = (path, root); self.accept()
@@ -3322,9 +3329,9 @@ class MainWindow(QMainWindow):
         )
         self.a['delete'].setIconText('Delete')
         self.a['import'] = self.act('&Import Website Folder…', self.import_folder, 'Ctrl+Shift+I', ['document-import', 'folder-download'])
-        self.a['openwpp'] = self.act('Open Serif &WebPlus Site…', self.open_webplus, 'Ctrl+Shift+O',
+        self.a['openwpp'] = self.act('Open &WebPlus Site…', self.open_webplus, 'Ctrl+Shift+O',
                                      ['document-open', 'document-import'],
-                                     tip='Open a Serif WebPlus .wpp publication as an editable site')
+                                     tip='Open a WebPlus .wpp publication as an editable site')
         del self.a['import_']
         self.a['rulers'].setChecked(self.settings.value('rulers', True, type=bool))
         self.a['grid'].setChecked(self.show_grid); self.a['snap'].setChecked(self.snap_grid)
@@ -4840,7 +4847,7 @@ class MainWindow(QMainWindow):
         root = wpp_reader_root(self.settings.value('serifRoot', '') or None)
         if root or not ask: return root
         QMessageBox.information(
-            self, 'Open Serif WebPlus Site',
+            self, 'Open WebPlus Site',
             'Reading a WebPlus .wpp needs the Serif-for-Linux reader, which this app '
             "could not find.\n\nChoose the folder of the serif-linux checkout — the one "
             'that holds a “serif” folder with webplus.py in it.')
@@ -4849,7 +4856,7 @@ class MainWindow(QMainWindow):
         if not folder: return None
         root = wpp_reader_root(folder, only_hint=True)
         if not root:
-            QMessageBox.warning(self, 'Open Serif WebPlus Site',
+            QMessageBox.warning(self, 'Open WebPlus Site',
                                 f'{folder} does not hold serif/webplus.py, so it cannot read a .wpp.')
             return None
         self.settings.setValue('serifRoot', root)
@@ -4860,8 +4867,8 @@ class MainWindow(QMainWindow):
         root = self.webplus_root()
         if not root: return
         last = self.settings.value('wppDir', os.path.expanduser('~'))
-        path, _ = QFileDialog.getOpenFileName(self, 'Open Serif WebPlus Site', last,
-                                              f'Serif WebPlus publications (*{WPP_EXT});;All files (*)')
+        path, _ = QFileDialog.getOpenFileName(self, 'Open WebPlus Site', last,
+                                              f'WebPlus publications (*{WPP_EXT});;All files (*)')
         if not path: return
         self.settings.setValue('wppDir', os.path.dirname(path))
         return self.load_webplus(path, root)
@@ -4871,7 +4878,7 @@ class MainWindow(QMainWindow):
         if not root: return False
         from PySide6.QtWidgets import QProgressDialog
         pd = QProgressDialog('Reading the publication…', 'Cancel', 0, 100, self)
-        pd.setWindowTitle('Open Serif WebPlus Site'); pd.setMinimumDuration(0)
+        pd.setWindowTitle('Open WebPlus Site'); pd.setMinimumDuration(0)
         pd.setWindowModality(Qt.WindowModal)
         def progress(i, n, msg):
             pd.setMaximum(n); pd.setValue(i); pd.setLabelText(msg); QApplication.processEvents()
@@ -4880,7 +4887,7 @@ class MainWindow(QMainWindow):
             site = import_webplus_file(path, root, progress)
         except Exception as ex:
             pd.close()
-            QMessageBox.warning(self, 'Open Serif WebPlus Site',
+            QMessageBox.warning(self, 'Open WebPlus Site',
                                 f"Couldn't open {os.path.basename(path)}.\n\n{ex}")
             return False
         pd.close()
@@ -4888,7 +4895,7 @@ class MainWindow(QMainWindow):
         site.pop('_wpp_source', None)
         self.set_site(site); self.dirty = True; self.update_title()
         self.settings.setValue('serifRoot', root)
-        QMessageBox.information(self, 'Open Serif WebPlus Site', wpp_summary(site, path, notes))
+        QMessageBox.information(self, 'Open WebPlus Site', wpp_summary(site, path, notes))
         return True
 
     def load_path(self, path):
