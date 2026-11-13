@@ -5118,6 +5118,8 @@ class MainWindow(QMainWindow):
         first_page = _os.path.join(folder, self.site['pages'][0]['file'])
         dlg = QDialog(self); dlg.setWindowTitle('Your site is ready — put it online')
         dlg.setMinimumWidth(620)
+        dlg.setModal(True)              # never let it hide behind the main window
+        dlg.setWindowModality(Qt.ApplicationModal)
         root = QVBoxLayout(dlg)
 
         head = QLabel(f'<b>Your website is built.</b> '
@@ -5194,6 +5196,7 @@ class MainWindow(QMainWindow):
 
         bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
         root.addWidget(bb)
+        dlg.show(); dlg.raise_(); dlg.activateWindow()
         dlg.exec()
 
     # ------------------------------------------------------------ updates
