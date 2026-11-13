@@ -5104,13 +5104,97 @@ class MainWindow(QMainWindow):
         try: files = publish_site(self.site, folder)
         except OSError as ex: QMessageBox.warning(self, APP, f"Publishing failed.\n{ex}"); return
         self.settings.setValue('publishDir', folder)
-        mb = QMessageBox(self); mb.setWindowTitle('Publish to Disk'); mb.setIcon(QMessageBox.Information)
-        mb.setText(f'Published {len(self.site["pages"])} pages ({len(files)} files) to\n{folder}')
-        mb.setInformativeText('Upload the contents of this folder to your web host to put the site online.')
-        ob = mb.addButton('Open Folder', QMessageBox.ActionRole); vb = mb.addButton('View Site', QMessageBox.ActionRole); mb.addButton(QMessageBox.Close)
-        mb.exec()
-        if mb.clickedButton() is ob: QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
-        elif mb.clickedButton() is vb: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.join(folder, self.site['pages'][0]['file'])))
+        self.go_online(folder, files)
+
+    def go_online(self, folder, files):
+        """Guide a non-technical user from a published folder to a live website.
+
+        We can't put the site online for them (that needs their own hosting
+        account), so this explains the options in plain English and opens the
+        right website for each. Netlify Drop is the recommended, no-account,
+        drag-and-drop route; GitHub Pages is offered for people who use GitHub.
+        """
+        import os as _os
+        first_page = _os.path.join(folder, self.site['pages'][0]['file'])
+        dlg = QDialog(self); dlg.setWindowTitle('Your site is ready — put it online')
+        dlg.setMinimumWidth(620)
+        root = QVBoxLayout(dlg)
+
+        head = QLabel(f'<b>Your website is built.</b> '
+                      f'{len(self.site["pages"])} page(s) were saved into:<br>'
+                      f'<code>{folder}</code>')
+        head.setWordWrap(True); head.setTextFormat(Qt.RichText); root.addWidget(head)
+
+        row0 = QHBoxLayout()
+        b_view = QPushButton('Preview it now'); b_view.setToolTip('Open the site in your web browser to check it')
+        b_view.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(first_page)))
+        b_open = QPushButton('Open the folder'); b_open.setToolTip('Open the folder of files you will upload')
+        b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(folder)))
+        row0.addWidget(b_view); row0.addWidget(b_open); row0.addStretch(); root.addLayout(row0)
+
+        intro = QLabel('To put it on the internet so others can visit, you upload these files to a '
+                       '<b>web host</b>. Here are three free ways, easiest first:')
+        intro.setWordWrap(True); intro.setTextFormat(Qt.RichText); root.addWidget(intro)
+
+        # --- Netlify Drop (recommended) ---
+        g1 = QGroupBox('1.  Netlify Drop  —  easiest, recommended')
+        v1 = QVBoxLayout(g1)
+        t1 = QLabel('No sign-up needed to start. You literally <b>drag the published folder</b> onto the '
+                    'Netlify Drop page and your site is live in seconds, with a free web address like '
+                    '<code>your-site.netlify.app</code>.<br><br>'
+                    '<b>Steps:</b> 1) Click “Open Netlify Drop”.  2) Drag the folder (use “Open the folder” above) '
+                    'onto the dotted box in the browser.  3) Wait a few seconds — it gives you your live link.')
+        t1.setWordWrap(True); t1.setTextFormat(Qt.RichText); v1.addWidget(t1)
+        h1 = QHBoxLayout()
+        nb = QPushButton('Open Netlify Drop'); nb.setDefault(True)
+        nb.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://app.netlify.com/drop')))
+        of = QPushButton('Open the folder to drag')
+        of.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(folder)))
+        h1.addWidget(nb); h1.addWidget(of); h1.addStretch(); v1.addLayout(h1)
+        root.addWidget(g1)
+
+        # --- GitHub Pages (for GitHub users) ---
+        g2 = QGroupBox('2.  GitHub Pages  —  if you already use GitHub')
+        v2 = QVBoxLayout(g2)
+        t2 = QLabel('If you have a GitHub account, you can host the site free at '
+                    '<code>yourname.github.io</code>. Create a new repository, upload these files, then turn on '
+                    '“Pages” in the repository’s Settings. The button below opens the guide.')
+        t2.setWordWrap(True); t2.setTextFormat(Qt.RichText); v2.addWidget(t2)
+        h2 = QHBoxLayout()
+        gb1 = QPushButton('New GitHub repository')
+        gb1.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://github.com/new')))
+        gb2 = QPushButton('How to turn on Pages')
+        gb2.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site')))
+        h2.addWidget(gb1); h2.addWidget(gb2); h2.addStretch(); v2.addLayout(h2)
+        root.addWidget(g2)
+
+        # --- Cloudflare Pages (alternative) ---
+        g3 = QGroupBox('3.  Cloudflare Pages  —  another free option')
+        v3 = QVBoxLayout(g3)
+        t3 = QLabel('Similar to Netlify. Free hosting at <code>your-site.pages.dev</code>; needs a free account.')
+        t3.setWordWrap(True); t3.setTextFormat(Qt.RichText); v3.addWidget(t3)
+        cb_ = QPushButton('Open Cloudflare Pages')
+        cb_.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://pages.cloudflare.com/')))
+        hc = QHBoxLayout(); hc.addWidget(cb_); hc.addStretch(); v3.addLayout(hc)
+        root.addWidget(g3)
+
+        # --- Your own web address (domain) ---
+        g4 = QGroupBox('Want your own name, like  www.your-name.co.uk ?')
+        v4 = QVBoxLayout(g4)
+        t4 = QLabel('The free addresses above work straight away. If you later want your <b>own</b> web address, '
+                    'you <b>buy a domain name</b> (about £8–12 a year) from a registrar and point it at your host — '
+                    'all three hosts above have a “custom domain” setting with instructions. You can always do this '
+                    'later; your free address keeps working in the meantime.')
+        t4.setWordWrap(True); t4.setTextFormat(Qt.RichText); v4.addWidget(t4)
+        root.addWidget(g4)
+
+        tip = QLabel('<i>Tip: whenever you change your site, just Publish again and re-upload (or re-drag) the '
+                     'folder — your web address stays the same.</i>')
+        tip.setWordWrap(True); tip.setTextFormat(Qt.RichText); tip.setStyleSheet('color:gray'); root.addWidget(tip)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
+        root.addWidget(bb)
+        dlg.exec()
 
     # ------------------------------------------------------------ updates
     def update_repo(self):
