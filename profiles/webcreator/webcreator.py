@@ -43,8 +43,43 @@ def open_external(target, is_file=False):
     (returns False, nothing happens), which left every link and 'open folder'
     button dead. xdg-open honours the user's defaults and works there, so we
     use it first and fall back to Qt only if it isn't available.
+
+    A local .html page is a *preview of a website*, so it must open in a web
+    BROWSER — not whatever happens to be registered for .html files (which can
+    be an office suite or a browser the desktop can't keep open). We launch the
+    default web browser directly for HTML; everything else uses xdg-open.
     """
+    is_html = is_file and str(target).lower().endswith(('.html', '.htm'))
     try:
+        if is_html:
+            browser = None
+            # Ask the desktop for its default browser, resolve its launcher.
+            try:
+                bid = subprocess.run(['xdg-settings', 'get', 'default-web-browser'],
+                                     capture_output=True, text=True, timeout=5).stdout.strip()
+            except Exception:
+                bid = ''
+            cmd = None
+            if bid:
+                for d in (os.path.expanduser('~/.local/share/applications'),
+                          '/usr/share/applications', '/usr/local/share/applications'):
+                    p = os.path.join(d, bid)
+                    if os.path.exists(p):
+                        for line in open(p, encoding='utf-8', errors='ignore'):
+                            if line.startswith('Exec='):
+                                exe = line[5:].split()[0]
+                                if shutil.which(exe): cmd = exe
+                                break
+                        if cmd: break
+            # Known-good fallbacks in preference order.
+            if not cmd:
+                for c in ('floorp', 'firefox', 'chromium', 'google-chrome-stable', 'brave'):
+                    if shutil.which(c): cmd = c; break
+            if cmd:
+                subprocess.Popen([cmd, target],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+                return True
         opener = shutil.which('xdg-open')
         if opener:
             subprocess.Popen([opener, target],
@@ -5100,7 +5135,7 @@ class MainWindow(QMainWindow):
             publish_site(self.site, self.preview_dir)
         except OSError as ex:
             QMessageBox.warning(self, APP, f"Couldn't build the preview.\n{ex}"); return
-        open_external(os.path.join(self.preview_dir, file, is_file=True))
+        open_external(os.path.join(self.preview_dir, file), is_file=True)
         self.hint('Preview opened in your web browser.')
 
     def publish_disk(self):
