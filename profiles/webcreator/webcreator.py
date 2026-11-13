@@ -3395,7 +3395,7 @@ class MainWindow(QMainWindow):
             checklinks=A('Check &Links…', self.check_links, None, ['tools-check-spelling', 'insert-link', 'link']),
             prevpage=A('Preview &Page in Browser', self.preview_page, 'F12', ['document-preview', 'view-preview']),
             prevsite=A('Preview &Site in Browser', self.preview_site, 'Shift+F12', ['internet-web-browser', 'applications-internet']),
-            publish=A('Publish to &Disk…', self.publish_disk, None, ['document-export', 'folder-publicshare']),
+            publish=A('&Publish…', self.publish_disk, None, ['document-export', 'folder-publicshare']),
             quit=A('&Quit', self.close, QKeySequence.Quit, 'application-exit'),
             undo=A('&Undo', self.do_undo, QKeySequence.Undo, 'edit-undo'),
             redo=A('&Redo', self.do_redo, QKeySequence.Redo, 'edit-redo'),
@@ -5078,32 +5078,42 @@ class MainWindow(QMainWindow):
         self.hint('Preview opened in your web browser.')
 
     def publish_disk(self):
+        """Publish = pick Static or Responsive, then show the 'put it online'
+        guide. The site files are written automatically to a per-site folder —
+        the user never has to think about folders or file browsers.
+        """
         if self.editor: self.finish_edit()
-        # Ask how to publish: fixed-width static, or responsive (scales to fit
-        # any screen). The choice is remembered on the site.
-        dlg = QDialog(self); dlg.setWindowTitle('Publish — layout')
+        # Step 1: Static or Responsive. No folder browser, no 'to disk'.
+        dlg = QDialog(self); dlg.setWindowTitle('Publish your site')
+        dlg.setModal(True)
         dl = QVBoxLayout(dlg)
-        dl.addWidget(QLabel('<b>How should this site be published?</b>'))
-        rb_static = QRadioButton('Static site — fixed width (classic; best on desktop)')
-        rb_resp = QRadioButton('Responsive site — scales to fit any screen (phones, tablets, desktop)')
+        dl.addWidget(QLabel('<b>Publish your site</b><br>How should it look on different screens?'))
+        rb_static = QRadioButton('Static — fixed width (classic; best on desktop)')
+        rb_resp = QRadioButton('Responsive — scales to fit any screen (phones, tablets, desktop)')
         (rb_resp if self.site.get('responsive') else rb_static).setChecked(True)
         dl.addWidget(rb_static); dl.addWidget(rb_resp)
         note = QLabel('Responsive keeps your exact design and shrinks the whole page to fit '
                       'narrow screens, so visitors see the full layout without side-scrolling.')
         note.setWordWrap(True); note.setStyleSheet('color:gray'); dl.addWidget(note)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText('Publish')
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); dl.addWidget(bb)
         if dlg.exec() != QDialog.Accepted: return
         self.site['responsive'] = rb_resp.isChecked()
-        last = self.settings.value('publishDir', os.path.expanduser('~/Public'))
-        folder = QFileDialog.getExistingDirectory(self, 'Publish to Disk — choose a folder', last)
-        if not folder: return
-        clash = [p['file'] for p in self.site['pages'] if os.path.exists(os.path.join(folder, p['file']))]
-        if clash and QMessageBox.question(self, 'Publish to Disk', f'{len(clash)} file(s) in this folder will be replaced, including {clash[0]}. Continue?') != QMessageBox.Yes:
-            return
-        try: files = publish_site(self.site, folder)
-        except OSError as ex: QMessageBox.warning(self, APP, f"Publishing failed.\n{ex}"); return
+        # Step 2: write the files automatically to a stable per-site folder.
+        base = re.sub(r'[^A-Za-z0-9 ._-]+', '', (self.site.get('name') or 'My Site')).strip() or 'My Site'
+        folder = self.site.get('publishDir')
+        if not folder:
+            root = os.path.expanduser('~/Published Sites')
+            folder = os.path.join(root, base)
+            self.site['publishDir'] = folder
+        try:
+            os.makedirs(folder, exist_ok=True)
+            files = publish_site(self.site, folder)
+        except OSError as ex:
+            QMessageBox.warning(self, APP, f"Could not save the site files.\n{ex}"); return
         self.settings.setValue('publishDir', folder)
+        # Step 3: straight to the guide.
         self.go_online(folder, files)
 
     def go_online(self, folder, files):
