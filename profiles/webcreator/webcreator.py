@@ -1248,6 +1248,30 @@ def page_html(site, page, img):
     if len(words) > 155: words = words[:152].rsplit(' ', 1)[0] + '…'
     desc = f'<meta name="description" content="{esc(words)}">\n' if words else ''
     bgpic = f' url({img(site["bgimage"])}) top left repeat' if site.get('bgimage') in site.get('assets', {}) else ''
+    # --- Responsive publish (opt-in via site['responsive']) ---------------
+    # The design stays a fixed-width, absolutely-positioned page; responsive
+    # mode makes that whole page SCALE to fit any screen (so phones show the
+    # full design shrunk-to-fit instead of a zoomed-in slice needing side-
+    # scroll). Static mode is unchanged, byte-for-byte, when the flag is off.
+    responsive = bool(site.get('responsive'))
+    if responsive:
+        viewport = 'width=device-width, initial-scale=1'
+        # .pf-wrap is a full-width band; .pf-page is the fixed design, scaled
+        # down by JS to fit narrower viewports and horizontally centred.
+        css = (f'html,body{{margin:0}}\nbody{{background:{site.get("bg") or bg}{bgpic}}}\n'
+               f'.pf-wrap{{width:100%;overflow-x:hidden}}\n'
+               f'.pf-page{{width:{site["width"]}px;height:{Hh}px;background:{bg};'
+               f'transform-origin:top left;margin:0 auto}}\n'
+               + '\n'.join(rules))
+        scale_js = (f'<script>(function(){{var W={site["width"]},p=document.querySelector(".pf-page"),'
+                    f'w=document.querySelector(".pf-wrap");function fit(){{var vw=w.clientWidth,'
+                    f's=vw<W?vw/W:1;p.style.transform="scale("+s+")";w.style.height=(p.offsetHeight*s)+"px"}}'
+                    f'window.addEventListener("resize",fit);fit();}})();</script>')
+        return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="{viewport}">\n'
+                f'<title>{esc(page["title"])} | {esc(site["name"])}</title>\n{desc}<meta name="generator" content="{APP} {VERSION}">\n'
+                f'{flink}<link rel="stylesheet" href="style.css">\n<style>\n{css}\n</style>\n</head>\n<body>\n'
+                f'<div class="pf-wrap">\n<div class="pf-page">\n{body}\n</div>\n</div>\n{scale_js}\n</body>\n</html>\n')
+    # --- Static publish (default, fixed width) ----------------------------
     css = (f'body{{background:{site.get("bg") or bg}{bgpic}}}\n.pf-page{{width:{site["width"]}px;height:{Hh}px;background:{bg}}}\n'
            + '\n'.join(rules))
     return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width={site["width"]}">\n'
@@ -3022,6 +3046,9 @@ class StartupAssistant(QDialog):
         self.nname = QLineEdit('My Site'); nl.addRow('Site name:', self.nname)
         self.nwidth = QComboBox(); self.nwidth.addItems(['960', '1000', '1200']); self.nwidth.setEditable(True); nl.addRow('Page width (px):', self.nwidth)
         self.nheight = QSpinBox(); self.nheight.setRange(200, 20000); self.nheight.setValue(1100); nl.addRow('Page height (px):', self.nheight)
+        self.nresp = QCheckBox('Responsive — scales to fit any screen (phones, tablets, desktop)')
+        self.nresp.setToolTip('Off = classic fixed-width static site. On = the whole design shrinks to fit narrow screens.\nYou can also change this at Publish time.')
+        nl.addRow('Layout:', self.nresp)
         cb = QPushButton(ticon(['document-new'], ''), 'Create Site'); cb.clicked.connect(self.create_new); nl.addRow('', cb)
         self.stack.addWidget(npg)
 
@@ -3212,7 +3239,9 @@ class StartupAssistant(QDialog):
     def create_new(self):
         try: w = max(320, min(4000, int(self.nwidth.currentText())))
         except ValueError: w = 960
-        self.result_site = tpl_blank(self.nname.text().strip() or 'My Site', w, self.nheight.value()); self.accept()
+        self.result_site = tpl_blank(self.nname.text().strip() or 'My Site', w, self.nheight.value())
+        self.result_site['responsive'] = self.nresp.isChecked()
+        self.accept()
 
     def open_recent(self, it):
         if it and it.data(Qt.UserRole): self.result_path = it.data(Qt.UserRole); self.accept()
@@ -5050,6 +5079,22 @@ class MainWindow(QMainWindow):
 
     def publish_disk(self):
         if self.editor: self.finish_edit()
+        # Ask how to publish: fixed-width static, or responsive (scales to fit
+        # any screen). The choice is remembered on the site.
+        dlg = QDialog(self); dlg.setWindowTitle('Publish — layout')
+        dl = QVBoxLayout(dlg)
+        dl.addWidget(QLabel('<b>How should this site be published?</b>'))
+        rb_static = QRadioButton('Static site — fixed width (classic; best on desktop)')
+        rb_resp = QRadioButton('Responsive site — scales to fit any screen (phones, tablets, desktop)')
+        (rb_resp if self.site.get('responsive') else rb_static).setChecked(True)
+        dl.addWidget(rb_static); dl.addWidget(rb_resp)
+        note = QLabel('Responsive keeps your exact design and shrinks the whole page to fit '
+                      'narrow screens, so visitors see the full layout without side-scrolling.')
+        note.setWordWrap(True); note.setStyleSheet('color:gray'); dl.addWidget(note)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); dl.addWidget(bb)
+        if dlg.exec() != QDialog.Accepted: return
+        self.site['responsive'] = rb_resp.isChecked()
         last = self.settings.value('publishDir', os.path.expanduser('~/Public'))
         folder = QFileDialog.getExistingDirectory(self, 'Publish to Disk — choose a folder', last)
         if not folder: return
