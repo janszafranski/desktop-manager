@@ -5,6 +5,7 @@
 # from the system (KDE Plasma colour scheme, Breeze/your icon theme, etc).
 
 import sys, os, re, json, copy, uuid, base64, hashlib, math, tempfile, collections, html as H
+import subprocess, shutil
 
 try:
     from PySide6.QtCore import (Qt, QRectF, QPointF, QSizeF, QTimer, QSettings, QUrl,
@@ -33,6 +34,31 @@ APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
 VERSION = "1.8"
+
+
+def open_external(target, is_file=False):
+    """Open a URL or local file/folder in the user's default app.
+
+    Qt's QDesktopServices.openUrl silently fails on some Wayland desktops
+    (returns False, nothing happens), which left every link and 'open folder'
+    button dead. xdg-open honours the user's defaults and works there, so we
+    use it first and fall back to Qt only if it isn't available.
+    """
+    try:
+        opener = shutil.which('xdg-open')
+        if opener:
+            subprocess.Popen([opener, target],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+            return True
+    except Exception:
+        pass
+    try:
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        return QDesktopServices.openUrl(QUrl.fromLocalFile(target) if is_file else QUrl(target))
+    except Exception:
+        return False
 
 # Where updates come from: a public GitHub repository holding a copy of this
 # file. UPDATE_PATH is where in that repository it sits — the top level if the
@@ -4294,7 +4320,7 @@ class MainWindow(QMainWindow):
         mail.textEdited.connect(lambda *_: rbs['email'].setChecked(True)); docs.activated.connect(lambda *_: rbs['file'].setChecked(True))
         if L.get('type') == 'url':
             tb = QPushButton(ticon(['internet-web-browser'], ''), 'Open in Browser')
-            tb.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url.text().strip()))); form.addWidget(tb, 2, 2)
+            tb.clicked.connect(lambda: open_external(url.text().strip())); form.addWidget(tb, 2, 2)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
         if not dlg.exec(): return False
         if rbs['page'].isChecked(): return {'type': 'page', 'target': pages.currentData()}
@@ -4364,13 +4390,13 @@ class MainWindow(QMainWindow):
         if not L: return
         t, v = L['type'], L['target']
         if t == 'page' and self.page_by_id(v): self.goto_page(v)
-        elif t == 'url': QDesktopServices.openUrl(QUrl(v))
-        elif t == 'email': QDesktopServices.openUrl(QUrl('mailto:' + v))
+        elif t == 'url': open_external(v)
+        elif t == 'email': open_external('mailto:' + v)
         elif t == 'file' and v in self.site.get('assets', {}):
             name = re.sub(r'[^A-Za-z0-9._-]+', '-', self.site.get('assetnames', {}).get(v, v))
             path = os.path.join(self.preview_dir, name)
             with open(path, 'wb') as fh: fh.write(base64.b64decode(self.site['assets'][v].split(',', 1)[1]))
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            open_external(path, is_file=True)
 
     # ------------------------------------------------------------ link checker
     def all_links(self):
@@ -5074,7 +5100,7 @@ class MainWindow(QMainWindow):
             publish_site(self.site, self.preview_dir)
         except OSError as ex:
             QMessageBox.warning(self, APP, f"Couldn't build the preview.\n{ex}"); return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.join(self.preview_dir, file)))
+        open_external(os.path.join(self.preview_dir, file, is_file=True))
         self.hint('Preview opened in your web browser.')
 
     def publish_disk(self):
@@ -5139,9 +5165,9 @@ class MainWindow(QMainWindow):
 
         row0 = QHBoxLayout()
         b_view = QPushButton('Preview it now'); b_view.setToolTip('Open the site in your web browser to check it')
-        b_view.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(first_page)))
+        b_view.clicked.connect(lambda: open_external(first_page, is_file=True))
         b_open = QPushButton('Open the folder'); b_open.setToolTip('Open the folder of files you will upload')
-        b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(folder)))
+        b_open.clicked.connect(lambda: open_external(folder, is_file=True))
         row0.addWidget(b_view); row0.addWidget(b_open); row0.addStretch(); root.addLayout(row0)
 
         intro = QLabel('To put it on the internet so others can visit, you upload these files to a '
@@ -5159,9 +5185,9 @@ class MainWindow(QMainWindow):
         t1.setWordWrap(True); t1.setTextFormat(Qt.RichText); v1.addWidget(t1)
         h1 = QHBoxLayout()
         nb = QPushButton('Open Netlify Drop'); nb.setDefault(True)
-        nb.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://app.netlify.com/drop')))
+        nb.clicked.connect(lambda: open_external('https://app.netlify.com/drop'))
         of = QPushButton('Open the folder to drag')
-        of.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(folder)))
+        of.clicked.connect(lambda: open_external(folder, is_file=True))
         h1.addWidget(nb); h1.addWidget(of); h1.addStretch(); v1.addLayout(h1)
         root.addWidget(g1)
 
@@ -5174,9 +5200,9 @@ class MainWindow(QMainWindow):
         t2.setWordWrap(True); t2.setTextFormat(Qt.RichText); v2.addWidget(t2)
         h2 = QHBoxLayout()
         gb1 = QPushButton('New GitHub repository')
-        gb1.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://github.com/new')))
+        gb1.clicked.connect(lambda: open_external('https://github.com/new'))
         gb2 = QPushButton('How to turn on Pages')
-        gb2.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site')))
+        gb2.clicked.connect(lambda: open_external('https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-github-pages-site'))
         h2.addWidget(gb1); h2.addWidget(gb2); h2.addStretch(); v2.addLayout(h2)
         root.addWidget(g2)
 
@@ -5186,7 +5212,7 @@ class MainWindow(QMainWindow):
         t3 = QLabel('Similar to Netlify. Free hosting at <code>your-site.pages.dev</code>; needs a free account.')
         t3.setWordWrap(True); t3.setTextFormat(Qt.RichText); v3.addWidget(t3)
         cb_ = QPushButton('Open Cloudflare Pages')
-        cb_.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://pages.cloudflare.com/')))
+        cb_.clicked.connect(lambda: open_external('https://pages.cloudflare.com/'))
         hc = QHBoxLayout(); hc.addWidget(cb_); hc.addStretch(); v3.addLayout(hc)
         root.addWidget(g3)
 
