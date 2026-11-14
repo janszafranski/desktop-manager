@@ -3553,8 +3553,38 @@ class MainWindow(QMainWindow):
         g.addWidget(self.banner, 0, 0, 1, 2)
         g.addWidget(corner, 1, 0); g.addWidget(self.rx, 1, 1); g.addWidget(self.ry, 2, 0); g.addWidget(self.view, 2, 1)
         self.ruler_widgets = [corner, self.rx, self.ry]
-        self.setCentralWidget(w)
+        # An HTML source view that the toolbar toggle can swap in for the canvas.
+        self.html_view = QPlainTextEdit(); self.html_view.setReadOnly(True)
+        self.html_view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        mono = QFont('monospace'); mono.setStyleHint(QFont.Monospace); mono.setPointSize(10)
+        self.html_view.setFont(mono)
+        self.stack = QStackedWidget(); self.stack.addWidget(w); self.stack.addWidget(self.html_view)
+        self.setCentralWidget(self.stack)
         self.view.setFocus()
+
+    def toggle_html_view(self):
+        """Swap the design canvas for a read-only view of the current page's HTML."""
+        showing_html = self.stack.currentIndex() == 1
+        if showing_html:
+            self.stack.setCurrentIndex(0); self.view.setFocus()
+            if 'htmlview' in self.a: self.a['htmlview'].setChecked(False)
+            return
+        if self.editor: self.finish_edit()
+        p = self.page()
+        if not p:
+            self.hint('Open a page first.');
+            if 'htmlview' in self.a: self.a['htmlview'].setChecked(False)
+            return
+        # Render the page's HTML exactly as it would publish.
+        try:
+            imgs = {}
+            def img(key): return 'images/' + (self.site.get('assetnames', {}).get(key) or key)
+            src = page_html(self.site, p, img)
+        except Exception as ex:
+            self.hint(f'Could not render HTML: {ex}'); return
+        self.html_view.setPlainText(src)
+        self.stack.setCurrentIndex(1)
+        if 'htmlview' in self.a: self.a['htmlview'].setChecked(True)
 
     def act(self, text, slot, shortcut=None, icon=None, checkable=False, tip=None):
         a = QAction(text, self)
@@ -3664,6 +3694,8 @@ class MainWindow(QMainWindow):
         self.a['lock'] = self.act('&Lock / Unlock', self.toggle_lock, 'Ctrl+L', ['object-locked', 'lock'])
         self.a['tomaster'] = self.act('Move Repeated Objects to &Master Page…', self.move_common_to_master, None, ['document-multiple', 'edit-copy'])
         menu('&Arrange', [a['front'], a['fwd'], a['back1'], a['back'], None, ('Align', al), None, self.a['lock'], None, self.a['tomaster']])
+        self.a['htmlview'] = self.act('View &HTML', self.toggle_html_view, None, ['text-html', 'code-context', 'view-source'], checkable=True)
+        self.a['htmlview'].setToolTip('Show the HTML source of this page (toggle)')
         self.a['update'] = self.act('Update Available', self.install_update, None, ['system-software-update', 'update-none', 'download'])
         self.a['update'].setVisible(False)
         self.a['checkupdate'] = self.act('Check for &Updates…', lambda: self.check_updates(quiet=False), None, ['system-software-update', 'view-refresh'])
@@ -3684,8 +3716,11 @@ class MainWindow(QMainWindow):
     def build_toolbars(self):
         # Standard toolbar
         tb = QToolBar('Standard'); tb.setObjectName('standard'); tb.setIconSize(QSize(20, 20))
-        for k in ('new', 'open', 'save', None, 'undo', 'redo', None, 'cut', 'copy', 'paste', None, 'prevsite', 'publish', None, 'update'):
+        for k in ('new', 'open', 'save', None, 'undo', 'redo', None, 'cut', 'copy', 'paste', None, 'prevsite', 'publish', 'htmlview', None, 'update'):
             tb.addAction(self.a[k]) if k else tb.addSeparator()
+        hw = tb.widgetForAction(self.a['htmlview'])
+        if hw: hw.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.a['htmlview'].setIconText('HTML')
         uw = tb.widgetForAction(self.a['update'])
         if uw:
             uw.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
