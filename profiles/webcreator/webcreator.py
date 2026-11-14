@@ -3199,11 +3199,22 @@ class StartupAssistant(QDialog):
         npg = QWidget(); nl = QFormLayout(npg)
         nl.addRow(QLabel('<b>Start a new, blank site</b>'))
         self.nname = QLineEdit('My Site'); nl.addRow('Site name:', self.nname)
-        self.nwidth = QComboBox(); self.nwidth.addItems(['960', '1000', '1200']); self.nwidth.setEditable(True); nl.addRow('Page width (px):', self.nwidth)
-        self.nheight = QSpinBox(); self.nheight.setRange(200, 20000); self.nheight.setValue(1100); nl.addRow('Page height (px):', self.nheight)
+        # Defaults come from the last site made (stored in settings), falling back to 960x1100.
+        def_w = str(win.settings.value('defaultWidth', '960'))
+        def_h = int(win.settings.value('defaultHeight', 1100))
+        self.nwidth = QComboBox(); self.nwidth.addItems(['960', '1000', '1200']); self.nwidth.setEditable(True)
+        if self.nwidth.findText(def_w) < 0: self.nwidth.addItem(def_w)
+        self.nwidth.setCurrentText(def_w); nl.addRow('Page width (px):', self.nwidth)
+        self.nheight = QSpinBox(); self.nheight.setRange(200, 20000); self.nheight.setValue(def_h); nl.addRow('Page height (px):', self.nheight)
+        self.nlayout = QComboBox()
+        self.nlayout.addItem('Full width (one column)', 'full')
+        self.nlayout.addItem('Two columns', '2col')
+        self.nlayout.addItem('Three columns', '3col')
+        self.nlayout.setToolTip('Lays guide text frames on the first page so you can drop content into columns.')
+        nl.addRow('Column layout:', self.nlayout)
         self.nresp = QCheckBox('Responsive — scales to fit any screen (phones, tablets, desktop)')
         self.nresp.setToolTip('Off = classic fixed-width static site. On = the whole design shrinks to fit narrow screens.\nYou can also change this at Publish time.')
-        nl.addRow('Layout:', self.nresp)
+        nl.addRow('Screen:', self.nresp)
         cb = QPushButton(ticon(['document-new'], ''), 'Create Site'); cb.clicked.connect(self.create_new); nl.addRow('', cb)
         self.stack.addWidget(npg)
 
@@ -3394,8 +3405,24 @@ class StartupAssistant(QDialog):
     def create_new(self):
         try: w = max(320, min(4000, int(self.nwidth.currentText())))
         except ValueError: w = 960
-        self.result_site = tpl_blank(self.nname.text().strip() or 'My Site', w, self.nheight.value())
-        self.result_site['responsive'] = self.nresp.isChecked()
+        h = self.nheight.value()
+        s = tpl_blank(self.nname.text().strip() or 'My Site', w, h)
+        s['responsive'] = self.nresp.isChecked()
+        # remember the size as the default for next time
+        self.win.settings.setValue('defaultWidth', str(w)); self.win.settings.setValue('defaultHeight', h)
+        # column layout: drop guide text frames on the first page
+        layout = self.nlayout.currentData()
+        ncol = {'2col': 2, '3col': 3}.get(layout, 1)
+        if ncol > 1:
+            margin, gap, top = 40, 24, 120
+            colw = (w - 2 * margin - gap * (ncol - 1)) // ncol
+            page = s['pages'][0]
+            page.setdefault('objects', [])
+            for i in range(ncol):
+                x = margin + i * (colw + gap)
+                page['objects'].append(mk('text', x, top, colw, max(300, h - top - 60),
+                                          html=f'<p>Column {i + 1} — click to edit, or drag other items into place.</p>'))
+        self.result_site = s
         self.accept()
 
     def open_recent(self, it):
