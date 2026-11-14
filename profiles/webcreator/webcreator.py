@@ -1357,13 +1357,41 @@ def publish_site(site, folder):
         if name in imgs.values():
             stem, ext2 = os.path.splitext(name); name = f'{stem}-{key[:6]}{ext2}'
         os.makedirs(os.path.join(folder, sub), exist_ok=True)
-        with open(os.path.join(folder, name), 'wb') as fh: fh.write(base64.b64decode(src.split(',', 1)[1]))
+        blob = base64.b64decode(src.split(',', 1)[1])
+        dest = os.path.join(folder, name)
+        try:
+            with open(dest, 'rb') as fh: same = (fh.read() == blob)
+        except FileNotFoundError:
+            same = False
+        if not same:
+            with open(dest, 'wb') as fh: fh.write(blob)
         written.append(name); imgs[key] = name; return name
-    with open(os.path.join(folder, 'style.css'), 'w') as fh: fh.write(PUBLISH_CSS)
+    # Incremental publish: only (re)write a file whose content has actually
+    # changed. First publish writes everything; later ones touch only edits,
+    # so re-uploading/syncing the folder transfers just the changes.
+    def write_if_changed(path, text, binary=False):
+        data = text if binary else text.encode('utf-8')
+        try:
+            with open(path, 'rb') as fh:
+                if fh.read() == data: return False   # unchanged — leave it
+        except FileNotFoundError:
+            pass
+        mode = 'wb'
+        with open(path, mode) as fh: fh.write(data)
+        return True
+
+    changed_files = []
+    css_path = os.path.join(folder, 'style.css')
+    if write_if_changed(css_path, PUBLISH_CSS): changed_files.append('style.css')
     written.append('style.css')
+    pages_total = len(site['pages']); pages_changed = 0
     for p in site['pages']:
-        with open(os.path.join(folder, p['file']), 'w', encoding='utf-8') as fh: fh.write(page_html(site, p, img))
+        fp = os.path.join(folder, p['file'])
+        if write_if_changed(fp, page_html(site, p, img)):
+            changed_files.append(p['file']); pages_changed += 1
         written.append(p['file'])
+    publish_site.last_stats = {'pages_total': pages_total, 'pages_changed': pages_changed,
+                               'changed_files': changed_files}
     return written
 
 # ----------------------------------------------------------------------------
@@ -3516,7 +3544,11 @@ class MainWindow(QMainWindow):
         ins = []
         for tid, label, *_ in [t for t in TOOLS if t[0] and t[0] not in ('pointer', 'hand', 'zoom')]:
             ins.append(self.act(label, lambda _=False, t=tid: self.insert_default(t), None, None))
-        menu('&Insert', [a['newpage'], None] + ins + [None, a['link']])
+        # Contact-details submenu: drops a text frame showing a field from Site Properties
+        contact_acts = [self.act(lbl, lambda _=False, fk=fld: self.insert_contact(fk), None, None)
+                        for fld, lbl in (('name', 'Author / Name'), ('email', 'Email'), ('phone', 'Phone'),
+                                         ('address', 'Address'), ('website', 'Website'), ('all', 'All contact details'))]
+        menu('&Insert', [a['newpage'], None] + ins + [None, ('Contact details', contact_acts), None, a['link']])
         menu('F&ormat', [a['bold'], a['italic'], a['underline'], None, a['aleft'], a['acenter'], a['aright'], a['ajust'], None, a['pageprops']])
         al = [self.act(n, lambda _=False, k=k: self.align(k), None, ic) for k, n, ic in (
             ('left', 'Align Left Edges', 'align-horizontal-left'), ('hcenter', 'Align Centres Horizontally', 'align-horizontal-center'),
@@ -4019,6 +4051,39 @@ class MainWindow(QMainWindow):
         self.add_object(o)
         if kind == 'picture': self.pick_picture(o)
         elif kind == 'gallery': self.gallery_dialog(o)
+
+    def insert_contact(self, field):
+        """Drop a text frame showing a contact detail from Site Properties.
+        Email becomes a clickable mailto: link; website a clickable link."""
+        c = self.site.get('contact', {})
+        if not any(c.values()):
+            QMessageBox.information(self, APP, 'No contact details yet.\n\nAdd them first in '
+                                    'File ▸ Site Properties (the “Contact details” fields).')
+            return
+        def esc_(s): return H.escape(s or '')
+        rows = []
+        if field == 'all':
+            if c.get('name'): rows.append(f'<p><b>{esc_(c["name"])}</b></p>')
+            if c.get('email'): rows.append(f'<p><a href="mailto:{esc_(c["email"])}">{esc_(c["email"])}</a></p>')
+            if c.get('phone'): rows.append(f'<p>{esc_(c["phone"])}</p>')
+            if c.get('address'): rows.append(f'<p>{esc_(c["address"])}</p>')
+            if c.get('website'):
+                u = c['website']; u = u if u.startswith('http') else 'https://' + u
+                rows.append(f'<p><a href="{esc_(u)}">{esc_(c["website"])}</a></p>')
+        else:
+            v = c.get(field, '')
+            if not v:
+                QMessageBox.information(self, APP, f'The “{field}” field is empty in Site Properties.'); return
+            if field == 'email': rows.append(f'<p><a href="mailto:{esc_(v)}">{esc_(v)}</a></p>')
+            elif field == 'website':
+                u = v if v.startswith('http') else 'https://' + v
+                rows.append(f'<p><a href="{esc_(u)}">{esc_(v)}</a></p>')
+            else: rows.append(f'<p>{esc_(v)}</p>')
+        html = '\n'.join(rows)
+        cc = self.view.mapToScene(self.view.viewport().rect().center())
+        o = mk('text', 0, 0, 300, 40 + 22 * max(0, len(rows) - 1), html=html)
+        o['x'] = self.view.snap(max(0, cc.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, cc.y() - o['h'] / 2))
+        self.add_object(o)
 
     def add_object(self, o):
         self.commit(); self.layer().append(o); self.sel = [o['id']]; self.refresh()
@@ -4682,8 +4747,18 @@ class MainWindow(QMainWindow):
                 pic[0] = k; picb.setText(os.path.basename(path))
         picm.addAction('Choose picture…', choose_pic); picm.addAction('No picture', lambda: (pic.__setitem__(0, None), picb.setText('Choose picture…')))
         picb.setMenu(picm)
+        # --- Contact / author details (stored on site['contact']; insertable from Insert menu) ---
+        contact = self.site.get('contact', {})
+        c_name = QLineEdit(contact.get('name', ''))
+        c_email = QLineEdit(contact.get('email', ''))
+        c_phone = QLineEdit(contact.get('phone', ''))
+        c_addr = QLineEdit(contact.get('address', ''))
+        c_web = QLineEdit(contact.get('website', ''))
         dlg = form_dialog(self, 'Site Properties', [('Site name:', name), ('Page width:', w), ('Default page height:', h),
-                                                     ('Browser background:', bgb), ('Background picture:', picb)],
+                                                     ('Browser background:', bgb), ('Background picture:', picb),
+                                                     ('— Contact details —', QLabel('Used by Insert ▸ Contact details')),
+                                                     ('Author / name:', c_name), ('Email:', c_email),
+                                                     ('Phone:', c_phone), ('Address:', c_addr), ('Website:', c_web)],
                           QLabel('The browser background (and picture, tiled) fills the window around your pages when published.'))
         if not dlg.exec(): return
         self.commit()
@@ -4692,6 +4767,9 @@ class MainWindow(QMainWindow):
             for o in m['objects']:
                 if o.get('anchor') == 'bottom': o['y'] += dh
         self.site.update(name=name.text().strip() or self.site['name'], width=w.value(), height=h.value(), bg=bgc[0], bgimage=pic[0])
+        self.site['contact'] = {'name': c_name.text().strip(), 'email': c_email.text().strip(),
+                                'phone': c_phone.text().strip(), 'address': c_addr.text().strip(),
+                                'website': c_web.text().strip()}
         self.refresh()
 
     def new_master(self):
@@ -5193,9 +5271,16 @@ class MainWindow(QMainWindow):
         dlg.setWindowModality(Qt.ApplicationModal)
         root = QVBoxLayout(dlg)
 
-        head = QLabel(f'<b>Your website is built.</b> '
-                      f'{len(self.site["pages"])} page(s) were saved into:<br>'
-                      f'<code>{folder}</code>')
+        stats = getattr(publish_site, 'last_stats', None)
+        if stats and stats['pages_changed'] < stats['pages_total']:
+            nch = stats['pages_changed']
+            summary = (f'<b>Your website is up to date.</b> '
+                       f'{nch if nch else "No"} page(s) changed this time '
+                       f'({stats["pages_total"]} total) — only the changes were written into:')
+        else:
+            summary = (f'<b>Your website is built.</b> '
+                       f'{len(self.site["pages"])} page(s) were saved into:')
+        head = QLabel(f'{summary}<br><code>{folder}</code>')
         head.setWordWrap(True); head.setTextFormat(Qt.RichText); root.addWidget(head)
 
         row0 = QHBoxLayout()
