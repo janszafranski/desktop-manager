@@ -95,6 +95,72 @@ def open_external(target, is_file=False):
     except Exception:
         return False
 
+
+def _sniff_mime(data):
+    """Detect image type from magic bytes (providers don't always honour the format asked)."""
+    if data[:8] == b'\x89PNG\r\n\x1a\n': return 'png'
+    if data[:3] == b'\xff\xd8\xff': return 'jpeg'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP': return 'webp'
+    if data[:6] in (b'GIF87a', b'GIF89a'): return 'gif'
+    return 'png'
+
+
+def ai_generate_image(prompt, provider, settings):
+    """Return (image_bytes, mime) for a text prompt.
+
+    Providers:
+      pollinations — FREE, no account, no key. Just needs internet.
+      openai       — DALL·E; needs the user's OpenAI API key (settings 'aiOpenAIKey').
+      stability    — Stable Diffusion; needs 'aiStabilityKey'.
+    Default is pollinations so the feature works out of the box.
+    """
+    import urllib.request, urllib.parse, ssl, json as _json
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    provider = (provider or 'pollinations').lower()
+
+    if provider == 'pollinations':
+        # GET an image straight back. 1024px square, no logo.
+        q = urllib.parse.quote(prompt)
+        url = (f'https://image.pollinations.ai/prompt/{q}'
+               f'?width=1024&height=1024&nologo=true&model=flux')
+        req = urllib.request.Request(url, headers={'User-Agent': 'WEBcreator'})
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as r:
+            data = r.read()
+        return data, _sniff_mime(data)
+
+    if provider == 'openai':
+        key = settings.value('aiOpenAIKey', '')
+        if not key: raise RuntimeError('No OpenAI API key. Add it in File ▸ Site Properties.')
+        body = _json.dumps({'model': 'gpt-image-1', 'prompt': prompt, 'size': '1024x1024', 'n': 1}).encode()
+        req = urllib.request.Request('https://api.openai.com/v1/images/generations', data=body,
+                                     headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as r:
+            out = _json.loads(r.read())
+        import base64 as _b64
+        d = out['data'][0]
+        if d.get('b64_json'): return _b64.b64decode(d['b64_json']), 'png'
+        img_url = d['url']
+        with urllib.request.urlopen(img_url, timeout=120, context=ctx) as r2:
+            return r2.read(), 'png'
+
+    if provider == 'stability':
+        key = settings.value('aiStabilityKey', '')
+        if not key: raise RuntimeError('No Stability API key. Add it in File ▸ Site Properties.')
+        # Stability v2 core: multipart form. Build minimal multipart body.
+        boundary = '----wcboundary'
+        parts = []
+        for name, val in (('prompt', prompt), ('output_format', 'png'), ('aspect_ratio', '1:1')):
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{val}\r\n')
+        bodyb = (''.join(parts) + f'--{boundary}--\r\n').encode()
+        req = urllib.request.Request('https://api.stability.ai/v2beta/stable-image/generate/core', data=bodyb,
+                                     headers={'Authorization': 'Bearer ' + key, 'Accept': 'image/*',
+                                              'Content-Type': f'multipart/form-data; boundary={boundary}'})
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as r:
+            return r.read(), 'png'
+
+    raise RuntimeError(f'Unknown AI provider: {provider}')
+
+
 # Where updates come from: a public GitHub repository holding a copy of this
 # file. UPDATE_PATH is where in that repository it sits — the top level if the
 # app has a repository to itself, a subdirectory if it ships inside a bigger
@@ -4238,6 +4304,16 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ dialogs for objects
     def pick_picture(self, o):
+        # Offer a file OR an AI-generated image.
+        box = QMessageBox(self); box.setWindowTitle('Add a picture'); box.setIcon(QMessageBox.Question)
+        box.setText('Where should the picture come from?')
+        bf = box.addButton('From a file…', QMessageBox.AcceptRole)
+        ba_ = box.addButton('Create with AI…', QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        if box.clickedButton() is ba_:
+            self.ai_picture(o); return
+        if box.clickedButton() is not bf: return
         path, _ = QFileDialog.getOpenFileName(self, 'Choose a picture', os.path.expanduser('~/Pictures'),
                                               'Pictures (*.png *.jpg *.jpeg *.gif *.webp *.svg);;All files (*)')
         if not path: return
@@ -4249,11 +4325,45 @@ class MainWindow(QMainWindow):
             if img.isNull(): QMessageBox.warning(self, APP, "That file couldn't be read as a picture."); return
             ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly); img.save(buf, 'PNG'); data = bytes(ba); mime = 'png'
         uri = f'data:image/{mime};base64,' + base64.b64encode(data).decode()
+        self._apply_picture(o, uri)
+
+    def _apply_picture(self, o, uri):
         self.commit(); o['src'] = add_asset(self.site, uri)
         pm = pixmap_for(self.site, o['src'])
         if pm and not pm.isNull() and o['w'] == DEF['picture']['w'] and o['h'] == DEF['picture']['h']:
             o['h'] = round(o['w'] * pm.height() / pm.width())
         self.refresh()
+
+    def ai_picture(self, o):
+        """Generate an image from a text prompt. Provider is set in Site Properties;
+        default is Pollinations (free, no account). OpenAI/Stability need an API key."""
+        dlg = QDialog(self); dlg.setWindowTitle('Create an image with AI'); dlg.setMinimumWidth(460)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel('<b>Describe the picture you want:</b>'))
+        prompt = QPlainTextEdit(); prompt.setPlaceholderText('e.g. a calm watercolour of a lighthouse at dawn, soft colours')
+        prompt.setFixedHeight(80); v.addWidget(prompt)
+        prov = self.settings.value('aiProvider', 'pollinations')
+        v.addWidget(QLabel(f'<span style="color:gray">Using: <b>{prov}</b> — change in File ▸ Site Properties.</span>'))
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText('Generate')
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
+        if dlg.exec() != QDialog.Accepted: return
+        text = prompt.toPlainText().strip()
+        if not text: return
+        from PySide6.QtWidgets import QProgressDialog
+        prog = QProgressDialog('Generating image…', None, 0, 0, self)
+        prog.setWindowModality(Qt.ApplicationModal); prog.setMinimumDuration(0); prog.show()
+        QApplication.processEvents()
+        try:
+            data, mime = ai_generate_image(text, prov, self.settings)
+        except Exception as ex:
+            prog.close(); QMessageBox.warning(self, APP, f'Image generation failed.\n{ex}'); return
+        prog.close()
+        if not data:
+            QMessageBox.warning(self, APP, 'No image was returned. Try a different description, or check your internet / API key.')
+            return
+        uri = f'data:image/{mime};base64,' + base64.b64encode(data).decode()
+        self._apply_picture(o, uri)
 
     def table_dialog(self, o):
         cells = o.get('cells') or [['']]
@@ -4754,11 +4864,22 @@ class MainWindow(QMainWindow):
         c_phone = QLineEdit(contact.get('phone', ''))
         c_addr = QLineEdit(contact.get('address', ''))
         c_web = QLineEdit(contact.get('website', ''))
+        # --- AI image provider (used by Insert ▸ Picture ▸ Create with AI) ---
+        ai_prov = QComboBox()
+        ai_prov.addItem('Pollinations (free, no account)', 'pollinations')
+        ai_prov.addItem('OpenAI (DALL·E — needs API key)', 'openai')
+        ai_prov.addItem('Stability (Stable Diffusion — needs API key)', 'stability')
+        cur = self.settings.value('aiProvider', 'pollinations')
+        ai_prov.setCurrentIndex(max(0, ai_prov.findData(cur)))
+        ai_key = QLineEdit(self.settings.value('aiOpenAIKey', '') or self.settings.value('aiStabilityKey', ''))
+        ai_key.setEchoMode(QLineEdit.Password); ai_key.setPlaceholderText('Only needed for OpenAI / Stability')
         dlg = form_dialog(self, 'Site Properties', [('Site name:', name), ('Page width:', w), ('Default page height:', h),
                                                      ('Browser background:', bgb), ('Background picture:', picb),
                                                      ('— Contact details —', QLabel('Used by Insert ▸ Contact details')),
                                                      ('Author / name:', c_name), ('Email:', c_email),
-                                                     ('Phone:', c_phone), ('Address:', c_addr), ('Website:', c_web)],
+                                                     ('Phone:', c_phone), ('Address:', c_addr), ('Website:', c_web),
+                                                     ('— AI images —', QLabel('Used by Insert ▸ Picture ▸ Create with AI')),
+                                                     ('Image generator:', ai_prov), ('API key (if needed):', ai_key)],
                           QLabel('The browser background (and picture, tiled) fills the window around your pages when published.'))
         if not dlg.exec(): return
         self.commit()
@@ -4770,6 +4891,10 @@ class MainWindow(QMainWindow):
         self.site['contact'] = {'name': c_name.text().strip(), 'email': c_email.text().strip(),
                                 'phone': c_phone.text().strip(), 'address': c_addr.text().strip(),
                                 'website': c_web.text().strip()}
+        prov = ai_prov.currentData(); self.settings.setValue('aiProvider', prov)
+        k = ai_key.text().strip()
+        if prov == 'openai': self.settings.setValue('aiOpenAIKey', k)
+        elif prov == 'stability': self.settings.setValue('aiStabilityKey', k)
         self.refresh()
 
     def new_master(self):
