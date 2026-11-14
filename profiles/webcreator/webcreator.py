@@ -3239,6 +3239,9 @@ class StartupAssistant(QDialog):
         bottom = QHBoxLayout(); root.addLayout(bottom)
         self.show_cb = QCheckBox('Show the Startup Assistant when the app opens')
         self.show_cb.setChecked(win.settings.value('showStartup', True, type=bool)); bottom.addWidget(self.show_cb); bottom.addStretch()
+        openb = QPushButton(ticon(['document-open'], ''), 'Open…')
+        openb.setToolTip('Open a saved site from your computer'); openb.clicked.connect(self.browse)
+        bottom.addWidget(openb)
         close = QPushButton('Close'); close.clicked.connect(self.reject); bottom.addWidget(close)
         self.nav.setCurrentRow(0); self.show_template()
 
