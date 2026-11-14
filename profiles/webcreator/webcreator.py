@@ -3577,6 +3577,15 @@ class MainWindow(QMainWindow):
             acenter=A('Align &Centre', lambda: self.set_prop('align', 'center'), None, 'format-justify-center'),
             aright=A('Align &Right', lambda: self.set_prop('align', 'right'), None, 'format-justify-right'),
             ajust=A('&Justify', lambda: self.set_prop('align', 'justify'), None, 'format-justify-fill'),
+            list_disc=A('• Bullet (disc)', lambda: self.text_list('disc'), None, 'format-list-unordered'),
+            list_circle=A('◦ Bullet (circle)', lambda: self.text_list('circle'), None, 'format-list-unordered'),
+            list_square=A('▪ Bullet (square)', lambda: self.text_list('square'), None, 'format-list-unordered'),
+            list_decimal=A('1. 2. 3. (numbers)', lambda: self.text_list('decimal'), None, 'format-list-ordered'),
+            list_loweralpha=A('a. b. c. (lower letters)', lambda: self.text_list('lower-alpha'), None, 'format-list-ordered'),
+            list_upperalpha=A('A. B. C. (upper letters)', lambda: self.text_list('upper-alpha'), None, 'format-list-ordered'),
+            list_lowerroman=A('i. ii. iii. (lower roman)', lambda: self.text_list('lower-roman'), None, 'format-list-ordered'),
+            list_upperroman=A('I. II. III. (upper roman)', lambda: self.text_list('upper-roman'), None, 'format-list-ordered'),
+            list_none=A('Remove list', lambda: self.text_list('none'), None, 'edit-clear'),
             front=A('Bring to &Front', lambda: self.order('front'), 'Ctrl+Shift+]', 'object-order-front'),
             fwd=A('Forward &One', lambda: self.order('fwd'), 'Ctrl+]', 'object-order-raise'),
             back1=A('Back O&ne', lambda: self.order('back1'), 'Ctrl+[', 'object-order-lower'),
@@ -3615,7 +3624,11 @@ class MainWindow(QMainWindow):
                         for fld, lbl in (('name', 'Author / Name'), ('email', 'Email'), ('phone', 'Phone'),
                                          ('address', 'Address'), ('website', 'Website'), ('all', 'All contact details'))]
         menu('&Insert', [a['newpage'], None] + ins + [None, ('Contact details', contact_acts), None, a['link']])
-        menu('F&ormat', [a['bold'], a['italic'], a['underline'], None, a['aleft'], a['acenter'], a['aright'], a['ajust'], None, a['pageprops']])
+        list_sub = [a['list_disc'], a['list_circle'], a['list_square'], None,
+                    a['list_decimal'], a['list_loweralpha'], a['list_upperalpha'],
+                    a['list_lowerroman'], a['list_upperroman'], None, a['list_none']]
+        menu('F&ormat', [a['bold'], a['italic'], a['underline'], None, a['aleft'], a['acenter'], a['aright'], a['ajust'],
+                         None, ('Lists / Bullets', list_sub), None, a['pageprops']])
         al = [self.act(n, lambda _=False, k=k: self.align(k), None, ic) for k, n, ic in (
             ('left', 'Align Left Edges', 'align-horizontal-left'), ('hcenter', 'Align Centres Horizontally', 'align-horizontal-center'),
             ('right', 'Align Right Edges', 'align-horizontal-right'), ('top', 'Align Top Edges', 'align-vertical-top'),
@@ -4225,6 +4238,31 @@ class MainWindow(QMainWindow):
             o[key] = val
             if o.get('html'): o['html'] = clear_text_format(o, [key])
         self.refresh()
+
+    def text_list(self, style):
+        """Turn the selected paragraphs into a bulleted/numbered list.
+        style: 'disc', 'circle', 'square', 'decimal', 'lower-alpha', 'upper-alpha',
+               'lower-roman', 'upper-roman', or 'none' to remove the list."""
+        if not self.editor:
+            self.hint('Double-click a text frame to edit it, then choose a list style.')
+            return
+        from PySide6.QtGui import QTextListFormat
+        c = self.editor.textCursor()
+        if style == 'none':
+            lst = c.currentList()
+            if lst:
+                # unwrap: remove each block from the list
+                blk = c.block()
+                fmt = blk.blockFormat(); fmt.setObjectIndex(-1)
+                c.setBlockFormat(fmt)
+            self.editor.setTextCursor(c); return
+        STYLES = {'disc': QTextListFormat.ListDisc, 'circle': QTextListFormat.ListCircle,
+                  'square': QTextListFormat.ListSquare, 'decimal': QTextListFormat.ListDecimal,
+                  'lower-alpha': QTextListFormat.ListLowerAlpha, 'upper-alpha': QTextListFormat.ListUpperAlpha,
+                  'lower-roman': QTextListFormat.ListLowerRoman, 'upper-roman': QTextListFormat.ListUpperRoman}
+        lf = QTextListFormat(); lf.setStyle(STYLES.get(style, QTextListFormat.ListDisc)); lf.setIndent(1)
+        c.createList(lf)
+        self.editor.setTextCursor(c)
 
     def set_prop(self, key, val):
         if self.editor and key in ('font', 'size', 'color'):
