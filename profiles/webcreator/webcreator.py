@@ -1411,6 +1411,66 @@ def page_html(site, page, img):
             f'{flink}<link rel="stylesheet" href="style.css">\n<style>\n{css}\n</style>\n</head>\n<body>\n'
             f'<div class="pf-page">\n{body}\n</div>\n</body>\n</html>\n')
 
+WEBSAFE_FONTS = {'arial', 'helvetica', 'helvetica neue', 'times new roman', 'times', 'georgia',
+                 'courier new', 'courier', 'verdana', 'tahoma', 'trebuchet ms', 'segoe ui',
+                 'sans-serif', 'serif', 'monospace', 'system-ui', 'ui-sans-serif'}
+
+def _norm_fam(s):
+    return re.sub(r'[^a-z0-9]', '', (s or '').lower())
+
+def _fc_match(spec):
+    """Resolve a fontconfig pattern to (family, file) via fc-match; None on failure."""
+    try:
+        out = subprocess.run(['fc-match', '-f', '%{family}|%{file}', spec],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return None
+    if '|' not in out:
+        return None
+    fam, path = out.split('|', 1)
+    return fam.strip(), path.strip()
+
+def font_faces(site, folder, write_if_changed, written):
+    """Self-host every installed, non-web-safe font the site uses, so the page looks the
+    same in a visitor's browser. Returns the @font-face CSS ('' if none). A font that
+    isn't installed on this machine has no file to ship, so it is skipped (keeps its
+    fallback) and recorded in font_faces.skipped. Google families keep their <link>."""
+    fams = set()
+    for cont in site.get('masters', []) + site.get('pages', []):
+        for o in cont.get('objects', []):
+            if isinstance(o, dict) and o.get('font'):
+                fams.add(o['font'])
+    faces, skipped = [], []
+    websafe = {_norm_fam(w) for w in WEBSAFE_FONTS}
+    for fam in sorted(fams):
+        if _norm_fam(fam) in websafe or fam in GOOGLE:
+            continue
+        base = _fc_match(fam)
+        if not base or _norm_fam(base[0]) != _norm_fam(fam):
+            skipped.append(fam); continue          # not installed here — nothing to ship
+        os.makedirs(os.path.join(folder, 'fonts'), exist_ok=True)
+        seen = set()
+        for weight, style, spec in (('400', 'normal', fam), ('700', 'normal', fam + ':bold'),
+                                    ('400', 'italic', fam + ':italic'), ('700', 'italic', fam + ':bold:italic')):
+            r = _fc_match(spec)
+            if not r or _norm_fam(r[0]) != _norm_fam(fam) or r[1] in seen:
+                continue                            # missing or faux variant — the browser synthesises it
+            seen.add(r[1])
+            ext = (os.path.splitext(r[1])[1].lstrip('.') or 'ttf').lower()
+            fmt = {'ttf': 'truetype', 'otf': 'opentype', 'ttc': 'truetype',
+                   'woff2': 'woff2', 'woff': 'woff'}.get(ext, 'truetype')
+            safe = re.sub(r'[^A-Za-z0-9._-]+', '-', fam).strip('-') + '-' + weight + ('i' if style == 'italic' else '') + '.' + ext
+            try:
+                with open(r[1], 'rb') as fh: blob = fh.read()
+            except OSError:
+                continue
+            write_if_changed(os.path.join(folder, 'fonts', safe), blob, binary=True)
+            written.append('fonts/' + safe)
+            faces.append("@font-face{font-family:'%s';font-weight:%s;font-style:%s;font-display:swap;"
+                         "src:url('fonts/%s') format('%s');}" % (fam, weight, style, safe, fmt))
+    font_faces.skipped = skipped
+    return '\n'.join(faces)
+
 def publish_site(site, folder):
     os.makedirs(folder, exist_ok=True)
     written, imgs = [], {}
@@ -1452,8 +1512,10 @@ def publish_site(site, folder):
         return True
 
     changed_files = []
+    faces = font_faces(site, folder, write_if_changed, written)
     css_path = os.path.join(folder, 'style.css')
-    if write_if_changed(css_path, PUBLISH_CSS): changed_files.append('style.css')
+    full_css = (faces + '\n' + PUBLISH_CSS) if faces else PUBLISH_CSS
+    if write_if_changed(css_path, full_css): changed_files.append('style.css')
     written.append('style.css')
     pages_total = len(site['pages']); pages_changed = 0
     for p in site['pages']:
@@ -2926,6 +2988,14 @@ class Canvas(QGraphicsView):
     # -- mouse
     def mousePressEvent(self, e):
         win = self.win; vpos = e.position().toPoint(); sp = self.mapToScene(vpos)
+        if win._eyedrop:
+            if e.button() == Qt.LeftButton:
+                img = self.viewport().grab().toImage()
+                r = img.devicePixelRatio() or 1
+                win.eyedropped(img.pixelColor(int(vpos.x() * r), int(vpos.y() * r)).name())
+            else:
+                win.cancel_eyedropper()
+            e.accept(); return
         if win.editor:
             if win.editor.sceneBoundingRect().contains(sp) and win.editor.isVisible():
                 super().mousePressEvent(e); return
@@ -3091,6 +3161,8 @@ class Canvas(QGraphicsView):
 
     def keyPressEvent(self, e):
         win = self.win
+        if win._eyedrop and e.key() == Qt.Key_Escape:
+            win.cancel_eyedropper(); return
         if win.editor: super().keyPressEvent(e); return
         k = e.key()
         if k in (Qt.Key_Delete, Qt.Key_Backspace): win.delete_sel(); return
@@ -3542,6 +3614,7 @@ class MainWindow(QMainWindow):
         self.show_grid = self.settings.value('grid', False, type=bool)
         self.snap_grid = self.settings.value('snap', True, type=bool)
         self.editor = None; self.edit_id = None; self.edit_snap = None
+        self._eyedrop = False
         self.clip = []
         self.items = {}
         self._ui_pending = False; self._updating = False
@@ -3558,6 +3631,7 @@ class MainWindow(QMainWindow):
         self.build_studio()
         self.build_status()
         self.restore_layout()
+        self.style_separators()
         self.refresh()
         QTimer.singleShot(0, self.after_show)
 
@@ -3891,6 +3965,18 @@ class MainWindow(QMainWindow):
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.addDockWidget(Qt.RightDockWidgetArea, d); return d
 
+    def style_separators(self):
+        """Make the dock-resize edges visible and easy to grab — styled like the back of a
+        ruler: a window-coloured strip with a Mid line down both sides (so the edge beside the
+        Assets thumbnails, and every other dock edge, shows where to drag)."""
+        pal = self.palette()
+        win = pal.color(QPalette.Window).name()
+        mid = pal.color(QPalette.Mid).name()
+        hi = pal.color(QPalette.Highlight).name()
+        self.setStyleSheet(
+            'QMainWindow::separator{background:%s;border:1px solid %s;width:6px;height:6px;}'
+            'QMainWindow::separator:hover{background:%s;}' % (win, mid, hi))
+
     def build_studio(self):
         # Site
         sw = QWidget(); sl = QVBoxLayout(sw); sl.setContentsMargins(4, 4, 4, 4)
@@ -3924,7 +4010,7 @@ class MainWindow(QMainWindow):
         for i, (k, lbl) in enumerate((('fill', 'Fill'), ('line', 'Line'), ('text', 'Text'))):
             b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(k == 'fill'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
             self.sw_group.addButton(b, i); mrow.addWidget(b)
-        self.sw_group.idClicked.connect(lambda i: (setattr(self, 'sw_mode', ('fill', 'line', 'text')[i]), self.refresh_colour()))
+        self.sw_group.idClicked.connect(lambda i: self.set_sw_mode(('fill', 'line', 'text')[i]))
         mrow.addStretch(); cl.addLayout(mrow)
         cl.addWidget(QLabel('Site palette')); self.pal_grid = QGridLayout(); self.pal_grid.setSpacing(3); cl.addLayout(self.pal_grid)
         cl.addWidget(QLabel('Standard')); sg = QGridLayout(); sg.setSpacing(3); cl.addLayout(sg)
@@ -3945,7 +4031,7 @@ class MainWindow(QMainWindow):
         for i, (k, lbl) in enumerate((('fill', 'Fill'), ('line', 'Line'), ('text', 'Text'))):
             b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(k == 'fill'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
             self.col_group.addButton(b, i); crow.addWidget(b)
-        self.col_group.idClicked.connect(lambda i: (setattr(self, 'sw_mode', ('fill', 'line', 'text')[i]), self.refresh_colour()))
+        self.col_group.idClicked.connect(lambda i: self.set_sw_mode(('fill', 'line', 'text')[i]))
         self.col_mode = QComboBox(); self.col_mode.addItems(['RGB', 'HSL']); self.col_mode.currentIndexChanged.connect(self.col_mode_changed)
         crow.addStretch(); crow.addWidget(self.col_mode); co.addLayout(crow)
         self.col_labels, self.col_sliders, self.col_spins = [], [], []
@@ -3960,7 +4046,11 @@ class MainWindow(QMainWindow):
         co.addLayout(cgrid)
         hrow = QHBoxLayout(); hrow.addWidget(QLabel('Hex')); self.col_hex = QLineEdit(); self.col_hex.setMaxLength(7); self.col_hex.setFixedWidth(84)
         self.col_hex.editingFinished.connect(self.col_from_hex); hrow.addWidget(self.col_hex)
-        self.col_preview = QFrame(); self.col_preview.setFixedSize(46, 24); self.col_preview.setFrameShape(QFrame.StyledPanel); hrow.addWidget(self.col_preview); hrow.addStretch()
+        self.col_preview = QFrame(); self.col_preview.setFixedSize(46, 24); self.col_preview.setFrameShape(QFrame.StyledPanel); hrow.addWidget(self.col_preview)
+        self.eyedrop_btn = QToolButton(); self.eyedrop_btn.setCheckable(True)
+        self.eyedrop_btn.setIcon(ticon(['color-picker', 'gtk-color-picker', 'tool-measure'], '⦿'))
+        self.eyedrop_btn.setToolTip('Eyedropper — click the page to pick up a colour')
+        self.eyedrop_btn.clicked.connect(self.start_eyedropper); hrow.addWidget(self.eyedrop_btn); hrow.addStretch()
         co.addLayout(hrow)
         self.spectrum = SpectrumBar(self.spectrum_pick, self.colour_end)
         self.spectrum.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -4445,6 +4535,7 @@ class MainWindow(QMainWindow):
         ed.setPos(pad, (o['h'] - doc.size().height()) / 2 if o['type'] == 'button' else pad)
         ed.setTextInteractionFlags(Qt.TextEditorInteraction)
         it.editing = True; it.update(); self.editor = ed
+        self.set_sw_mode('text')   # so the Colour mixer / swatches land on the text you're editing
         ed.setFocus()
         c = ed.textCursor()
         if select_all: c.select(QTextCursor.Document)
@@ -4627,8 +4718,22 @@ class MainWindow(QMainWindow):
     def spectrum_pick(self, hexc):
         self._set_sliders_from(QColor(hexc)); self.colour_live(hexc)
 
+    def set_sw_mode(self, mode):
+        """Point the swatches/mixer at fill, line or text — keep both toggle rows in step."""
+        self.sw_mode = mode
+        i = ('fill', 'line', 'text').index(mode)
+        for grp in (getattr(self, 'sw_group', None), getattr(self, 'col_group', None)):
+            if grp and grp.button(i): grp.button(i).setChecked(True)
+        self.refresh_colour()
+
+    def _text_colour_target(self):
+        """True when a colour should land on the text being edited, not the whole frame."""
+        return self.editor is not None and self.sw_mode == 'text'
+
     def refresh_colour(self):
         if not hasattr(self, 'col_sliders'): return
+        if self._text_colour_target():
+            self._set_sliders_from(self.editor.textCursor().charFormat().foreground().color()); return
         objs = self.sel_objs(); key = {'fill': 'fill', 'line': 'stroke', 'text': 'color'}[self.sw_mode]
         c = objs[0].get(key) if objs else None
         if not c and not objs and self.sw_mode == 'fill':
@@ -4638,6 +4743,11 @@ class MainWindow(QMainWindow):
     def colour_live(self, hexc):
         """Apply a colour from the mixer, coalescing a drag into one undo step."""
         self.col_hex.setText(hexc); self.col_preview.setStyleSheet(f'background:{hexc}; border:1px solid #888;')
+        if self._text_colour_target():       # colour the selected words (or the next ones typed)
+            ed = self.editor; c = ed.textCursor()
+            fmt = QTextCharFormat(); fmt.setForeground(QColor(hexc))
+            c.mergeCharFormat(fmt); ed.setTextCursor(c)
+            return
         objs = self.sel_objs()
         if not objs: return
         if not self._col_gesture: self.commit(); self._col_gesture = True
@@ -4648,12 +4758,34 @@ class MainWindow(QMainWindow):
         self.view.viewport().update()
 
     def colour_end(self, *_):
+        if self._text_colour_target():
+            self._col_gesture = False; return
         objs = self.sel_objs()
         if not objs:
             if self.sw_mode == 'fill': self.apply_swatch(self.col_hex.text())
             self._col_gesture = False; return
         if self._col_gesture:
             self._col_gesture = False; self.refresh()
+
+    # ------------------------------------------------------------ eyedropper
+    def start_eyedropper(self, *_):
+        self._eyedrop = True
+        if hasattr(self, 'eyedrop_btn'): self.eyedrop_btn.setChecked(True)
+        self.view.viewport().setCursor(Qt.CrossCursor)
+        self.hint('Eyedropper: click anywhere on the page to pick up that colour. Esc to cancel.')
+
+    def cancel_eyedropper(self):
+        self._eyedrop = False
+        if hasattr(self, 'eyedrop_btn'): self.eyedrop_btn.setChecked(False)
+        self.view.viewport().setCursor(Qt.ArrowCursor)
+
+    def eyedropped(self, hexc):
+        """A pixel was sampled from the canvas — load it into the mixer and apply to the current target."""
+        self.cancel_eyedropper()
+        self._set_sliders_from(QColor(hexc))
+        if self.editor or self.sel_objs():
+            self.colour_live(hexc); self.colour_end()
+        self.hint(f'Picked {hexc}')
 
     def custom_swatch(self):
         c = QColorDialog.getColor(QColor('#2a7d6b'), self, 'Custom colour')
