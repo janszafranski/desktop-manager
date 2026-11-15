@@ -3975,8 +3975,8 @@ class MainWindow(QMainWindow):
         mid = pal.color(QPalette.Mid).name()
         hi = pal.color(QPalette.Highlight).name()
         self.setStyleSheet(
-            'QMainWindow::separator{background:%s;border:0;border-left:1px solid %s;width:6px;height:6px;}'
-            'QMainWindow::separator:hover{background:%s;}' % (win, mid, hi))
+            'QMainWindow::separator{background:%s;border:0;width:6px;height:6px;}'
+            'QMainWindow::separator:hover{background:%s;}' % (mid, hi))
 
     def build_studio(self):
         # Site
@@ -4129,8 +4129,8 @@ class MainWindow(QMainWindow):
         self.asset_list = ThumbGrid()
         self.asset_list.setStyleSheet(
             'QListWidget{background:transparent; border:none;}'
-            'QListWidget::item{border:1px solid palette(mid); background:palette(base); margin:3px;}'
-            'QListWidget::item:selected{border:2px solid palette(highlight);}')
+            'QListWidget::item{margin:3px;}'
+            'QListWidget::item:selected{border:1px solid palette(highlight);}')
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
         al.addWidget(self.asset_list, 1)
         al.addWidget(QLabel('<span style="color:gray">Double-click to place · hover for the name.</span>'))
