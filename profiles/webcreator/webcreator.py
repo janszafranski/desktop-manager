@@ -14,7 +14,7 @@ try:
                                QPen, QBrush, QFont, QFontMetrics, QPainterPath, QPalette, QTransform,
                                QTextDocument, QTextOption, QTextCursor, QTextCharFormat, QTextFormat,
                                QTextBlockFormat, QAbstractTextDocumentLayout, QKeySequence,
-                               QDesktopServices, QPolygonF, QCursor)
+                               QDesktopServices, QPolygonF, QCursor, QLinearGradient)
     from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QGraphicsView, QGraphicsScene,
                                    QGraphicsItem, QGraphicsTextItem, QToolBar, QDockWidget,
                                    QLabel, QComboBox, QFontComboBox, QSpinBox, QDoubleSpinBox,
@@ -22,7 +22,7 @@ try:
                                    QFormLayout, QDialog, QDialogButtonBox, QLineEdit, QCheckBox,
                                    QRadioButton, QButtonGroup, QListWidget, QListWidgetItem,
                                    QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
-                                   QStackedWidget, QFileDialog,
+                                   QStackedWidget, QFileDialog, QTabWidget,
                                    QMessageBox, QColorDialog, QSlider, QPlainTextEdit,
                                    QTableWidget, QTableWidgetItem, QMenu, QFrame, QSizePolicy,
                                    QGroupBox, QAbstractItemView, QStyle)
@@ -33,7 +33,10 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.8"
+VERSION = "1.10-01"
+# Bump when the default docks/toolbars change so a stale saved layout is discarded
+# (restoreState ignores a state saved under a different version) and users see the new panels.
+LAYOUT_VERSION = 6
 
 
 def open_external(target, is_file=False):
@@ -2679,6 +2682,65 @@ def swatch_icon(col, size=16):
         p.setPen(QPen(QColor('#d03b3b'), 1.5)); p.drawLine(QPointF(2, size - 2), QPointF(size - 2, 2))
     p.end(); return QIcon(pm)
 
+
+class SpectrumBar(QWidget):
+    """A 2-D colour spectrum (hue across, brightness down) like Serif's Colour tab.
+    Click or drag to pick; on_pick gets a '#rrggbb' string, on_release ends the gesture."""
+    def __init__(self, on_pick, on_release=None, parent=None):
+        super().__init__(parent)
+        self.on_pick, self.on_release = on_pick, on_release
+        self.setMinimumHeight(160); self.setCursor(Qt.CrossCursor)  # TV-screen proportions
+
+    def paintEvent(self, e):
+        p = QPainter(self); r = self.rect(); w, h = self.width(), self.height()
+        hue = QLinearGradient(0, 0, w, 0)
+        for i in range(7): hue.setColorAt(i / 6, QColor.fromHsv((i * 60) % 360, 255, 255))
+        p.fillRect(r, hue)
+        wg = QLinearGradient(0, 0, 0, h); wg.setColorAt(0, QColor(255, 255, 255, 255)); wg.setColorAt(.5, QColor(255, 255, 255, 0))
+        p.fillRect(r, wg)
+        bg = QLinearGradient(0, 0, 0, h); bg.setColorAt(.5, QColor(0, 0, 0, 0)); bg.setColorAt(1, QColor(0, 0, 0, 255))
+        p.fillRect(r, bg)
+        p.setPen(QPen(QApplication.palette().color(QPalette.Mid), 1)); p.drawRect(0, 0, w - 1, h - 1); p.end()
+
+    def _emit(self, e):
+        img = self.grab().toImage()
+        x = min(max(0, int(e.position().x())), self.width() - 1)
+        y = min(max(0, int(e.position().y())), self.height() - 1)
+        self.on_pick(QColor(img.pixel(x, y)).name())
+
+    def mousePressEvent(self, e): self._emit(e)
+    def mouseMoveEvent(self, e):
+        if e.buttons(): self._emit(e)
+    def mouseReleaseEvent(self, e):
+        if self.on_release: self.on_release()
+
+
+class ThumbGrid(QListWidget):
+    """Icon grid whose thumbnails grow with the panel and reflow between columns:
+    two columns at the default width, one when narrowed, more (and larger) when widened."""
+    def __init__(self, min_cell=86, max_cell=170, parent=None):
+        super().__init__(parent)
+        self._min, self._max = min_cell, max_cell
+        self.setViewMode(QListWidget.IconMode); self.setResizeMode(QListWidget.Adjust)
+        self.setMovement(QListWidget.Static); self.setUniformItemSizes(True)
+        self.setWordWrap(False); self.setSpacing(2)
+        # Pin the vertical scrollbar on so the viewport width never changes when the
+        # scrollbar would otherwise appear/disappear. That toggling was what made the
+        # column count oscillate between 3 and 4 (and the thumbnails jitter in size).
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e); self.relayout()
+
+    def relayout(self):
+        vw = self.viewport().width()
+        cols = max(1, vw // self._min)
+        cell = max(40, min(self._max, vw // cols - 2 * self.spacing() - 2))
+        self.setIconSize(QSize(cell - 10, cell - 10)); self.setGridSize(QSize(cell, cell))
+        for i in range(self.count()): self.item(i).setSizeHint(QSize(cell - 4, cell - 4))
+
+
 TOOLS = [
     # id, label, theme icon names, fallback glyph, hint
     ('pointer', 'Pointer', ['tool-pointer', 'edit-select'], '↖', 'Click to select an object. Shift-click adds to the selection. Drag on empty space to select several.'),
@@ -2761,9 +2823,7 @@ class Canvas(QGraphicsView):
         self.setMouseTracking(True)
         self.setTransformationAnchor(QGraphicsView.NoAnchor)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
-        # SmartViewportUpdate repaints only the regions that changed, instead of the
-        # whole canvas on every mouse move — stops the high-CPU jitter on big sites.
-        self.setViewportUpdateMode(QGraphicsView.SmartViewportUpdate)
+        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self.setFrameShape(QFrame.NoFrame)
         self.setFocusPolicy(Qt.StrongFocus)
         self.zoom = 1.0
@@ -3746,8 +3806,17 @@ class MainWindow(QMainWindow):
             w = tb.widgetForAction(self.a[k])
             if w: w.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.TopToolBarArea, tb)
-        self.addToolBarBreak()
-        # Context toolbar
+        # Insert toolbar sits alongside Standard on row 1. Only non-duplicate actions —
+        # the object-insert icons already live on the left tool rail.
+        ins = QToolBar('Insert'); ins.setObjectName('insert'); ins.setIconSize(QSize(20, 20))
+        ss = QAction(ticon(['view-list-tree', 'gnumeric-object-matrix', 'view-sort-ascending'], '⊞'), 'Site Structure', self)
+        ss.setToolTip('Site Structure — show the Site / Pages panel'); ss.triggered.connect(self.show_site_structure)
+        ins.addAction(ss); ins.widgetForAction(ss).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        ins.addSeparator()
+        for k in ('aleft', 'acenter', 'aright'): ins.addAction(self.a[k])
+        self.addToolBar(Qt.TopToolBarArea, ins)
+        # Context toolbar — same row; all top toolbars wrap onto more rows only when
+        # the window is too narrow to hold them.
         self.ctx = QToolBar('Context'); self.ctx.setObjectName('context'); self.ctx.setIconSize(QSize(18, 18))
         self.addToolBar(Qt.TopToolBarArea, self.ctx)
         # Tools toolbar
@@ -3761,7 +3830,27 @@ class MainWindow(QMainWindow):
             self.tool_group.addAction(a); tt.addAction(a); self.tool_actions[tid] = a
         self.tool_actions['pointer'].setChecked(True)
         self.addToolBar(Qt.LeftToolBarArea, tt)
-        for t in (tb, self.ctx, tt): self.view_menu.addAction(t.toggleViewAction())
+        # Serif-suite toolbar — separate Serif programs (PhotoPlus / PhotoLab /
+        # Cutout Studio) with no Linux equivalent, so the buttons explain they're unavailable.
+        photo = QToolBar('Photo tools'); photo.setObjectName('phototools'); photo.setIconSize(QSize(20, 20))
+        for name, icons, glyph in (
+            ('Edit Properties', ['document-properties', 'document-edit'], '≡'),
+            ('PhotoLab', ['darktable', 'applications-graphics'], '◉'),
+            ('Cutout Studio', ['edit-cut', 'gimp-tool-scissors'], '✂'),
+            ('Edit in PhotoPlus', ['gimp', 'krita', 'applications-graphics'], '◩'),
+            ('Position Image', ['transform-move', 'object-align-horizontal-center'], '✥')):
+            pa = QAction(ticon(icons, glyph), name, self); pa.setToolTip(f'{name} — part of the Serif suite, not available in this clone')
+            pa.triggered.connect(lambda _=False, n=name: self.serif_stub(n)); photo.addAction(pa)
+            w = photo.widgetForAction(pa)
+            if w: w.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.addToolBar(Qt.TopToolBarArea, photo)
+        # Placeholder tools in the left rail, mirroring WebPlus's fuller tool set.
+        tt.addSeparator()
+        for name, glyph in (('Rotate', '⟳'), ('Node Edit', '✎'), ('Crop', '⌗'), ('Pen / Curve', '✐'), ('Hotspot', '⬚'), ('Rollover', '◳')):
+            pt = QAction(ticon([], glyph), name, self); pt.setToolTip(f'{name} — not available in this clone yet')
+            pt.triggered.connect(lambda _=False, n=name: self.hint(f'The {n} tool isn’t available in this clone yet.')); tt.addAction(pt)
+        for t in (tb, ins, self.ctx, photo, tt):
+            t.setMovable(True); self.view_menu.addAction(t.toggleViewAction())
 
     def build_status(self):
         sb = self.statusBar()
@@ -3835,7 +3924,7 @@ class MainWindow(QMainWindow):
         for i, (k, lbl) in enumerate((('fill', 'Fill'), ('line', 'Line'), ('text', 'Text'))):
             b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(k == 'fill'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
             self.sw_group.addButton(b, i); mrow.addWidget(b)
-        self.sw_group.idClicked.connect(lambda i: setattr(self, 'sw_mode', ('fill', 'line', 'text')[i]))
+        self.sw_group.idClicked.connect(lambda i: (setattr(self, 'sw_mode', ('fill', 'line', 'text')[i]), self.refresh_colour()))
         mrow.addStretch(); cl.addLayout(mrow)
         cl.addWidget(QLabel('Site palette')); self.pal_grid = QGridLayout(); self.pal_grid.setSpacing(3); cl.addLayout(self.pal_grid)
         cl.addWidget(QLabel('Standard')); sg = QGridLayout(); sg.setSpacing(3); cl.addLayout(sg)
@@ -3848,6 +3937,36 @@ class MainWindow(QMainWindow):
         ab = QPushButton('Add selected colour to site palette'); ab.clicked.connect(self.add_to_palette); cl.addWidget(ab)
         cl.addStretch()
         self.d_swatch = self.dock('Swatches', cw, 'swatches')
+
+        # Colour — a live RGB / HSL mixer with spectrum, matching Serif's Colour tab.
+        self._col_gesture = False; self._updating_col = False
+        cow = QWidget(); co = QVBoxLayout(cow); co.setContentsMargins(6, 6, 6, 6); co.setSpacing(7)
+        crow = QHBoxLayout(); self.col_group = QButtonGroup(self)
+        for i, (k, lbl) in enumerate((('fill', 'Fill'), ('line', 'Line'), ('text', 'Text'))):
+            b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(k == 'fill'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            self.col_group.addButton(b, i); crow.addWidget(b)
+        self.col_group.idClicked.connect(lambda i: (setattr(self, 'sw_mode', ('fill', 'line', 'text')[i]), self.refresh_colour()))
+        self.col_mode = QComboBox(); self.col_mode.addItems(['RGB', 'HSL']); self.col_mode.currentIndexChanged.connect(self.col_mode_changed)
+        crow.addStretch(); crow.addWidget(self.col_mode); co.addLayout(crow)
+        self.col_labels, self.col_sliders, self.col_spins = [], [], []
+        cgrid = QGridLayout(); cgrid.setSpacing(5)
+        for r in range(3):
+            lab = QLabel(); s = QSlider(Qt.Horizontal); s.setRange(0, 255); sp = QSpinBox(); sp.setRange(0, 255); sp.setFixedWidth(56)
+            s.valueChanged.connect(sp.setValue); sp.valueChanged.connect(s.setValue)
+            s.valueChanged.connect(self.col_from_sliders)
+            s.sliderReleased.connect(self.colour_end); sp.editingFinished.connect(self.colour_end)
+            cgrid.addWidget(lab, r, 0); cgrid.addWidget(s, r, 1); cgrid.addWidget(sp, r, 2)
+            self.col_labels.append(lab); self.col_sliders.append(s); self.col_spins.append(sp)
+        co.addLayout(cgrid)
+        hrow = QHBoxLayout(); hrow.addWidget(QLabel('Hex')); self.col_hex = QLineEdit(); self.col_hex.setMaxLength(7); self.col_hex.setFixedWidth(84)
+        self.col_hex.editingFinished.connect(self.col_from_hex); hrow.addWidget(self.col_hex)
+        self.col_preview = QFrame(); self.col_preview.setFixedSize(46, 24); self.col_preview.setFrameShape(QFrame.StyledPanel); hrow.addWidget(self.col_preview); hrow.addStretch()
+        co.addLayout(hrow)
+        self.spectrum = SpectrumBar(self.spectrum_pick, self.colour_end)
+        self.spectrum.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        co.addWidget(self.spectrum, 1)  # fill the space below instead of wasting it on a stretch
+        self.col_mode_changed()
+        self.d_colour = self.dock('Colour', cow, 'colour')
 
         # Line
         lw = QWidget(); lf = QFormLayout(lw)
@@ -3896,42 +4015,58 @@ class MainWindow(QMainWindow):
         self.d_layers = self.dock('Layers', yw, 'layers')
 
         # Assets — a thumbnail library of every picture in the site (uploaded + AI-made).
-        aw = QWidget(); al = QVBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4)
-        atb = QHBoxLayout()
-        add_file = QPushButton(ticon(['document-open'], ''), 'Add file…'); add_file.clicked.connect(self.asset_add_file)
+        aw = QWidget(); aw.setMinimumWidth(104); al = QVBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4); al.setSpacing(4)
+        head = QHBoxLayout(); head.addWidget(QLabel('<b>Assets</b>')); head.addStretch()
+        self.assets_pin = QToolButton(); self.assets_pin.setCheckable(True); self.assets_pin.setAutoRaise(True)
+        self.assets_pin.setIcon(ticon(['window-pin', 'view-pin', 'emblem-locked', 'object-locked'], '📌'))
+        self.assets_pin.setToolTip('Pin the panel open — lock it in place so it can’t be moved, floated or closed')
+        self.assets_pin.toggled.connect(self.toggle_assets_pin); head.addWidget(self.assets_pin)
+        al.addLayout(head)
+        btn_row = QHBoxLayout()
+        browse = QPushButton(ticon(['folder-open', 'document-open'], ''), 'Browse…'); browse.setToolTip('Add every picture from a folder'); browse.clicked.connect(self.asset_browse_folder)
+        add_file = QPushButton(ticon(['document-open'], ''), 'Open…'); add_file.clicked.connect(self.asset_add_file)
         add_ai = QPushButton(ticon(['applications-graphics'], ''), 'AI image…'); add_ai.clicked.connect(self.asset_add_ai)
-        atb.addWidget(add_file); atb.addWidget(add_ai); al.addLayout(atb)
-        self.asset_list = QListWidget(); self.asset_list.setViewMode(QListWidget.IconMode)
-        self.asset_list.setIconSize(QSize(72, 72))
-        # Fixed grid + always-on scrollbar + uniform sizes: stops the IconMode relayout
-        # oscillation (scrollbar appears/disappears -> reflow -> loop -> thumbnail jitter).
-        self.asset_list.setGridSize(QSize(92, 96))
-        self.asset_list.setUniformItemSizes(True)
-        self.asset_list.setResizeMode(QListWidget.Fixed)
-        self.asset_list.setMovement(QListWidget.Static)
-        self.asset_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.asset_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.asset_list.setWordWrap(True)
+        btn_row.addWidget(browse); btn_row.addWidget(add_file); btn_row.addWidget(add_ai); al.addLayout(btn_row)
+        self.asset_filter = 'all'; self.asset_cat_group = QButtonGroup(self); crow = QHBoxLayout(); crow.setSpacing(3)
+        for i, (fk, lbl) in enumerate((('all', 'All'), ('pictures', 'Pictures'), ('graphics', 'Graphics'))):
+            b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(fk == 'all'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            b.clicked.connect(lambda _=False, fk=fk: (setattr(self, 'asset_filter', fk), self.refresh_assets()))
+            self.asset_cat_group.addButton(b, i); crow.addWidget(b)
+        crow.addStretch(); al.addLayout(crow)
+        # Thumbnails sit in uniform framed boxes with no caption (the name is the tooltip).
+        # ThumbGrid grows the icons with the panel and reflows between one and two columns.
+        self.asset_list = ThumbGrid()
+        self.asset_list.setStyleSheet(
+            'QListWidget{background:transparent; border:none;}'
+            'QListWidget::item{border:1px solid palette(mid); background:palette(base); margin:3px;}'
+            'QListWidget::item:selected{border:2px solid palette(highlight);}')
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
         al.addWidget(self.asset_list, 1)
-        al.addWidget(QLabel('<span style="color:gray">Double-click a picture to place it on the page.</span>'))
+        al.addWidget(QLabel('<span style="color:gray">Double-click to place · hover for the name.</span>'))
         self.d_assets = self.dock('Assets', aw, 'assets')
 
-        self.tabifyDockWidget(self.d_site, self.d_assets); self.tabifyDockWidget(self.d_assets, self.d_swatch)
-        self.tabifyDockWidget(self.d_swatch, self.d_line)
-        self.tabifyDockWidget(self.d_line, self.d_trans); self.tabifyDockWidget(self.d_trans, self.d_xform)
-        self.tabifyDockWidget(self.d_xform, self.d_layers)
-        self.d_site.raise_()
+        # Right side: Colour sits on top; below it, one tabbed group — the original
+        # studio (Site / Swatches / Line / Transparency / Transform / Layers) that you
+        # switch with its tabs, defaulting to Site.
+        self.setTabPosition(Qt.RightDockWidgetArea, QTabWidget.North)
+        self.splitDockWidget(self.d_colour, self.d_site, Qt.Vertical)
+        for d in (self.d_swatch, self.d_line, self.d_trans, self.d_xform, self.d_layers):
+            self.tabifyDockWidget(self.d_site, d)
+        # Assets lives on the left, as a flyout tab, like Serif's Assets studio.
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.d_assets)
+        self.d_colour.raise_(); self.d_site.raise_()
+        self.resizeDocks([self.d_colour, self.d_site], [320, 410], Qt.Vertical)
+        self.resizeDocks([self.d_assets], [196], Qt.Horizontal)  # two columns; narrow for one
         self.view_menu.addSeparator()
         sm = self.view_menu.addMenu('Studio')
-        for d in (self.d_site, self.d_assets, self.d_swatch, self.d_line, self.d_trans, self.d_xform, self.d_layers):
+        for d in (self.d_site, self.d_assets, self.d_swatch, self.d_colour, self.d_line, self.d_trans, self.d_xform, self.d_layers):
             sm.addAction(d.toggleViewAction())
         self.resizeDocks([self.d_site], [300], Qt.Horizontal)
 
     def restore_layout(self):
         g = self.settings.value('geometry'); s = self.settings.value('state')
         if g: self.restoreGeometry(g)
-        if s: self.restoreState(s)
+        if s: self.restoreState(s, LAYOUT_VERSION)
         self.toggle_rulers()
 
     # ------------------------------------------------------------ refresh
@@ -3966,7 +4101,7 @@ class MainWindow(QMainWindow):
 
     def update_ui(self):
         self._ui_pending = False
-        self.update_title(); self.build_ctx(); self.refresh_site_tab(); self.refresh_palette(); self.refresh_props(); self.refresh_layers(); self.refresh_assets()
+        self.update_title(); self.build_ctx(); self.refresh_site_tab(); self.refresh_palette(); self.refresh_colour(); self.refresh_props(); self.refresh_layers(); self.refresh_assets()
         self.update_rulers(); self.update_hint()
         m = self.cur_master()
         self.banner.setVisible(bool(m))
@@ -4098,6 +4233,24 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ Studio refresh
     def page_by_id(self, pid):
         return next((p for p in self.site['pages'] if p['id'] == pid), None)
+
+    def show_site_structure(self):
+        self.d_site.show(); self.d_site.raise_()
+
+    def toggle_assets_pin(self, on):
+        if on:
+            self.d_assets.setFeatures(QDockWidget.NoDockWidgetFeatures)
+            self.hint('Assets panel pinned open — it won’t move, float or close.')
+        else:
+            self.d_assets.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable)
+            self.hint('Assets panel unpinned.')
+
+    def serif_stub(self, name):
+        self.hint(f'{name} is part of the Serif suite and isn’t available in this clone.')
+        QMessageBox.information(self, name,
+                               f'{name} is part of the Serif suite (PhotoPlus / PhotoLab / Cutout Studio).\n\n'
+                               'Those are separate Serif programs with no Linux equivalent, so this button '
+                               'is here for parity with WebPlus but does not do anything.')
 
     def refresh_site_tab(self):
         self.site_name_label.setText(f'<b>{H.escape(self.site["name"])}</b> &nbsp;·&nbsp; {self.site["width"]} px wide')
@@ -4417,8 +4570,13 @@ class MainWindow(QMainWindow):
         if not objs:
             if self.sw_mode == 'fill': self.set_bg(c)
             return
-        key = {'fill': 'fill', 'line': 'stroke', 'text': 'color'}[self.sw_mode]
         self.commit()
+        self._apply_colour(objs, c)
+        self.refresh()
+
+    def _apply_colour(self, objs, c):
+        """Set the current swatch colour (fill / line / text) on objs. No undo or refresh."""
+        key = {'fill': 'fill', 'line': 'stroke', 'text': 'color'}[self.sw_mode]
         for o in objs:
             if o.get('locked'): continue
             if key == 'fill' and o['type'] == 'nav' and o.get('style') != 'plain' and c: o['accent'] = c
@@ -4426,7 +4584,76 @@ class MainWindow(QMainWindow):
             elif key == 'stroke' and c and o['type'] != 'line' and not o.get('strokeW'): o['stroke'] = c; o['strokeW'] = 2
             elif key == 'color' and not c: continue
             else: o[key] = c
-        self.refresh()
+
+    # ------------------------------------------------------------ Colour mixer
+    def _col_is_hsl(self):
+        return self.col_mode.currentText() == 'HSL'
+
+    def col_mode_changed(self, *_):
+        self._updating_col = True
+        caps = ('H', 'S', 'L') if self._col_is_hsl() else ('R', 'G', 'B')
+        rng = (359, 100, 100) if self._col_is_hsl() else (255, 255, 255)
+        for lab, cap, s, sp, hi in zip(self.col_labels, caps, self.col_sliders, self.col_spins, rng):
+            lab.setText(cap); s.setRange(0, hi); sp.setRange(0, hi)
+        self._updating_col = False
+        self.refresh_colour()
+
+    def _set_sliders_from(self, c):
+        self._updating_col = True
+        if self._col_is_hsl():
+            vals = [max(0, c.hslHue()), round(c.hslSaturation() * 100 / 255), round(c.lightness() * 100 / 255)]
+        else:
+            vals = [c.red(), c.green(), c.blue()]
+        for s, sp, v in zip(self.col_sliders, self.col_spins, vals): s.setValue(v); sp.setValue(v)
+        self._updating_col = False
+        self.col_hex.setText(c.name())
+        self.col_preview.setStyleSheet(f'background:{c.name()}; border:1px solid #888;')
+
+    def _sliders_colour(self):
+        a, b, c = [s.value() for s in self.col_sliders]
+        return QColor.fromHsl(a, round(b * 255 / 100), round(c * 255 / 100)) if self._col_is_hsl() else QColor(a, b, c)
+
+    def col_from_sliders(self, *_):
+        if self._updating_col: return
+        self.colour_live(self._sliders_colour().name())
+
+    def col_from_hex(self):
+        t = self.col_hex.text().strip()
+        if not t.startswith('#'): t = '#' + t
+        c = QColor(t)
+        if c.isValid():
+            self._set_sliders_from(c); self.colour_live(c.name()); self.colour_end()
+
+    def spectrum_pick(self, hexc):
+        self._set_sliders_from(QColor(hexc)); self.colour_live(hexc)
+
+    def refresh_colour(self):
+        if not hasattr(self, 'col_sliders'): return
+        objs = self.sel_objs(); key = {'fill': 'fill', 'line': 'stroke', 'text': 'color'}[self.sw_mode]
+        c = objs[0].get(key) if objs else None
+        if not c and not objs and self.sw_mode == 'fill':
+            m = self.cur_master(); c = m.get('bg') if m else self.page_bg()
+        self._set_sliders_from(QColor(c) if c else QColor('#000000'))
+
+    def colour_live(self, hexc):
+        """Apply a colour from the mixer, coalescing a drag into one undo step."""
+        self.col_hex.setText(hexc); self.col_preview.setStyleSheet(f'background:{hexc}; border:1px solid #888;')
+        objs = self.sel_objs()
+        if not objs: return
+        if not self._col_gesture: self.commit(); self._col_gesture = True
+        self._apply_colour(objs, hexc)
+        for o in objs:
+            it = self.items.get(o['id'])
+            if it: it.sync()
+        self.view.viewport().update()
+
+    def colour_end(self, *_):
+        objs = self.sel_objs()
+        if not objs:
+            if self.sw_mode == 'fill': self.apply_swatch(self.col_hex.text())
+            self._col_gesture = False; return
+        if self._col_gesture:
+            self._col_gesture = False; self.refresh()
 
     def custom_swatch(self):
         c = QColorDialog.getColor(QColor('#2a7d6b'), self, 'Custom colour')
@@ -4478,13 +4705,31 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'asset_list'): return
         self.asset_list.clear()
         names = self.site.get('assetnames', {})
+        flt = getattr(self, 'asset_filter', 'all')
         for key, uri in self.site.get('assets', {}).items():
             if not isinstance(uri, str) or not uri.startswith('data:image'): continue
+            is_svg = 'svg' in uri[:20]
+            if flt == 'graphics' and not is_svg: continue
+            if flt == 'pictures' and is_svg: continue
             pm = pixmap_for(self.site, key)
             icon = QIcon(pm.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)) if pm and not pm.isNull() else QIcon()
-            it = QListWidgetItem(icon, names.get(key, key[:8]))
+            it = QListWidgetItem(icon, '')
             it.setData(Qt.UserRole, key); it.setToolTip(names.get(key, key))
             self.asset_list.addItem(it)
+        if hasattr(self.asset_list, 'relayout'): self.asset_list.relayout()
+
+    def asset_browse_folder(self):
+        d = QFileDialog.getExistingDirectory(self, 'Add every picture from a folder', os.path.expanduser('~/Pictures'))
+        if not d: return
+        exts = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg')
+        files = [os.path.join(d, f) for f in sorted(os.listdir(d)) if f.lower().endswith(exts)]
+        if not files: self.hint('No pictures found in that folder.'); return
+        self.commit(); added = 0
+        for path in files:
+            uri = self.picture_uri(path)
+            if not uri: continue
+            k = add_asset(self.site, uri); self.site.setdefault('assetnames', {})[k] = os.path.basename(path); added += 1
+        self.refresh_assets(); self.hint(f'Added {added} picture(s) to Assets — double-click one to place it.')
 
     def asset_add_file(self):
         path, _ = QFileDialog.getOpenFileName(self, 'Add a picture to assets', os.path.expanduser('~/Pictures'),
@@ -5800,7 +6045,7 @@ class MainWindow(QMainWindow):
         self.fetch_catalogue()
         if QMessageBox.question(self, 'Update', f'Updated to {ver}. Restart now to use it?') == QMessageBox.Yes and self.maybe_save():
             self.dirty = False
-            self.settings.setValue('geometry', self.saveGeometry()); self.settings.setValue('state', self.saveState())
+            self.settings.setValue('geometry', self.saveGeometry()); self.settings.setValue('state', self.saveState(LAYOUT_VERSION))
             args = [a for a in sys.argv[1:]]
             if self.path and self.path not in args: args = [self.path]
             os.execv(sys.executable, [sys.executable, target] + args)
@@ -5847,7 +6092,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         if not self.maybe_save(): e.ignore(); return
-        self.settings.setValue('geometry', self.saveGeometry()); self.settings.setValue('state', self.saveState())
+        self.settings.setValue('geometry', self.saveGeometry()); self.settings.setValue('state', self.saveState(LAYOUT_VERSION))
         try:
             import shutil; shutil.rmtree(self.preview_dir, ignore_errors=True)
         except Exception: pass
