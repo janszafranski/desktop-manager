@@ -3902,8 +3902,16 @@ class MainWindow(QMainWindow):
         add_ai = QPushButton(ticon(['applications-graphics'], ''), 'AI image…'); add_ai.clicked.connect(self.asset_add_ai)
         atb.addWidget(add_file); atb.addWidget(add_ai); al.addLayout(atb)
         self.asset_list = QListWidget(); self.asset_list.setViewMode(QListWidget.IconMode)
-        self.asset_list.setIconSize(QSize(80, 80)); self.asset_list.setResizeMode(QListWidget.Adjust)
-        self.asset_list.setSpacing(6); self.asset_list.setMovement(QListWidget.Static)
+        self.asset_list.setIconSize(QSize(72, 72))
+        # Fixed grid + always-on scrollbar + uniform sizes: stops the IconMode relayout
+        # oscillation (scrollbar appears/disappears -> reflow -> loop -> thumbnail jitter).
+        self.asset_list.setGridSize(QSize(92, 96))
+        self.asset_list.setUniformItemSizes(True)
+        self.asset_list.setResizeMode(QListWidget.Fixed)
+        self.asset_list.setMovement(QListWidget.Static)
+        self.asset_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.asset_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.asset_list.setWordWrap(True)
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
         al.addWidget(self.asset_list, 1)
         al.addWidget(QLabel('<span style="color:gray">Double-click a picture to place it on the page.</span>'))
