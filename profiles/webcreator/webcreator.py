@@ -3891,13 +3891,28 @@ class MainWindow(QMainWindow):
         yl.addWidget(ytb)
         self.d_layers = self.dock('Layers', yw, 'layers')
 
-        self.tabifyDockWidget(self.d_site, self.d_swatch); self.tabifyDockWidget(self.d_swatch, self.d_line)
+        # Assets — a thumbnail library of every picture in the site (uploaded + AI-made).
+        aw = QWidget(); al = QVBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4)
+        atb = QHBoxLayout()
+        add_file = QPushButton(ticon(['document-open'], ''), 'Add file…'); add_file.clicked.connect(self.asset_add_file)
+        add_ai = QPushButton(ticon(['applications-graphics'], ''), 'AI image…'); add_ai.clicked.connect(self.asset_add_ai)
+        atb.addWidget(add_file); atb.addWidget(add_ai); al.addLayout(atb)
+        self.asset_list = QListWidget(); self.asset_list.setViewMode(QListWidget.IconMode)
+        self.asset_list.setIconSize(QSize(80, 80)); self.asset_list.setResizeMode(QListWidget.Adjust)
+        self.asset_list.setSpacing(6); self.asset_list.setMovement(QListWidget.Static)
+        self.asset_list.itemDoubleClicked.connect(self.asset_insert)
+        al.addWidget(self.asset_list, 1)
+        al.addWidget(QLabel('<span style="color:gray">Double-click a picture to place it on the page.</span>'))
+        self.d_assets = self.dock('Assets', aw, 'assets')
+
+        self.tabifyDockWidget(self.d_site, self.d_assets); self.tabifyDockWidget(self.d_assets, self.d_swatch)
+        self.tabifyDockWidget(self.d_swatch, self.d_line)
         self.tabifyDockWidget(self.d_line, self.d_trans); self.tabifyDockWidget(self.d_trans, self.d_xform)
         self.tabifyDockWidget(self.d_xform, self.d_layers)
         self.d_site.raise_()
         self.view_menu.addSeparator()
         sm = self.view_menu.addMenu('Studio')
-        for d in (self.d_site, self.d_swatch, self.d_line, self.d_trans, self.d_xform, self.d_layers):
+        for d in (self.d_site, self.d_assets, self.d_swatch, self.d_line, self.d_trans, self.d_xform, self.d_layers):
             sm.addAction(d.toggleViewAction())
         self.resizeDocks([self.d_site], [300], Qt.Horizontal)
 
@@ -3939,7 +3954,7 @@ class MainWindow(QMainWindow):
 
     def update_ui(self):
         self._ui_pending = False
-        self.update_title(); self.build_ctx(); self.refresh_site_tab(); self.refresh_palette(); self.refresh_props(); self.refresh_layers()
+        self.update_title(); self.build_ctx(); self.refresh_site_tab(); self.refresh_palette(); self.refresh_props(); self.refresh_layers(); self.refresh_assets()
         self.update_rulers(); self.update_hint()
         m = self.cur_master()
         self.banner.setVisible(bool(m))
@@ -4444,6 +4459,50 @@ class MainWindow(QMainWindow):
         if pm and not pm.isNull() and o['w'] == DEF['picture']['w'] and o['h'] == DEF['picture']['h']:
             o['h'] = round(o['w'] * pm.height() / pm.width())
         self.refresh()
+
+    # ------------------------------------------------------------ Assets panel
+    def refresh_assets(self):
+        """Fill the Assets panel with a thumbnail of every image in the site."""
+        if not hasattr(self, 'asset_list'): return
+        self.asset_list.clear()
+        names = self.site.get('assetnames', {})
+        for key, uri in self.site.get('assets', {}).items():
+            if not isinstance(uri, str) or not uri.startswith('data:image'): continue
+            pm = pixmap_for(self.site, key)
+            icon = QIcon(pm.scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)) if pm and not pm.isNull() else QIcon()
+            it = QListWidgetItem(icon, names.get(key, key[:8]))
+            it.setData(Qt.UserRole, key); it.setToolTip(names.get(key, key))
+            self.asset_list.addItem(it)
+
+    def asset_add_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, 'Add a picture to assets', os.path.expanduser('~/Pictures'),
+                                              'Pictures (*.png *.jpg *.jpeg *.gif *.webp *.svg)')
+        if not path: return
+        uri = self.picture_uri(path)
+        if not uri: QMessageBox.warning(self, APP, "That file couldn't be read as a picture."); return
+        self.commit(); k = add_asset(self.site, uri)
+        self.site.setdefault('assetnames', {})[k] = os.path.basename(path)
+        self.refresh_assets(); self.hint('Added to Assets — double-click it to place it on the page.')
+
+    def asset_add_ai(self):
+        o = {'type': 'picture', 'x': 0, 'y': 0, 'w': DEF['picture']['w'], 'h': DEF['picture']['h']}
+        # Reuse the AI generation flow, but only to register the asset (not place it).
+        from PySide6.QtWidgets import QProgressDialog
+        c = self.site.get('contact', {})  # noqa (keeps behaviour parallel to ai_picture)
+        self.ai_picture(o)
+        self.refresh_assets()
+
+    def asset_insert(self, it):
+        key = it.data(Qt.UserRole) if it else None
+        if not key: return
+        cc = self.view.mapToScene(self.view.viewport().rect().center())
+        o = mk('picture', 0, 0)
+        pm = pixmap_for(self.site, key)
+        if pm and not pm.isNull():
+            o['h'] = round(o['w'] * pm.height() / pm.width())
+        o['src'] = key
+        o['x'] = self.view.snap(max(0, cc.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, cc.y() - o['h'] / 2))
+        self.add_object(o)
 
     def ai_picture(self, o):
         """Generate an image from a text prompt. Provider is set in Site Properties;
