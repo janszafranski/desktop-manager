@@ -3228,7 +3228,6 @@ class StartupAssistant(QDialog):
         if not self.rlist.count(): self.rlist.addItem('No recent sites yet.')
         self.rlist.itemDoubleClicked.connect(self.open_recent)
         bh = QHBoxLayout(); ol.addLayout(bh)
-        b1 = QPushButton('Open Selected'); b1.clicked.connect(lambda: self.open_recent(self.rlist.currentItem())); bh.addWidget(b1)
         b2 = QPushButton(ticon(['document-open-folder', 'folder-open'], ''), 'Browse…'); b2.clicked.connect(self.browse); bh.addWidget(b2)
         b3 = QPushButton(ticon(['document-import'], ''), 'Import Website Folder…'); b3.clicked.connect(self.import_site); bh.addWidget(b3)
         b4 = QPushButton(ticon(['document-open', 'document-import'], ''), 'Open WebPlus Site…')
@@ -3239,8 +3238,9 @@ class StartupAssistant(QDialog):
         bottom = QHBoxLayout(); root.addLayout(bottom)
         self.show_cb = QCheckBox('Show the Startup Assistant when the app opens')
         self.show_cb.setChecked(win.settings.value('showStartup', True, type=bool)); bottom.addWidget(self.show_cb); bottom.addStretch()
-        openb = QPushButton(ticon(['document-open'], ''), 'Open…')
-        openb.setToolTip('Open a saved site from your computer'); openb.clicked.connect(self.browse)
+        openb = QPushButton(ticon(['document-open'], ''), 'Open')
+        openb.setToolTip('Open the highlighted recent site (or Browse if none is selected)')
+        openb.clicked.connect(self.open_highlighted)
         bottom.addWidget(openb)
         close = QPushButton('Close'); close.clicked.connect(self.reject); bottom.addWidget(close)
         self.nav.setCurrentRow(0); self.show_template()
@@ -3430,6 +3430,14 @@ class StartupAssistant(QDialog):
 
     def open_recent(self, it):
         if it and it.data(Qt.UserRole): self.result_path = it.data(Qt.UserRole); self.accept()
+
+    def open_highlighted(self):
+        """Open the highlighted recent site. If none is selected, fall back to Browse."""
+        it = self.rlist.currentItem()
+        if it and it.data(Qt.UserRole):
+            self.open_recent(it)
+        else:
+            self.browse()
 
     def import_site(self):
         self.result_import = True; self.accept()
@@ -5439,9 +5447,15 @@ class MainWindow(QMainWindow):
                 fp = os.path.join(self.preview_dir, f)
                 if os.path.isfile(fp): os.remove(fp)
             publish_site(self.site, self.preview_dir)
-        except OSError as ex:
+        except Exception as ex:
+            # Catch ANY build error (a bad image used to crash this and kill preview silently).
             QMessageBox.warning(self, APP, f"Couldn't build the preview.\n{ex}"); return
-        open_external(os.path.join(self.preview_dir, file), is_file=True)
+        target = os.path.join(self.preview_dir, file)
+        if not os.path.exists(target):
+            QMessageBox.warning(self, APP, "The preview page couldn't be found after building."); return
+        if not open_external(target, is_file=True):
+            QMessageBox.warning(self, APP, "Couldn't open a web browser to show the preview.")
+            return
         self.hint('Preview opened in your web browser.')
 
     def publish_disk(self):
