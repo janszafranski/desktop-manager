@@ -3966,15 +3966,16 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, d); return d
 
     def style_separators(self):
-        """Make the dock-resize edges visible and easy to grab — styled like the back of a
-        ruler: a window-coloured strip with a Mid line down both sides (so the edge beside the
-        Assets thumbnails, and every other dock edge, shows where to drag)."""
+        """Make the dock-resize edges visible and easy to grab, styled like the back of the
+        rulers: a window-coloured strip with a single Mid edge line — the same colour and weight
+        as the line the rulers draw — so the edge beside the Assets thumbnails shows where to
+        drag without looking heavier than the ruler backs."""
         pal = self.palette()
         win = pal.color(QPalette.Window).name()
         mid = pal.color(QPalette.Mid).name()
         hi = pal.color(QPalette.Highlight).name()
         self.setStyleSheet(
-            'QMainWindow::separator{background:%s;border:1px solid %s;width:6px;height:6px;}'
+            'QMainWindow::separator{background:%s;border:0;border-left:1px solid %s;width:6px;height:6px;}'
             'QMainWindow::separator:hover{background:%s;}' % (win, mid, hi))
 
     def build_studio(self):
