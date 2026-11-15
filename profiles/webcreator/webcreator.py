@@ -1068,7 +1068,7 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
     elif t == 'nav':
         if o.get('fill'): p.fillRect(r, QColor(o['fill']))
         f = qfont(o); p.setFont(f); fm = QFontMetrics(f)
-        items = nav_items(site, o); padx, gap = 14, 6
+        items = nav_items(site, o); padx, gap = int(o.get('pad', 14)), int(o.get('gap', 6))
         ih = fm.height() + 16
         acc, ink = QColor(o.get('accent', '#2a7d6b')), QColor(o.get('accentInk', '#ffffff'))
         style = o.get('style', 'pills')
@@ -1211,7 +1211,7 @@ a.obj{color:inherit;text-decoration:none}
 .obj-nav{display:flex;flex-wrap:wrap;gap:6px;align-items:center;align-content:center;z-index:50}
 .obj-nav.v{flex-direction:column;flex-wrap:nowrap;align-items:stretch}
 .obj-nav .nv{position:relative}
-.obj-nav a{display:block;text-decoration:none;color:inherit;padding:8px 14px;white-space:nowrap;text-align:center;line-height:1.2}
+.obj-nav a{display:block;text-decoration:none;color:inherit;padding:8px var(--nvpad,14px);white-space:nowrap;text-align:center;line-height:1.2}
 .obj-nav .sub{display:none;position:absolute;top:100%;left:0;min-width:100%;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,.15);border-radius:6px;padding:4px;z-index:60}
 .obj-nav .sub a{color:#222;text-align:left;border-radius:4px}
 .obj-nav .sub a:hover{background:rgba(0,0,0,.06)}
@@ -1299,6 +1299,8 @@ def obj_html(o, site, page, img):
         else: st += 'background:#dde2e5;'
     elif t == 'nav':
         st += text_css(o) + f"--na:{o.get('accent')};--nai:{o.get('accentInk', '#fff')};"
+        # Editable item spacing: gap between items, and horizontal padding inside each item.
+        st += f"gap:{int(o.get('gap', 6))}px;--nvpad:{int(o.get('pad', 14))}px;"
         if o.get('fill'): st += f"background:{o['fill']};"
         st += 'justify-content:' + {'center': 'center', 'right': 'flex-end'}.get(o.get('align'), 'flex-start') + ';'
         cls = f" nav-{o.get('style', 'pills')}" + (' v' if o.get('orient') == 'v' else '')
@@ -4266,7 +4268,7 @@ class MainWindow(QMainWindow):
         elif t == 'form': self.form_dialog(o)
         elif t == 'gallery': self.gallery_dialog(o)
         elif t == 'share': self.share_dialog(o)
-        elif t == 'nav': self.hint('The navigation bar lists your pages. Change pages in the Site tab; change its look on the context toolbar.')
+        elif t == 'nav': self.nav_dialog(o)
 
     def start_edit(self, o, select_all=False):
         it = self.items.get(o['id'])
@@ -4581,6 +4583,35 @@ class MainWindow(QMainWindow):
             self.commit()
             o['nets'] = [lst.item(i).data(Qt.UserRole) for i in range(lst.count()) if lst.item(i).checkState() == Qt.Checked]
             o['style'] = 'outline' if style.currentIndex() else 'colour'; o['size'] = size.value()
+            self.refresh()
+
+    def nav_dialog(self, o):
+        """Edit the navigation bar's spacing, size and look. Lower the spacing/size
+        or widen the bar if the items wrap onto a second line."""
+        dlg = QDialog(self); dlg.setWindowTitle('Navigation Bar'); lay = QVBoxLayout(dlg)
+        lab = QLabel('The bar lists your pages automatically (add or remove pages in the Site panel). '
+                     'If the items wrap onto a second line, reduce the spacing or text size below, '
+                     'or make the bar wider.')
+        lab.setWordWrap(True); lay.addWidget(lab)
+        form = QFormLayout(); lay.addLayout(form)
+        style = QComboBox(); style.addItems(['Plain', 'Pills', 'Underline', 'Tabs'])
+        style.setCurrentIndex({'plain': 0, 'pills': 1, 'underline': 2, 'tabs': 3}.get(o.get('style', 'pills'), 1))
+        align = QComboBox(); align.addItems(['Left', 'Centre', 'Right'])
+        align.setCurrentIndex({'left': 0, 'center': 1, 'right': 2}.get(o.get('align', 'left'), 0))
+        size = QSpinBox(); size.setRange(8, 32); size.setSuffix(' px'); size.setValue(int(o.get('size', 15)))
+        gap = QSpinBox(); gap.setRange(0, 60); gap.setSuffix(' px'); gap.setValue(int(o.get('gap', 6)))
+        pad = QSpinBox(); pad.setRange(0, 40); pad.setSuffix(' px'); pad.setValue(int(o.get('pad', 14)))
+        bold = QCheckBox('Bold'); bold.setChecked(bool(o.get('bold')))
+        form.addRow('Look:', style); form.addRow('Align:', align)
+        form.addRow('Text size:', size); form.addRow('Space between items:', gap)
+        form.addRow('Padding inside items:', pad); form.addRow('', bold)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
+        if dlg.exec():
+            self.commit()
+            o['style'] = ['plain', 'pills', 'underline', 'tabs'][style.currentIndex()]
+            o['align'] = ['left', 'center', 'right'][align.currentIndex()]
+            o['size'] = size.value(); o['gap'] = gap.value(); o['pad'] = pad.value(); o['bold'] = bold.isChecked()
             self.refresh()
 
     def gallery_dialog(self, o):
