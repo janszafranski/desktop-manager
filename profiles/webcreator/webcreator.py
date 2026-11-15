@@ -2761,7 +2761,9 @@ class Canvas(QGraphicsView):
         self.setMouseTracking(True)
         self.setTransformationAnchor(QGraphicsView.NoAnchor)
         self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
-        self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        # SmartViewportUpdate repaints only the regions that changed, instead of the
+        # whole canvas on every mouse move — stops the high-CPU jitter on big sites.
+        self.setViewportUpdateMode(QGraphicsView.SmartViewportUpdate)
         self.setFrameShape(QFrame.NoFrame)
         self.setFocusPolicy(Qt.StrongFocus)
         self.zoom = 1.0
