@@ -25,7 +25,7 @@ try:
                                    QStackedWidget, QFileDialog, QTabWidget,
                                    QMessageBox, QColorDialog, QSlider, QPlainTextEdit,
                                    QTableWidget, QTableWidgetItem, QMenu, QFrame, QSizePolicy,
-                                   QGroupBox, QAbstractItemView, QStyle)
+                                   QGroupBox, QAbstractItemView, QStyle, QInputDialog)
 except ImportError:
     print("just a... WEBcreator needs PySide6.\nOn CachyOS / Arch:  sudo pacman -S --needed pyside6")
     sys.exit(1)
@@ -33,10 +33,11 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-04"
+VERSION = "1.11-00"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
-LAYOUT_VERSION = 7
+# v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
+LAYOUT_VERSION = 8
 
 
 def open_external(target, is_file=False):
@@ -1356,6 +1357,78 @@ def obj_html(o, site, page, img):
                       f'i=(i+1)%s.length;s[i].style.opacity=1}},{int(o.get("interval", 5) * 1000)})}})(document.currentScript.parentNode)</script>')
     return f'<{tag} class="obj obj-{t}" style="{st}"{attrs}>{inner}</{tag}>'
 
+def _page_text(page):
+    """Plain text of a page's text objects (tags stripped, whitespace tidied)."""
+    return re.sub(r'\s+', ' ', H.unescape(re.sub(r'<[^>]+>', ' ',
+                  ' '.join(o.get('html', '') for o in page.get('objects', []) if o.get('type') == 'text')))).strip()
+
+def seo_head(site, page, img):
+    """The page's SEO <head> block: effective title + all meta/OG/Twitter/
+    canonical/robots/JSON-LD tags. Returns (effective_title, head_html).
+    Falls back to the auto word-derived description so empty SEO publishes
+    byte-for-byte as before (bar the title now coming from here)."""
+    sseo = site.get('seo', {}) or {}
+    pseo = page.get('seo', {}) or {}
+    base = (sseo.get('base_url') or '').strip().rstrip('/')
+    # Effective title: page override, else "{title} | {site name}"
+    title = (pseo.get('title') or '').strip() or f'{page["title"]} | {site["name"]}'
+    # Description: override, else auto from page words (same rule as before)
+    desc = (pseo.get('description') or '').strip()
+    if not desc:
+        words = _page_text(page)
+        if len(words) > 155: words = words[:152].rsplit(' ', 1)[0] + '…'
+        desc = words
+    out = []
+    if desc: out.append(f'<meta name="description" content="{esc(desc)}">')
+    # Byte-for-byte guard: when NOTHING SEO-related is configured (no site seo,
+    # no page seo), emit only the description meta exactly as the old code did,
+    # so unconfigured sites publish identically.
+    configured = bool(sseo) or bool(pseo)
+    if not configured:
+        head = '\n'.join(out)
+        return title, (head + '\n' if head else '')
+    # Absolute OG image (needs a base_url to be absolute; skip otherwise)
+    ogkey = (pseo.get('og_image') or sseo.get('og_image') or '').strip()
+    og_abs = ''
+    if ogkey:
+        if re.match(r'https?://', ogkey):
+            og_abs = ogkey
+        elif base and ogkey in site.get('assets', {}):
+            og_abs = base + '/' + img(ogkey).lstrip('/')
+    page_url = (base + '/' + page['file']) if base else ''
+    # Open Graph
+    out.append('<meta property="og:type" content="website">')
+    out.append(f'<meta property="og:title" content="{esc(title)}">')
+    if desc: out.append(f'<meta property="og:description" content="{esc(desc)}">')
+    if page_url: out.append(f'<meta property="og:url" content="{esc(page_url)}">')
+    if base and site.get('name'): out.append(f'<meta property="og:site_name" content="{esc(site["name"])}">')
+    if og_abs: out.append(f'<meta property="og:image" content="{esc(og_abs)}">')
+    # Twitter card
+    out.append('<meta name="twitter:card" content="summary_large_image">')
+    tw = (sseo.get('twitter_site') or '').strip()
+    if tw:
+        if not tw.startswith('@'): tw = '@' + tw
+        out.append(f'<meta name="twitter:site" content="{esc(tw)}">')
+    out.append(f'<meta name="twitter:title" content="{esc(title)}">')
+    if desc: out.append(f'<meta name="twitter:description" content="{esc(desc)}">')
+    if og_abs: out.append(f'<meta name="twitter:image" content="{esc(og_abs)}">')
+    # Canonical: explicit override, else base_url + file
+    canon = (pseo.get('canonical') or '').strip() or page_url
+    if canon: out.append(f'<link rel="canonical" href="{esc(canon)}">')
+    # robots noindex
+    if pseo.get('noindex'): out.append('<meta name="robots" content="noindex,nofollow">')
+    # JSON-LD WebSite + Organization (home page only, needs org_name)
+    org = (sseo.get('org_name') or '').strip()
+    if org and page is site['pages'][0]:
+        ld = {'@context': 'https://schema.org', '@graph': []}
+        if base:
+            ld['@graph'].append({'@type': 'WebSite', 'name': site.get('name', ''), 'url': base + '/'})
+        ld['@graph'].append({'@type': (sseo.get('org_type') or 'Organization').strip() or 'Organization',
+                             'name': org, **({'url': base + '/'} if base else {})})
+        out.append(f'<script type="application/ld+json">{json.dumps(ld, ensure_ascii=False)}</script>')
+    head = '\n'.join(out)
+    return title, (head + '\n' if head else '')
+
 def page_html(site, page, img):
     m = next((x for x in site['masters'] if x['id'] == page['master']), site['masters'][0])
     objs = [o for o in page_objects(site, page) if not o.get('hidden')]
@@ -1376,9 +1449,10 @@ def page_html(site, page, img):
     body = re.sub(r'<a>(.*?)</a>', r'\1', body, flags=re.S)                      # links that lead nowhere
     body = re.sub(r'<span>(.*?)</span>', r'\1', body, flags=re.S)
     body = body.replace('<img src=', '<img loading="lazy" decoding="async" src=')
-    words = re.sub(r'\s+', ' ', H.unescape(re.sub(r'<[^>]+>', ' ', ' '.join(o.get('html', '') for o in page['objects'] if o['type'] == 'text')))).strip()
-    if len(words) > 155: words = words[:152].rsplit(' ', 1)[0] + '…'
-    desc = f'<meta name="description" content="{esc(words)}">\n' if words else ''
+    # SEO head block (title + description/OG/Twitter/canonical/robots/JSON-LD).
+    # seo_head preserves the old auto word-derived description as its fallback,
+    # so an unconfigured site publishes the same meta description as before.
+    seo_title, seo = seo_head(site, page, img)
     bgpic = f' url({img(site["bgimage"])}) top left repeat' if site.get('bgimage') in site.get('assets', {}) else ''
     # --- Responsive publish (opt-in via site['responsive']) ---------------
     # The design stays a fixed-width, absolutely-positioned page; responsive
@@ -1400,14 +1474,14 @@ def page_html(site, page, img):
                     f's=vw<W?vw/W:1;p.style.transform="scale("+s+")";w.style.height=(p.offsetHeight*s)+"px"}}'
                     f'window.addEventListener("resize",fit);fit();}})();</script>')
         return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="{viewport}">\n'
-                f'<title>{esc(page["title"])} | {esc(site["name"])}</title>\n{desc}<meta name="generator" content="{APP} {VERSION}">\n'
+                f'<title>{esc(seo_title)}</title>\n{seo}<meta name="generator" content="{APP} {VERSION}">\n'
                 f'{flink}<link rel="stylesheet" href="style.css">\n<style>\n{css}\n</style>\n</head>\n<body>\n'
                 f'<div class="pf-wrap">\n<div class="pf-page">\n{body}\n</div>\n</div>\n{scale_js}\n</body>\n</html>\n')
     # --- Static publish (default, fixed width) ----------------------------
     css = (f'body{{background:{site.get("bg") or bg}{bgpic}}}\n.pf-page{{width:{site["width"]}px;height:{Hh}px;background:{bg}}}\n'
            + '\n'.join(rules))
     return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width={site["width"]}">\n'
-            f'<title>{esc(page["title"])} | {esc(site["name"])}</title>\n{desc}<meta name="generator" content="{APP} {VERSION}">\n'
+            f'<title>{esc(seo_title)}</title>\n{seo}<meta name="generator" content="{APP} {VERSION}">\n'
             f'{flink}<link rel="stylesheet" href="style.css">\n<style>\n{css}\n</style>\n</head>\n<body>\n'
             f'<div class="pf-page">\n{body}\n</div>\n</body>\n</html>\n')
 
@@ -1523,6 +1597,17 @@ def publish_site(site, folder):
         if write_if_changed(fp, page_html(site, p, img)):
             changed_files.append(p['file']); pages_changed += 1
         written.append(p['file'])
+    # --- SEO site files: sitemap.xml (only with a base URL) + robots.txt -----
+    base = ((site.get('seo') or {}).get('base_url') or '').strip().rstrip('/')
+    if base:
+        urls = ''.join(f'  <url><loc>{esc(base + "/" + p["file"])}</loc></url>\n' for p in site['pages'])
+        sm = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + '</urlset>\n')
+        if write_if_changed(os.path.join(folder, 'sitemap.xml'), sm): changed_files.append('sitemap.xml')
+        written.append('sitemap.xml')
+    robots = 'User-agent: *\nAllow: /\n' + (f'Sitemap: {base}/sitemap.xml\n' if base else '')
+    if write_if_changed(os.path.join(folder, 'robots.txt'), robots): changed_files.append('robots.txt')
+    written.append('robots.txt')
     publish_site.last_stats = {'pages_total': pages_total, 'pages_changed': pages_changed,
                                'changed_files': changed_files}
     return written
@@ -3845,6 +3930,11 @@ class MainWindow(QMainWindow):
         self.a['lock'] = self.act('&Lock / Unlock', self.toggle_lock, 'Ctrl+L', ['object-locked', 'lock'])
         self.a['tomaster'] = self.act('Move Repeated Objects to &Master Page…', self.move_common_to_master, None, ['document-multiple', 'edit-copy'])
         menu('&Arrange', [a['front'], a['fwd'], a['back1'], a['back'], None, ('Align', al), None, self.a['lock'], None, self.a['tomaster']])
+        self.a['seo_page'] = self.act('&This Page’s SEO…', self.seo_dialog, None, ['text-html', 'find', 'edit-find'])
+        self.a['seo_page'].setToolTip('Search-engine title, description, focus keyword and social preview for this page')
+        self.a['seo_site'] = self.act('&Site-wide SEO…', self.site_seo_dialog, None, ['configure', 'preferences-system'])
+        self.a['seo_site'].setToolTip('Base web address, default social image, Twitter handle and organisation details')
+        menu('&SEO', [self.a['seo_page'], None, self.a['seo_site']])
         self.a['htmlview'] = self.act('View &HTML', self.toggle_html_view, None, ['text-html', 'code-context', 'view-source'], checkable=True)
         self.a['htmlview'].setToolTip('Show the HTML source of this page (toggle)')
         self.a['update'] = self.act('Update Available', self.install_update, None, ['system-software-update', 'update-none', 'download'])
@@ -4200,6 +4290,27 @@ class MainWindow(QMainWindow):
         if g: self.restoreGeometry(g)
         if s: self.restoreState(s, LAYOUT_VERSION)
         self.toggle_rulers()
+        # A restored layout can collapse the right-hand studio group to zero size, which hides the
+        # Site file-list AND its toolbar buttons together. Self-heal once sizes are realised.
+        QTimer.singleShot(0, self._ensure_studio_visible)
+
+    def _ensure_studio_visible(self):
+        """If the Site / Colour studio group came back hidden or collapsed to near-zero, give it a
+        sane size and show it, so the Site file-list and its page buttons can never disappear."""
+        for d in (self.d_colour, self.d_site, self.d_assets):
+            try:
+                if not d.isFloating() and not d.isVisible():
+                    d.setVisible(True)
+            except Exception:
+                pass
+        try:
+            if self.d_site.height() < 60 or self.d_colour.height() < 60:
+                self.resizeDocks([self.d_colour, self.d_site], [320, 410], Qt.Vertical)
+                self.d_site.raise_()
+            if self.d_assets.width() < 40:
+                self.resizeDocks([self.d_assets], [196], Qt.Horizontal)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ refresh
     def refresh(self):
@@ -5548,6 +5659,125 @@ class MainWindow(QMainWindow):
         elif prov == 'stability': self.settings.setValue('aiStabilityKey', k)
         self.refresh()
 
+    def seo_dialog(self):
+        """Per-page SEO editor (Yoast-style) for the current page: title/description
+        overrides, focus keyword, no-index, social image, plus a live readability
+        check panel that grades the page against the focus keyword."""
+        if self.editor: self.finish_edit()
+        p = self.page()
+        if not p: return
+        seo = dict(p.get('seo', {}) or {})
+        t = QLineEdit(seo.get('title', ''))
+        t.setPlaceholderText(f'{p["title"]} | {self.site["name"]}  (default if blank)')
+        d = QPlainTextEdit(seo.get('description', '')); d.setFixedHeight(80)
+        d.setPlaceholderText('Blank = auto-generated from the page text')
+        kw = QLineEdit(seo.get('keyword', ''))
+        noindex = QCheckBox('Hide this page from search engines (noindex)')
+        noindex.setChecked(bool(seo.get('noindex')))
+        # OG image picker — reuse the Site Properties "choose picture" pattern.
+        ogpic = [seo.get('og_image') or '']
+        ogb = QPushButton(self.site.get('assetnames', {}).get(ogpic[0], ogpic[0] or 'Site default / none')
+                          if ogpic[0] else 'Site default / none')
+        ogm = QMenu(ogb)
+        def choose_og():
+            path, _ = QFileDialog.getOpenFileName(self, 'Social preview image', os.path.expanduser('~/Pictures'),
+                                                  'Pictures (*.png *.jpg *.jpeg *.gif *.webp)')
+            uri = self.picture_uri(path) if path else None
+            if uri:
+                k = add_asset(self.site, uri); self.site.setdefault('assetnames', {})[k] = os.path.basename(path)
+                ogpic[0] = k; ogb.setText(os.path.basename(path))
+        ogm.addAction('Choose picture…', choose_og)
+        ogm.addAction('Use site default / none', lambda: (ogpic.__setitem__(0, ''), ogb.setText('Site default / none')))
+        ogb.setMenu(ogm)
+        dchars = QLabel(); kwlist = QLabel(); kwlist.setWordWrap(True); kwlist.setTextFormat(Qt.RichText)
+        def analyse():
+            txt = d.toPlainText().strip()
+            eff_title = t.text().strip() or f'{p["title"]} | {self.site["name"]}'
+            eff_desc = txt or _page_text(p)
+            n = len(txt)
+            colour = 'green' if 120 <= n <= 160 else ('orange' if n else 'gray')
+            dchars.setText(f'<span style="color:{colour}">{n} characters</span> '
+                           f'(Google shows about 120–160)')
+            k = kw.text().strip().lower()
+            body = _page_text(p).lower()
+            first_para = (body.split('. ')[0] if body else '')
+            def line(ok, warn, label):
+                mark = '✓' if ok else ('⚠' if warn else '✗')
+                col = 'green' if ok else ('orange' if warn else '#c0392b')
+                return f'<span style="color:{col}">{mark} {esc(label)}</span>'
+            if not k:
+                kwlist.setText('<i style="color:gray">Enter a focus keyword to see the keyword checks.</i>')
+                return
+            tl, dl = len(eff_title), len(eff_desc)
+            rows = [
+                line(k in eff_title.lower(), False, 'Focus keyword is in the SEO title'),
+                line(k in eff_desc.lower(), False, 'Focus keyword is in the meta description'),
+                line(k in first_para, k in body, 'Focus keyword appears in the first paragraph'),
+                line(30 <= tl <= 60, 0 < tl < 30 or 60 < tl <= 70, f'SEO title length is good (30–60) — now {tl}'),
+                line(120 <= dl <= 160, 0 < dl < 120 or 160 < dl <= 180, f'Meta description length is good (120–160) — now {dl}'),
+            ]
+            kwlist.setText('<br>'.join(rows))
+        d.textChanged.connect(analyse); t.textChanged.connect(analyse); kw.textChanged.connect(analyse)
+        analyse()
+        panel = QGroupBox('Readability & keyword check')
+        pv = QVBoxLayout(panel); pv.addWidget(dchars); pv.addWidget(kwlist)
+        dlg = form_dialog(self, f'SEO — {p["title"]}',
+                          [('SEO title:', t), ('Meta description:', d), ('Focus keyword:', kw),
+                           ('Social image:', ogb), ('', noindex)], panel)
+        if not dlg.exec(): return
+        self.commit()
+        new = {'title': t.text().strip(), 'description': d.toPlainText().strip(),
+               'keyword': kw.text().strip(), 'og_image': ogpic[0], 'noindex': noindex.isChecked()}
+        # keep any canonical already stored; drop empty keys to stay tidy / byte-stable
+        if p.get('seo', {}).get('canonical'): new['canonical'] = p['seo']['canonical']
+        new = {k: v for k, v in new.items() if v}
+        if new: p['seo'] = new
+        else: p.pop('seo', None)
+        self.dirty = True; self.hint('Page SEO saved.')
+
+    def site_seo_dialog(self):
+        """Site-wide SEO defaults: base web address (needed for canonical URLs,
+        sitemap and absolute social images), default social image, Twitter handle
+        and organisation details (for JSON-LD)."""
+        if self.editor: self.finish_edit()
+        seo = dict(self.site.get('seo', {}) or {})
+        base = QLineEdit(seo.get('base_url', '')); base.setPlaceholderText('https://www.your-site.com')
+        tw = QLineEdit(seo.get('twitter_site', '')); tw.setPlaceholderText('@yourhandle (optional)')
+        org = QLineEdit(seo.get('org_name', ''))
+        ot = QComboBox()
+        for v in ('Organization', 'LocalBusiness', 'Person', 'Corporation', 'NGO', 'EducationalOrganization'):
+            ot.addItem(v, v)
+        ot.setCurrentIndex(max(0, ot.findData(seo.get('org_type', 'Organization'))))
+        ogpic = [seo.get('og_image') or '']
+        ogb = QPushButton(self.site.get('assetnames', {}).get(ogpic[0], ogpic[0] or 'Choose picture…')
+                          if ogpic[0] else 'Choose picture…')
+        ogm = QMenu(ogb)
+        def choose_og():
+            path, _ = QFileDialog.getOpenFileName(self, 'Default social image', os.path.expanduser('~/Pictures'),
+                                                  'Pictures (*.png *.jpg *.jpeg *.gif *.webp)')
+            uri = self.picture_uri(path) if path else None
+            if uri:
+                k = add_asset(self.site, uri); self.site.setdefault('assetnames', {})[k] = os.path.basename(path)
+                ogpic[0] = k; ogb.setText(os.path.basename(path))
+        ogm.addAction('Choose picture…', choose_og)
+        ogm.addAction('No default image', lambda: (ogpic.__setitem__(0, ''), ogb.setText('Choose picture…')))
+        ogb.setMenu(ogm)
+        dlg = form_dialog(self, 'Site-wide SEO',
+                          [('Web address (base URL):', base), ('Default social image:', ogb),
+                           ('Twitter / X handle:', tw), ('Organisation name:', org), ('Organisation type:', ot)],
+                          QLabel('A base web address lets the site build canonical links, a sitemap.xml and '
+                                 'absolute social-preview image URLs when you publish.'))
+        if not dlg.exec(): return
+        self.commit()
+        new = {'base_url': base.text().strip().rstrip('/'), 'og_image': ogpic[0],
+               'twitter_site': tw.text().strip(), 'org_name': org.text().strip(), 'org_type': ot.currentData()}
+        # Only keep org_type when there's an org_name; drop empties to stay byte-stable
+        if not new['org_name']: new.pop('org_type', None)
+        new = {k: v for k, v in new.items() if v}
+        if new: self.site['seo'] = new
+        else: self.site.pop('seo', None)
+        self.dirty = True; self.hint('Site-wide SEO saved.')
+
     def new_master(self):
         self.commit()
         n = len(self.site['masters'])
@@ -5999,6 +6229,133 @@ class MainWindow(QMainWindow):
             return
         self.hint('Preview opened in your web browser.')
 
+    # ------------------------------------------------------------ Netlify CLI
+    def netlify_token(self):
+        """A Netlify personal access token, if the user has stored one: env
+        NETLIFY_AUTH_TOKEN wins, else ~/.config/webcreator/netlify_token."""
+        tok = (os.environ.get('NETLIFY_AUTH_TOKEN') or '').strip()
+        if tok: return tok
+        try:
+            with open(os.path.expanduser('~/.config/webcreator/netlify_token')) as fh:
+                return fh.read().strip()
+        except OSError:
+            return ''
+
+    def _netlify_env(self):
+        env = dict(os.environ)
+        tok = self.netlify_token()
+        if tok: env['NETLIFY_AUTH_TOKEN'] = tok
+        return env
+
+    def _run_netlify(self, args, timeout=300):
+        """Run `npx netlify-cli <args>`; return (ok, stdout, stderr). ok is False
+        on a missing npx, a timeout or a non-zero exit."""
+        try:
+            r = subprocess.run(['npx', '--yes', 'netlify-cli'] + args,
+                               capture_output=True, text=True, timeout=timeout, env=self._netlify_env())
+        except FileNotFoundError:
+            return False, '', ('Node.js / npx was not found. Install Node.js to deploy straight to Netlify, '
+                               'or use the drag-and-drop option below.')
+        except subprocess.TimeoutExpired:
+            return False, '', f'Netlify took longer than {timeout} seconds and was stopped.'
+        return r.returncode == 0, (r.stdout or ''), (r.stderr or '')
+
+    def _netlify_not_authed(self, out, err):
+        blob = (out + '\n' + err).lower()
+        return ('not logged in' in blob or 'not authenticated' in blob or 'no auth' in blob
+                or 'netlify_auth_token' in blob or 'login' in blob and 'netlify' in blob)
+
+    def publish_netlify(self, folder):
+        """Deploy the published folder to the SAME Netlify site every time (so
+        re-publishing updates the live site instead of creating a duplicate).
+        Links to a site first if we haven't got one stored."""
+        import os as _os
+        net = self.site.setdefault('netlify', {})
+        if not self.netlify_token():
+            if QMessageBox.question(self, APP,
+                    'To update your live Netlify site from here you need to connect your Netlify '
+                    'account once.\n\nEither run “npx netlify-cli login” in a terminal, or paste a '
+                    'Netlify personal access token now (it will be saved to '
+                    '~/.config/webcreator/netlify_token).\n\nPaste a token now?') == QMessageBox.Yes:
+                tok, ok = QInputDialog.getText(self, 'Netlify token', 'Netlify personal access token:',
+                                               QLineEdit.Password)
+                if ok and tok.strip():
+                    cfg = _os.path.expanduser('~/.config/webcreator'); _os.makedirs(cfg, exist_ok=True)
+                    with open(_os.path.join(cfg, 'netlify_token'), 'w') as fh: fh.write(tok.strip())
+                    try: _os.chmod(_os.path.join(cfg, 'netlify_token'), 0o600)
+                    except OSError: pass
+                else:
+                    return
+            else:
+                return
+        if not net.get('site_id'):
+            if not self.link_netlify(): return
+        self.hint('Deploying to Netlify…')
+        prog = QMessageBox(QMessageBox.Information, APP,
+                           'Deploying to Netlify — this can take a minute…', QMessageBox.NoButton, self)
+        prog.setStandardButtons(QMessageBox.NoButton); prog.show(); QApplication.processEvents()
+        ok, out, err = self._run_netlify(['deploy', '--prod', '--dir', folder, '--site', net['site_id']])
+        prog.close()
+        if not ok and self._netlify_not_authed(out, err):
+            QMessageBox.warning(self, APP, 'Netlify says you are not signed in.\n\nRun '
+                                '“npx netlify-cli login” in a terminal once, then try again.')
+            return
+        m = re.search(r'https?://[^\s]+', out)
+        live = m.group(0) if m else (net.get('url') or '')
+        tail = '\n'.join((out + '\n' + err).strip().splitlines()[-12:])
+        dlg = QDialog(self); dlg.setWindowTitle('Netlify deploy'); dlg.setMinimumWidth(600)
+        dv = QVBoxLayout(dlg)
+        if ok:
+            dv.addWidget(QLabel(f'<b>Your live site was updated.</b><br>{esc(live)}' if live
+                                else '<b>Your live site was updated.</b>'))
+            if live:
+                b = QPushButton('Open the live site'); b.clicked.connect(lambda: open_external(live)); dv.addWidget(b)
+        else:
+            dv.addWidget(QLabel('<b>The deploy did not finish.</b> Details below; the drag-and-drop '
+                                'option still works as a fallback.'))
+        log = QPlainTextEdit(tail); log.setReadOnly(True); log.setFixedHeight(180); dv.addWidget(log)
+        bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
+        dv.addWidget(bb); dlg.exec()
+
+    def link_netlify(self):
+        """Pick an existing Netlify site to publish to (or create one), and store
+        its id/name on the site so future publishes update that same site."""
+        self.hint('Fetching your Netlify sites…')
+        ok, out, err = self._run_netlify(['sites:list', '--json'], timeout=120)
+        if not ok:
+            if self._netlify_not_authed(out, err):
+                QMessageBox.warning(self, APP, 'Netlify says you are not signed in.\n\nRun '
+                                    '“npx netlify-cli login” in a terminal once, then try again.')
+            else:
+                QMessageBox.warning(self, APP, f'Could not list your Netlify sites.\n\n{err.strip() or out.strip()}')
+            return False
+        try:
+            sites = json.loads(out[out.index('['):])
+        except (ValueError, json.JSONDecodeError):
+            sites = []
+        names = [s.get('name', '(unnamed)') for s in sites]
+        choices = names + ['➕ Create a new Netlify site…']
+        pick, okp = QInputDialog.getItem(self, 'Link to Netlify',
+                                         'Choose the Netlify site to publish to:', choices, 0, False)
+        if not okp: return False
+        if pick == choices[-1]:
+            nm, okn = QInputDialog.getText(self, 'New Netlify site', 'Name for the new site (letters, numbers, dashes):')
+            if not (okn and nm.strip()): return False
+            cok, cout, cerr = self._run_netlify(['sites:create', '--name', nm.strip(), '--json'], timeout=120)
+            if not cok:
+                QMessageBox.warning(self, APP, f'Could not create the site.\n\n{cerr.strip() or cout.strip()}')
+                return False
+            try:
+                s = json.loads(cout[cout.index('{'):])
+            except (ValueError, json.JSONDecodeError):
+                QMessageBox.warning(self, APP, 'The site was created but its details could not be read.'); return False
+        else:
+            s = sites[names.index(pick)]
+        self.site['netlify'] = {'site_id': s.get('site_id') or s.get('id', ''),
+                                'name': s.get('name', ''), 'url': s.get('ssl_url') or s.get('url', '')}
+        self.dirty = True
+        return bool(self.site['netlify']['site_id'])
+
     def publish_disk(self):
         """Publish = pick Static or Responsive, then show the 'put it online'
         guide. The site files are written automatically to a per-site folder —
@@ -6076,6 +6433,30 @@ class MainWindow(QMainWindow):
         intro = QLabel('To put it on the internet so others can visit, you upload these files to a '
                        '<b>web host</b>. Here are three free ways, easiest first:')
         intro.setWordWrap(True); intro.setTextFormat(Qt.RichText); root.addWidget(intro)
+
+        # --- Publish to Netlify (CLI) — updates the SAME live site every time ---
+        net = self.site.get('netlify', {}) or {}
+        g0 = QGroupBox('★  Publish to Netlify  —  update my live site (recommended)')
+        v0 = QVBoxLayout(g0)
+        if net.get('site_id'):
+            linked = (f'Linked to your Netlify site <b>{esc(net.get("name", ""))}</b>'
+                      + (f' — <code>{esc(net.get("url", ""))}</code>' if net.get('url') else '') + '.<br>')
+        else:
+            linked = 'Not linked to a Netlify site yet — the first time, you pick which site to update.<br>'
+        t0 = QLabel(linked + 'This updates your <b>existing</b> live site in place (no duplicate sites), '
+                    'and only the changed files are sent. Needs Node.js and a one-off Netlify sign-in.')
+        t0.setWordWrap(True); t0.setTextFormat(Qt.RichText); v0.addWidget(t0)
+        h0 = QHBoxLayout()
+        pb = QPushButton('Update my live site' if net.get('site_id') else 'Link & publish to Netlify')
+        pb.setDefault(True)
+        pb.clicked.connect(lambda: self.publish_netlify(folder))
+        lk = QPushButton('Change which site…')
+        lk.clicked.connect(lambda: self.link_netlify())
+        h0.addWidget(pb); h0.addWidget(lk); h0.addStretch(); v0.addLayout(h0)
+        root.addWidget(g0)
+
+        fb = QLabel('<i>No Netlify account yet? Use drag-and-drop instead:</i>')
+        fb.setTextFormat(Qt.RichText); fb.setStyleSheet('color:gray'); root.addWidget(fb)
 
         # --- Netlify Drop (recommended) ---
         g1 = QGroupBox('1.  Netlify Drop  —  easiest, recommended')
