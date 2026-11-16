@@ -33,10 +33,10 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-02"
+VERSION = "1.10-03"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
-LAYOUT_VERSION = 6
+LAYOUT_VERSION = 7
 
 
 def open_external(target, is_file=False):
@@ -3965,14 +3965,12 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, d); return d
 
     def style_separators(self):
-        """Dock separators stay at their subtle default (no coloured strip; the only resize line is
-        the Mid edge on the Assets panel). Also flatten the docked-panel tab bar (Site / Swatches /
-        Line / …) so the tabs read like the plain lists below them — flat text with a highlight on
-        the current one — instead of raised buttons on a background."""
-        self.setStyleSheet(
-            'QTabBar::tab{background:transparent;border:0;padding:5px 12px;margin:0;color:palette(text);}'
-            'QTabBar::tab:selected{background:palette(highlight);color:palette(highlighted-text);border-radius:4px;}'
-            'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}')
+        """Deliberately set NO stylesheet on the main window. A QMainWindow stylesheet (even just
+        for ::separator or QTabBar::tab) can collapse/hide tabbed dock panels — that is what made
+        the Site file-list panel disappear — so the resize edge is provided only by the thin border
+        on the Assets panel itself (set where that panel is built), and docks/tabs keep their native
+        look."""
+        self.setStyleSheet('')
 
     def _enable_hdrag(self, lst):
         """Let the list scroll by dragging the body (or the scrollbar) sideways/up-down, instead of
@@ -6237,18 +6235,33 @@ class MainWindow(QMainWindow):
             self.hint(f'Updated to {ver}. The new version starts next time you open the app.')
 
     def update_settings(self):
+        c = (self.site or {}).get('contact', {}) if getattr(self, 'site', None) else {}
+        c_name = QLineEdit(c.get('name', '')); c_name.setPlaceholderText('Your name / the site author')
+        c_email = QLineEdit(c.get('email', '')); c_email.setPlaceholderText('name@example.org')
+        c_phone = QLineEdit(c.get('phone', ''))
+        c_addr = QLineEdit(c.get('address', ''))
+        c_web = QLineEdit(c.get('website', '')); c_web.setPlaceholderText('example.org')
         painter = QLineEdit(self.settings.value('imagePainterCmd', '') or 'IMAGEpainter'); painter.setPlaceholderText('IMAGEpainter')
         repo = QLineEdit(self.update_repo()); repo.setPlaceholderText('yourname/webcreator')
         branch = QLineEdit(self.settings.value('updateBranch', '') or UPDATE_BRANCH)
         path = QLineEdit(self.settings.value('updatePath', '') or UPDATE_PATH); path.setPlaceholderText('webcreator.py')
         auto = QCheckBox('Check for updates when the app starts'); auto.setChecked(self.settings.value('autoUpdate', True, type=bool))
         dlg = form_dialog(self, 'Settings',
-                          [('Image editor (the IMAGEpainter button):', painter),
+                          [('Author / name:', c_name), ('Email:', c_email), ('Phone:', c_phone),
+                           ('Address:', c_addr), ('Website:', c_web),
+                           ('Image editor (the IMAGEpainter button):', painter),
                            ('GitHub repository:', repo), ('Branch:', branch), ('File in it:', path), ('', auto)],
-                          QLabel('The image editor is the command the Assets ▸ IMAGEpainter button runs.\n'
+                          QLabel('Author / contact details belong to this site — Insert ▸ Contact details drops them '
+                                 'onto a page, and they’re also editable in File ▸ Site Properties.\n'
+                                 'The image editor is the command the Assets ▸ IMAGEpainter button runs.\n'
                                  'Updates are read from the file in the repository below, which must be public.\n'
                                  f'Now: {self.update_url()}'))
         if not dlg.exec(): return
+        if getattr(self, 'site', None) is not None:
+            self.site.setdefault('contact', {}).update(
+                name=c_name.text().strip(), email=c_email.text().strip(), phone=c_phone.text().strip(),
+                address=c_addr.text().strip(), website=c_web.text().strip())
+            self.dirty = True; self.update_title()
         self.settings.setValue('imagePainterCmd', painter.text().strip() or 'IMAGEpainter')
         self.settings.setValue('updateRepo', repo.text().strip()); self.settings.setValue('updateBranch', branch.text().strip() or UPDATE_BRANCH)
         self.settings.setValue('updatePath', path.text().strip() or UPDATE_PATH)
