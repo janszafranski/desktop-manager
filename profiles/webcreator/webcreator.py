@@ -33,7 +33,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-01"
+VERSION = "1.10-02"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 LAYOUT_VERSION = 6
@@ -3848,7 +3848,7 @@ class MainWindow(QMainWindow):
         self.a['update'] = self.act('Update Available', self.install_update, None, ['system-software-update', 'update-none', 'download'])
         self.a['update'].setVisible(False)
         self.a['checkupdate'] = self.act('Check for &Updates…', lambda: self.check_updates(quiet=False), None, ['system-software-update', 'view-refresh'])
-        self.a['updatesettings'] = self.act('Update &Settings…', self.update_settings, None, ['configure', 'preferences-system'])
+        self.a['updatesettings'] = self.act('&Settings…', self.update_settings, None, ['configure', 'preferences-system'])
         menu('&Help', [self.a['update'], self.a['checkupdate'], self.a['updatesettings'], None, a['about']])
 
     def recent_menu_action(self):
@@ -3911,7 +3911,6 @@ class MainWindow(QMainWindow):
             ('Edit Properties', ['document-properties', 'document-edit'], '≡'),
             ('PhotoLab', ['darktable', 'applications-graphics'], '◉'),
             ('Cutout Studio', ['edit-cut', 'gimp-tool-scissors'], '✂'),
-            ('Edit in PhotoPlus', ['gimp', 'krita', 'applications-graphics'], '◩'),
             ('Position Image', ['transform-move', 'object-align-horizontal-center'], '✥')):
             pa = QAction(ticon(icons, glyph), name, self); pa.setToolTip(f'{name} — part of the Serif suite, not available in this clone')
             pa.triggered.connect(lambda _=False, n=name: self.serif_stub(n)); photo.addAction(pa)
@@ -3966,17 +3965,36 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, d); return d
 
     def style_separators(self):
-        """Make the dock-resize edges visible and easy to grab, styled like the back of the
-        rulers: a window-coloured strip with a single Mid edge line — the same colour and weight
-        as the line the rulers draw — so the edge beside the Assets thumbnails shows where to
-        drag without looking heavier than the ruler backs."""
-        pal = self.palette()
-        win = pal.color(QPalette.Window).name()
-        mid = pal.color(QPalette.Mid).name()
-        hi = pal.color(QPalette.Highlight).name()
+        """Dock separators stay at their subtle default (no coloured strip; the only resize line is
+        the Mid edge on the Assets panel). Also flatten the docked-panel tab bar (Site / Swatches /
+        Line / …) so the tabs read like the plain lists below them — flat text with a highlight on
+        the current one — instead of raised buttons on a background."""
         self.setStyleSheet(
-            'QMainWindow::separator{background:%s;border:0;width:6px;height:6px;}'
-            'QMainWindow::separator:hover{background:%s;}' % (mid, hi))
+            'QTabBar::tab{background:transparent;border:0;padding:5px 12px;margin:0;color:palette(text);}'
+            'QTabBar::tab:selected{background:palette(highlight);color:palette(highlighted-text);border-radius:4px;}'
+            'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}')
+
+    def _enable_hdrag(self, lst):
+        """Let the list scroll by dragging the body (or the scrollbar) sideways/up-down, instead of
+        moving items. Icon grids (IconMode) otherwise let you drag the icons around, and item views
+        start a drag on press — both stop a drag from panning, so turn them off."""
+        from PySide6.QtWidgets import QScroller, QListView
+        lst.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        lst.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        lst.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        lst.setDragEnabled(False)
+        lst.setDragDropMode(QAbstractItemView.NoDragDrop)
+        try: lst.setMovement(QListView.Static)   # don't let icons be dragged out of place
+        except Exception: pass
+        QScroller.grabGesture(lst.viewport(), QScroller.LeftMouseButtonGesture)
+
+    def _plainify(self, w):
+        """Flat 'just a list' look — no per-item button/background frame — so the right-hand
+        lists match the plain Assets list instead of looking like buttons on a background."""
+        w.setStyleSheet(
+            'QListWidget,QTreeWidget{background:transparent;border:none;}'
+            'QAbstractItemView::item{border:none;background:transparent;padding:2px 4px;}'
+            'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}')
 
     def build_studio(self):
         # Site
@@ -3985,6 +4003,7 @@ class MainWindow(QMainWindow):
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setColumnCount(1); self.tree.setIndentation(16)
         self.tree.itemClicked.connect(lambda it, _: self.goto_page(it.data(0, Qt.UserRole)))
         self.tree.itemDoubleClicked.connect(lambda it, _: self.page_props(self.page_by_id(it.data(0, Qt.UserRole))))
+        self._plainify(self.tree); self._enable_hdrag(self.tree)
         sl.addWidget(self.tree, 3)
         ptb = QToolBar(); ptb.setIconSize(QSize(16, 16))
         for text, icon, slot in (('New page', 'document-new', self.insert_page_dialog), ('Delete page', 'edit-delete', self.delete_page),
@@ -3996,6 +4015,7 @@ class MainWindow(QMainWindow):
         sl.addWidget(ptb)
         sl.addWidget(QLabel('<b>Master pages</b>'))
         self.mlist = QListWidget(); self.mlist.itemDoubleClicked.connect(lambda it: self.goto_master(it.data(Qt.UserRole)))
+        self._plainify(self.mlist)
         sl.addWidget(self.mlist, 1)
         mtb = QToolBar(); mtb.setIconSize(QSize(16, 16))
         mtb.addAction(self.act('New master page', self.new_master, None, 'document-new'))
@@ -4097,6 +4117,8 @@ class MainWindow(QMainWindow):
         self.layers = QListWidget(); self.layers.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.layers.itemSelectionChanged.connect(self.layers_selected)
         self.layers.itemDoubleClicked.connect(lambda it: self.edit_object(self.find(it.data(Qt.UserRole))) if self.find(it.data(Qt.UserRole)) else None)
+        self._enable_hdrag(self.layers)
+        self._plainify(self.layers)
         yl.addWidget(self.layers)
         ytb = QToolBar(); ytb.setIconSize(QSize(16, 16))
         ytb.addAction(self.act('Show / hide', self.toggle_hidden, None, ['view-visible', 'visibility']))
@@ -4106,7 +4128,10 @@ class MainWindow(QMainWindow):
         self.d_layers = self.dock('Layers', yw, 'layers')
 
         # Assets — a thumbnail library of every picture in the site (uploaded + AI-made).
-        aw = QWidget(); aw.setMinimumWidth(104); al = QVBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4); al.setSpacing(4)
+        aw = QWidget(); aw.setObjectName('assetpanel'); aw.setMinimumWidth(104); al = QVBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4); al.setSpacing(4)
+        # a single thin edge on this panel's right side (same Mid colour as the rulers draw), so the
+        # resize edge is visible on the left without putting a line beside the right-hand docks
+        aw.setStyleSheet('#assetpanel{border-right:1px solid palette(mid);}')
         head = QHBoxLayout(); head.addWidget(QLabel('<b>Assets</b>')); head.addStretch()
         self.assets_pin = QToolButton(); self.assets_pin.setCheckable(True); self.assets_pin.setAutoRaise(True)
         self.assets_pin.setIcon(ticon(['window-pin', 'view-pin', 'emblem-locked', 'object-locked'], '📌'))
@@ -4117,7 +4142,10 @@ class MainWindow(QMainWindow):
         browse = QPushButton(ticon(['folder-open', 'document-open'], ''), 'Browse…'); browse.setToolTip('Add every picture from a folder'); browse.clicked.connect(self.asset_browse_folder)
         add_file = QPushButton(ticon(['document-open'], ''), 'Open…'); add_file.clicked.connect(self.asset_add_file)
         add_ai = QPushButton(ticon(['applications-graphics'], ''), 'AI image…'); add_ai.clicked.connect(self.asset_add_ai)
-        btn_row.addWidget(browse); btn_row.addWidget(add_file); btn_row.addWidget(add_ai); al.addLayout(btn_row)
+        paint = QPushButton(ticon(['draw-brush', 'krita', 'applications-graphics'], '🖌'), 'IMAGEpainter')
+        paint.setToolTip('Open IMAGEpainter (set in Settings) to paint or edit an image')
+        paint.clicked.connect(self.launch_imagepainter)
+        btn_row.addWidget(browse); btn_row.addWidget(add_file); btn_row.addWidget(add_ai); btn_row.addWidget(paint); al.addLayout(btn_row)
         self.asset_filter = 'all'; self.asset_cat_group = QButtonGroup(self); crow = QHBoxLayout(); crow.setSpacing(3)
         for i, (fk, lbl) in enumerate((('all', 'All'), ('pictures', 'Pictures'), ('graphics', 'Graphics'))):
             b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(fk == 'all'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
@@ -4132,6 +4160,7 @@ class MainWindow(QMainWindow):
             'QListWidget::item{margin:3px;}'
             'QListWidget::item:selected{border:1px solid palette(highlight);}')
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
+        self._enable_hdrag(self.asset_list)
         al.addWidget(self.asset_list, 1)
         al.addWidget(QLabel('<span style="color:gray">Double-click to place · hover for the name.</span>'))
         self.d_assets = self.dock('Assets', aw, 'assets')
@@ -4342,6 +4371,27 @@ class MainWindow(QMainWindow):
                                f'{name} is part of the Serif suite (PhotoPlus / PhotoLab / Cutout Studio).\n\n'
                                'Those are separate Serif programs with no Linux equivalent, so this button '
                                'is here for parity with WebPlus but does not do anything.')
+
+    def launch_imagepainter(self):
+        """Open the image editor set in Settings (defaults to 'IMAGEpainter'). If it isn't on the
+        system yet, offer to install it."""
+        cmd = (self.settings.value('imagePainterCmd', '') or 'IMAGEpainter').strip()
+        exe = shutil.which(cmd) or shutil.which(cmd.lower()) or shutil.which('imagepainter')
+        if exe:
+            try:
+                subprocess.Popen([exe])
+                self.hint(f'Opening {cmd}…')
+            except Exception as e:
+                QMessageBox.warning(self, cmd, f'Could not start {cmd}:\n{e}')
+            return
+        r = QMessageBox.question(
+            self, 'Install IMAGEpainter',
+            f'“{cmd}” isn’t installed on this system yet.\n\n'
+            'IMAGEpainter is the companion image editor — paint and edit pictures, then drop them '
+            'straight into your site. Would you like to install it?',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if r == QMessageBox.Yes:
+            open_external('https://janszafranski.github.io/just-a-collection-of-apps/')
 
     def refresh_site_tab(self):
         self.site_name_label.setText(f'<b>{H.escape(self.site["name"])}</b> &nbsp;·&nbsp; {self.site["width"]} px wide')
@@ -5749,6 +5799,7 @@ class MainWindow(QMainWindow):
         return r == QMessageBox.Discard
 
     def set_site(self, site, path=None):
+        _PIX.clear()   # drop the cached asset pixmaps so a reopened/updated file shows its current images
         for layer in [p['objects'] for p in site['pages']] + [m['objects'] for m in site['masters']]:
             for i, o in enumerate(layer):
                 if o['type'] == 'html' and 'class="share"' in o.get('code', '') and 'data-net' in o.get('code', ''):
@@ -6186,15 +6237,19 @@ class MainWindow(QMainWindow):
             self.hint(f'Updated to {ver}. The new version starts next time you open the app.')
 
     def update_settings(self):
+        painter = QLineEdit(self.settings.value('imagePainterCmd', '') or 'IMAGEpainter'); painter.setPlaceholderText('IMAGEpainter')
         repo = QLineEdit(self.update_repo()); repo.setPlaceholderText('yourname/webcreator')
         branch = QLineEdit(self.settings.value('updateBranch', '') or UPDATE_BRANCH)
         path = QLineEdit(self.settings.value('updatePath', '') or UPDATE_PATH); path.setPlaceholderText('webcreator.py')
         auto = QCheckBox('Check for updates when the app starts'); auto.setChecked(self.settings.value('autoUpdate', True, type=bool))
-        dlg = form_dialog(self, 'Update Settings',
-                          [('GitHub repository:', repo), ('Branch:', branch), ('File in it:', path), ('', auto)],
-                          QLabel('Updates are read from that file in that repository, which must be public.\n'
+        dlg = form_dialog(self, 'Settings',
+                          [('Image editor (the IMAGEpainter button):', painter),
+                           ('GitHub repository:', repo), ('Branch:', branch), ('File in it:', path), ('', auto)],
+                          QLabel('The image editor is the command the Assets ▸ IMAGEpainter button runs.\n'
+                                 'Updates are read from the file in the repository below, which must be public.\n'
                                  f'Now: {self.update_url()}'))
         if not dlg.exec(): return
+        self.settings.setValue('imagePainterCmd', painter.text().strip() or 'IMAGEpainter')
         self.settings.setValue('updateRepo', repo.text().strip()); self.settings.setValue('updateBranch', branch.text().strip() or UPDATE_BRANCH)
         self.settings.setValue('updatePath', path.text().strip() or UPDATE_PATH)
         self.settings.setValue('autoUpdate', auto.isChecked())
