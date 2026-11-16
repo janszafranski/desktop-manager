@@ -33,7 +33,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-06"
+VERSION = "1.10-07"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -228,6 +228,36 @@ def slug(title, existing):
     while name in existing:
         name, i = f'{base}-{i}.html', i + 1
     return name
+
+def index_section(p):
+    # Generic section label from a page's file stem: the part before the first '-',
+    # humanised. Flat hyphenated names (news-2024, about) thus group sensibly; any
+    # site's page names produce usable sections without hard-coding.
+    stem = re.sub(r'\.html?$', '', (p.get('file') or '').lower())
+    head = stem.split('-', 1)[0] if '-' in stem else ''
+    if not head or head in ('index',): return 'Main Pages'
+    return re.sub(r'[-_]+', ' ', head).strip().title() or 'Main Pages'
+
+def build_index_html(site, target_page_id=None):
+    # Returns (html, count) — a grouped, hyperlinked site index as <p> lines using
+    # wcpage:<id> links so they resolve both in-editor and on publish.
+    groups = collections.OrderedDict()
+    n = 0
+    for p in site['pages']:
+        if p['id'] == target_page_id: continue
+        t = (p.get('title') or '').strip().lower()
+        if t in ('index', 'sitemap') or 'site map' in t: continue
+        groups.setdefault(index_section(p), []).append(p)
+        n += 1
+    def gkey(name):  # Main Pages first, then alphabetical
+        return (0 if name == 'Main Pages' else 1, name.lower())
+    lines = []
+    for sec in sorted(groups, key=gkey):
+        lines.append('<p><span style="font-size:22px; font-weight:bold; color:#0089c9;">%s</span></p>' % esc(sec))
+        for p in sorted(groups[sec], key=lambda q: (q.get('title') or '').lower()):
+            lines.append('<p>&#8226; <a href="wcpage:%s"><span style="text-decoration:underline; color:#0089c9;">%s</span></a></p>'
+                         % (p['id'], esc(p.get('title') or p.get('file') or 'Page')))
+    return ''.join(lines), n
 
 def base_site(name, **kw):
     m = dict(id=uid(), name='Master A', bg='#ffffff', objects=[])
@@ -3861,6 +3891,7 @@ class MainWindow(QMainWindow):
             z100=A('&Actual Size', lambda: self.view.set_zoom(1.0), 'Ctrl+1', 'zoom-original'),
             zfit=A('&Fit Page Width', self.view.fit_width, 'Ctrl+0', 'zoom-fit-width'),
             newpage=A('&Page…', self.insert_page_dialog, 'Ctrl+Shift+N', 'document-new'),
+            index_page=A('&Index Page', self.insert_index_page, None, ['view-list-tree', 'view-list-text', 'format-list-unordered']),
             link=A('&Hyperlink…', self.hyperlink_dialog, 'Ctrl+K', ['insert-link', 'link']),
             pageprops=A('Page P&roperties…', lambda: self.page_props(self.page()), None, 'document-properties'),
             bold=A('&Bold', lambda: self.text_style('bold'), QKeySequence.Bold, 'format-text-bold', True),
@@ -3916,7 +3947,7 @@ class MainWindow(QMainWindow):
         contact_acts = [self.act(lbl, lambda _=False, fk=fld: self.insert_contact(fk), None, None)
                         for fld, lbl in (('name', 'Author / Name'), ('email', 'Email'), ('phone', 'Phone'),
                                          ('address', 'Address'), ('website', 'Website'), ('all', 'All contact details'))]
-        menu('&Insert', [a['newpage'], None] + ins + [None, ('Contact details', contact_acts), None, a['link']])
+        menu('&Insert', [a['newpage'], a['index_page'], None] + ins + [None, ('Contact details', contact_acts), None, a['link']])
         list_sub = [a['list_disc'], a['list_circle'], a['list_square'], None,
                     a['list_decimal'], a['list_loweralpha'], a['list_upperalpha'],
                     a['list_lowerroman'], a['list_upperroman'], None, a['list_none']]
@@ -5548,6 +5579,40 @@ class MainWindow(QMainWindow):
         p = add_page(self.site, title.text().strip() or 'New Page', lvl, index=idx, master=mas.currentData())
         if idx == 0 and self.site['pages'][1]['file'] == 'index.html': pass
         self.goto_page(p['id'])
+
+    def insert_index_page(self):
+        # Auto-generate a grouped, hyperlinked index of every other page in the site.
+        existing = next((p for p in self.site['pages']
+                         if (p.get('title') or '').strip().lower() in ('index', 'sitemap')
+                         or 'index' in (p.get('title') or '').lower()
+                         or 'sitemap' in (p.get('file') or '').lower()
+                         or p.get('file') == 'index-2.html'), None)
+        target = None
+        if existing:
+            b = QMessageBox(self); b.setWindowTitle('Insert Index Page')
+            b.setText(f'An index page (“{existing["title"]}”) already exists.')
+            b.setInformativeText('Update that page, or create a new one?')
+            upd = b.addButton('Update existing', QMessageBox.AcceptRole)
+            new = b.addButton('Create new', QMessageBox.ActionRole)
+            b.addButton(QMessageBox.Cancel); b.exec()
+            if b.clickedButton() is upd: target = existing
+            elif b.clickedButton() is new: target = None
+            else: return
+        self.commit()
+        if target is None:
+            target = add_page(self.site, 'Index', master=self.page()['master'])
+        html, n = build_index_html(self.site, target['id'])
+        txt = next((o for o in target['objects'] if o['type'] == 'text'), None)
+        if txt is None:
+            txt = mk('text', 28, 262, self.site['width'] - 56, 120)
+            target['objects'].append(txt)
+        txt['html'] = html
+        h = 262 + 40 + n * 24 + sum(28 for _ in range(html.count('font-size:22px'))) + 40
+        txt['w'] = self.site['width'] - 56
+        txt['h'] = max(120, h - 262)
+        target['height'] = max(self.site['height'], h)
+        self.goto_page(target['id']); self.refresh()
+        QMessageBox.information(self, APP, f'Index page {"updated" if existing and target is existing else "created"} with {n} links.')
 
     def delete_page(self):
         if len(self.site['pages']) < 2: QMessageBox.information(self, APP, 'A site needs at least one page.'); return
