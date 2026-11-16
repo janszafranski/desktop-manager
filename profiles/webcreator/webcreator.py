@@ -33,7 +33,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-03"
+VERSION = "1.10-04"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 LAYOUT_VERSION = 7
@@ -3632,7 +3632,9 @@ class MainWindow(QMainWindow):
         self.build_status()
         self.restore_layout()
         self.style_separators()
+        self.flatten_dock_tabs()
         self.refresh()
+        QTimer.singleShot(0, self.flatten_dock_tabs)   # again once the tab bars are realised
         QTimer.singleShot(0, self.after_show)
 
     # ------------------------------------------------------------ helpers
@@ -3985,6 +3987,18 @@ class MainWindow(QMainWindow):
         try: lst.setMovement(QListView.Static)   # don't let icons be dragged out of place
         except Exception: pass
         QScroller.grabGesture(lst.viewport(), QScroller.LeftMouseButtonGesture)
+
+    def flatten_dock_tabs(self):
+        """Flatten the docked-panel tab bars (Site / Swatches / Line / Transform / Layers …) so the
+        tabs read as flat text with a highlight on the current one, not raised buttons on a bar.
+        Styled on each QTabBar widget DIRECTLY — never on the main window — because a QMainWindow
+        stylesheet collapses dock panels (which is what hid the file-list earlier)."""
+        from PySide6.QtWidgets import QTabBar
+        css = ('QTabBar::tab{background:transparent;border:0;padding:5px 12px;margin:0;color:palette(text);}'
+               'QTabBar::tab:selected{background:palette(highlight);color:palette(highlighted-text);border-radius:4px;}'
+               'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}')
+        for tb in self.findChildren(QTabBar):
+            tb.setStyleSheet(css)
 
     def _plainify(self, w):
         """Flat 'just a list' look — no per-item button/background frame — so the right-hand
