@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-21"
+VERSION = "1.10-22"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -2948,6 +2948,24 @@ TOOLS = [
     ('html', 'HTML Code', ['text-html', 'code-context'], '</>', 'Drag to place an HTML fragment.'),
 ]
 
+class LinelessTree(QTreeWidget):
+    """A tree that draws ONLY a ▸/▾ expand arrow for parent rows and NO connector lines
+    (no vertical line through the arrows, no branch stubs). The arrow stays clickable."""
+    def drawBranches(self, painter, rect, index):
+        if not self.model().hasChildren(index):
+            return  # leaf row: nothing (no line)
+        from PySide6.QtGui import QPolygon
+        from PySide6.QtCore import QPoint
+        painter.save(); painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen); painter.setBrush(self.palette().text().color())
+        cx = rect.right() - 10; cy = rect.center().y(); a = 4
+        if self.isExpanded(index):
+            tri = QPolygon([QPoint(cx - a, cy - a + 1), QPoint(cx + a, cy - a + 1), QPoint(cx, cy + a)])
+        else:
+            tri = QPolygon([QPoint(cx - a + 1, cy - a), QPoint(cx - a + 1, cy + a), QPoint(cx + a, cy)])
+        painter.drawPolygon(tri); painter.restore()
+
+
 # ----------------------------------------------------------------------------
 # Canvas
 # ----------------------------------------------------------------------------
@@ -4061,7 +4079,7 @@ class MainWindow(QMainWindow):
 
     def build_toolbars(self):
         # Standard toolbar
-        tb = QToolBar('Standard'); tb.setObjectName('standard'); tb.setIconSize(QSize(20, 20))
+        tb = QToolBar('Standard'); tb.setObjectName('standard'); tb.setIconSize(QSize(20, 20)); self._std_toolbar = tb
         for k in ('new', 'open', 'save', None, 'undo', 'redo', None, 'cut', 'copy', 'paste', None, 'prevsite', 'publish', 'htmlview', None, 'update'):
             tb.addAction(self.a[k]) if k else tb.addSeparator()
         hw = tb.widgetForAction(self.a['htmlview'])
@@ -4323,10 +4341,10 @@ class MainWindow(QMainWindow):
 
     def build_studio(self):
         # Site
-        sw = QWidget(); sl = QVBoxLayout(sw); sl.setContentsMargins(4, 10, 4, 4)
-        self.site_name_label = QLabel(); self.site_name_label.setContentsMargins(0, 4, 0, 4)
+        sw = QWidget(); sl = QVBoxLayout(sw); sl.setContentsMargins(4, 4, 4, 4)
+        self.site_name_label = QLabel(); self.site_name_label.setContentsMargins(0, 12, 0, 6)
         sl.addWidget(self.site_name_label)
-        self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setColumnCount(1); self.tree.setIndentation(16)
+        self.tree = LinelessTree(); self.tree.setHeaderHidden(True); self.tree.setColumnCount(1); self.tree.setIndentation(16)
         self.tree.itemClicked.connect(lambda it, _: self.goto_page(it.data(0, Qt.UserRole)))
         self.tree.itemDoubleClicked.connect(lambda it, _: self.page_props(self.page_by_id(it.data(0, Qt.UserRole))))
         self._plainify(self.tree); self._enable_hdrag(self.tree)
@@ -4510,6 +4528,16 @@ class MainWindow(QMainWindow):
             a = d.toggleViewAction()
             if not a.text(): a.setText(lbl)  # d_site/d_colour have a blank windowTitle (hidden dock title)
             sm.addAction(a)
+        # A visible, obvious way to show/hide the Assets panel: a checkable 'Assets' button
+        # on the Standard toolbar (the panel itself has no title bar to close it from).
+        assets_toggle = self.d_assets.toggleViewAction()
+        assets_toggle.setText('Assets'); assets_toggle.setIcon(ticon(['folder-pictures', 'image-x-generic', 'view-preview'], '🖼'))
+        assets_toggle.setToolTip('Show or hide the Assets panel')
+        if getattr(self, '_std_toolbar', None):
+            self._std_toolbar.addSeparator()
+            self._std_toolbar.addAction(assets_toggle)
+            w = self._std_toolbar.widgetForAction(assets_toggle)
+            if w: w.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.resizeDocks([self.d_site], [300], Qt.Horizontal)
 
     def restore_layout(self):
