@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-13"
+VERSION = "1.10-14"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4194,18 +4194,25 @@ class MainWindow(QMainWindow):
         self._enable_hdrag(lst)
         box = QWidget(); row = QHBoxLayout(box); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(2)
         sb = lst.horizontalScrollBar()
-        def mk(arrow, delta):
-            b = QToolButton(); b.setArrowType(arrow); b.setAutoRaise(True)
+        # Bold, obvious chevrons drawn as text — the native QToolButton arrow is a
+        # tiny faint glyph that nobody notices; a big ‹ › in a tinted button reads
+        # clearly as 'scroll this list sideways'.
+        arrow_css = ('QToolButton{font-size:20px;font-weight:bold;color:palette(highlighted-text);'
+                     'background:palette(highlight);border:none;border-radius:4px;}'
+                     'QToolButton:hover{background:palette(dark);}'
+                     'QToolButton:disabled{background:palette(midlight);color:palette(mid);}')
+        def mk(glyph, delta):
+            b = QToolButton(); b.setText(glyph); b.setStyleSheet(arrow_css)
             b.setAutoRepeat(True); b.setAutoRepeatInterval(60); b.setAutoRepeatDelay(300)
-            b.setFixedWidth(16); b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+            b.setFixedWidth(22); b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
             b.setToolTip('Scroll ' + ('left' if delta < 0 else 'right'))
             b.clicked.connect(lambda: sb.setValue(sb.value() + delta))
             return b
-        left = mk(Qt.LeftArrow, -step); right = mk(Qt.RightArrow, step)
+        left = mk('‹', -step); right = mk('›', step)
         row.addWidget(left); row.addWidget(lst, 1); row.addWidget(right)
         def refresh():
-            scrollable = sb.maximum() > sb.minimum()
-            for b in (left, right): b.setVisible(scrollable)
+            # Always SHOWN so the scroll control is discoverable; just greyed out
+            # (disabled) at each end / when there's nothing to scroll.
             left.setEnabled(sb.value() > sb.minimum())
             right.setEnabled(sb.value() < sb.maximum())
         sb.rangeChanged.connect(lambda *_: refresh())
@@ -4230,7 +4237,7 @@ class MainWindow(QMainWindow):
         lists match the plain Assets list instead of looking like buttons on a background."""
         w.setStyleSheet(
             'QListWidget,QTreeWidget{background:transparent;border:none;}'
-            'QAbstractItemView::item{border:none;background:transparent;padding:2px 4px;}'
+            'QAbstractItemView::item{border:none;background:transparent;padding:6px 8px;min-height:22px;}'
             'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}')
 
     def build_studio(self):
@@ -4368,12 +4375,7 @@ class MainWindow(QMainWindow):
         # a single thin edge on this panel's right side (same Mid colour as the rulers draw), so the
         # resize edge is visible on the left without putting a line beside the right-hand docks
         aw.setStyleSheet('#assetpanel{border-right:1px solid palette(mid);}')
-        head = QHBoxLayout(); head.addStretch()
-        self.assets_pin = QToolButton(); self.assets_pin.setCheckable(True); self.assets_pin.setAutoRaise(True)
-        self.assets_pin.setIcon(ticon(['window-pin', 'view-pin', 'emblem-locked', 'object-locked'], '📌'))
-        self.assets_pin.setToolTip('Pin the panel open — lock it in place so it can’t be moved, floated or closed')
-        self.assets_pin.toggled.connect(self.toggle_assets_pin); head.addWidget(self.assets_pin)
-        al.addLayout(head)
+        # (Assets panel title and its pin button removed — the panel header is just the buttons now.)
         btn_row = QHBoxLayout()
         browse = QPushButton(ticon(['folder-open', 'document-open'], ''), 'Browse…'); browse.setToolTip('Add every picture from a folder'); browse.clicked.connect(self.asset_browse_folder)
         add_file = QPushButton(ticon(['document-open'], ''), 'Open…'); add_file.clicked.connect(self.asset_add_file)
