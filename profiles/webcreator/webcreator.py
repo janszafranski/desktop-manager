@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-20"
+VERSION = "1.10-21"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4259,9 +4259,57 @@ class MainWindow(QMainWindow):
                'QTabBar QToolButton:hover{background:palette(midlight);border-radius:3px;}')
         for tb in self.findChildren(QTabBar):
             tb.setStyleSheet(css)
-            tb.setUsesScrollButtons(True)   # the tabs overflow, so allow scrolling the tab bar
+            tb.setUsesScrollButtons(False)  # we add our OWN ◀ ▶ arrows (left and right), not Qt's boxed pair
             tb.setElideMode(Qt.ElideNone)   # keep the full tab name; scroll to the hidden ones
             tb.setExpanding(False)
+            self._label_blank_tabs(tb)
+            self._add_tabbar_arrows(tb)
+
+    def _label_blank_tabs(self, tb):
+        """A tabified dock whose title was blanked (to hide its untabbed title bar) shows
+        up here as an empty tab — rendered as a featureless highlighted block ('the blue
+        square'). Give any blank tab a readable label so the row reads as normal tabs."""
+        for i in range(tb.count()):
+            if not tb.tabText(i).strip():
+                tip = tb.tabToolTip(i).strip()
+                tb.setTabText(i, tip or 'Site')
+
+    def _add_tabbar_arrows(self, tb):
+        """Flank a dock tab bar with a ◀ on its LEFT and a ▶ on its RIGHT (the same
+        plain painted triangles used elsewhere). They scroll the tabs when the row is
+        wider than the panel; each hides itself when there's nothing to scroll that way.
+        Implemented as child widgets kept pinned to the bar's left/right edges."""
+        if getattr(tb, '_arrowed', False): return
+        tb._arrowed = True
+        left = self._triangle_button(False, height=tb.height() or 26)
+        right = self._triangle_button(True, height=tb.height() or 26)
+        left.setParent(tb); right.setParent(tb)
+
+        def scroll_tabs(step):
+            # Move the selection toward the hidden end so the bar scrolls it into view.
+            i = tb.currentIndex() + step
+            if 0 <= i < tb.count(): tb.setCurrentIndex(i)
+        left.clicked.connect(lambda: scroll_tabs(-1))
+        right.clicked.connect(lambda: scroll_tabs(+1))
+
+        def reposition():
+            h = tb.height(); aw = 16
+            left.setFixedHeight(h); right.setFixedHeight(h)
+            left.move(0, 0); right.move(max(aw, tb.width() - aw), 0)
+            # Only needed when the tabs don't all fit.
+            need = tb.sizeHint().width() > tb.width()
+            left.setVisible(need); right.setVisible(need)
+            left.setEnabled(tb.currentIndex() > 0)
+            right.setEnabled(tb.currentIndex() < tb.count() - 1)
+            left.raise_(); right.raise_()
+        tb._reposition_arrows = reposition
+        # Reposition on resize/selection changes via an event filter + signals.
+        tb.currentChanged.connect(lambda *_: reposition())
+        orig_resize = tb.resizeEvent
+        def resizeEvent(ev):
+            orig_resize(ev); reposition()
+        tb.resizeEvent = resizeEvent
+        QTimer.singleShot(0, reposition)
 
     def _plainify(self, w):
         """Flat 'just a list' look — NO border box (they never had one), roomier rows than
@@ -4269,13 +4317,7 @@ class MainWindow(QMainWindow):
         w.setStyleSheet(
             'QListWidget,QTreeWidget{background:transparent;border:none;}'
             'QAbstractItemView::item{border:none;background:transparent;padding:6px 8px;min-height:22px;}'
-            'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}'
-            # Remove the dotted/solid tree CONNECTOR LINES but keep the ▸/▾ expand arrows:
-            # blank out the line-only branch states; leave the has-children states to the style.
-            'QTreeWidget::branch{background:transparent;border-image:none;image:none;}'
-            'QTreeWidget::branch:has-siblings:!adjoins-item,'
-            'QTreeWidget::branch:has-siblings:adjoins-item,'
-            'QTreeWidget::branch:!has-children:!has-siblings:adjoins-item{border-image:none;image:none;}')
+            'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}')
         try: w.setTextElideMode(Qt.ElideNone)   # show the whole label, don't truncate to '…'
         except Exception: pass
 
@@ -4307,7 +4349,10 @@ class MainWindow(QMainWindow):
         mtb.addAction(self.act('Master properties', self.master_props, None, 'document-properties'))
         mtb.addAction(self.act('Delete master page', self.delete_master, None, 'edit-delete'))
         sl.addWidget(mtb)
-        self.d_site = self.dock('Site', sw, 'site'); self._hide_dock_title(self.d_site)
+        self.d_site = self.dock('Site', sw, 'site')
+        # Keep the 'Site' windowTitle so its TAB reads 'Site' (not a blank blue square),
+        # but still suppress the untabbed title strip with an empty title-bar widget.
+        self.d_site.setTitleBarWidget(QWidget())
 
         # Swatches
         cw = QWidget(); cl = QVBoxLayout(cw); cl.setContentsMargins(6, 6, 6, 6)
