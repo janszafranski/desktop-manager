@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-19"
+VERSION = "1.10-20"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4189,61 +4189,58 @@ class MainWindow(QMainWindow):
         except Exception: pass
         QScroller.grabGesture(lst.viewport(), QScroller.LeftMouseButtonGesture)
 
-    def _hscroll_wrap(self, lst, step=120):
-        """Wrap a horizontally-scrolling list between a left- and a right-pointing
-        triangle button (painted, not a font glyph) so the user can click to scroll
-        it — the thin native scrollbar was never discoverable. Triangles are always
-        shown, grey out at each end, and auto-repeat while held down."""
+    def _triangle_button(self, point_right, height=24):
+        """A small button that PAINTS a plain filled triangle on a transparent
+        background (no box). '<' before a row, '>' after it. Auto-repeats when held;
+        greys out when disabled; highlights on hover."""
         from PySide6.QtWidgets import QAbstractButton
         from PySide6.QtGui import QPainter, QPolygon
         from PySide6.QtCore import QPoint
-        self._enable_hdrag(lst)
-        box = QWidget(); row = QHBoxLayout(box); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(2)
-        sb = lst.horizontalScrollBar()
-
+        win = self
         class TriangleButton(QAbstractButton):
-            """A button that PAINTS a plain filled triangle on a TRANSPARENT background
-            (no box) — a normal ◀ before the row / ▶ after it. The keyboard has no
-            triangle character and tiny native arrows are invisible, so it's painted.
-            Points left for delta<0, right for delta>0; fades when there's no more to
-            scroll that way, highlights on hover."""
-            def __init__(self, point_right):
+            def __init__(self):
                 super().__init__(); self._right = point_right; self._hover = False
-                self.setFixedWidth(18); self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+                self.setFixedWidth(16); self.setFixedHeight(height)
                 self.setAutoRepeat(True); self.setAutoRepeatInterval(60); self.setAutoRepeatDelay(300)
                 self.setCursor(Qt.PointingHandCursor)
+                self.setToolTip('Scroll ' + ('right' if point_right else 'left'))
             def enterEvent(self, _): self._hover = True; self.update()
             def leaveEvent(self, _): self._hover = False; self.update()
             def paintEvent(self, _):
                 p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
                 pal = self.palette()
-                if not self.isEnabled():
-                    col = pal.mid().color()
-                elif self._hover:
-                    col = pal.highlight().color()
-                else:
-                    col = pal.text().color()
-                r = self.rect()
-                cy = r.center().y(); x0 = r.left() + 5; x1 = r.right() - 5; a = 6
-                if self._right:
-                    tri = QPolygon([QPoint(x0, cy - a), QPoint(x0, cy + a), QPoint(x1, cy)])
-                else:
-                    tri = QPolygon([QPoint(x1, cy - a), QPoint(x1, cy + a), QPoint(x0, cy)])
+                col = (pal.mid().color() if not self.isEnabled()
+                       else pal.highlight().color() if self._hover else pal.text().color())
+                r = self.rect(); cy = r.center().y(); x0 = r.left() + 4; x1 = r.right() - 4; a = 5
+                tri = (QPolygon([QPoint(x0, cy - a), QPoint(x0, cy + a), QPoint(x1, cy)]) if self._right
+                       else QPolygon([QPoint(x1, cy - a), QPoint(x1, cy + a), QPoint(x0, cy)]))
                 p.setPen(Qt.NoPen); p.setBrush(col); p.drawPolygon(tri)
-        def mk(point_right, delta):
-            b = TriangleButton(point_right)
-            b.setToolTip('Scroll ' + ('right' if point_right else 'left'))
-            b.clicked.connect(lambda: sb.setValue(sb.value() + delta))
-            return b
-        left = mk(False, -step); right = mk(True, step)
-        row.addWidget(left); row.addWidget(lst, 1); row.addWidget(right)
+        return TriangleButton()
+
+    def _hscroll_row(self, widgets, step=90, spacing=4):
+        """Lay a row of widgets inside a horizontal scroll area flanked by a '<' button
+        on the LEFT and a '>' button on the RIGHT. The words keep their full text; when
+        they don't all fit, clicking (or holding) an arrow scrolls the row. Arrows grey
+        out at each end. Returns a container widget to drop into a layout."""
+        from PySide6.QtWidgets import QScrollArea
+        inner = QWidget(); il = QHBoxLayout(inner); il.setContentsMargins(0, 0, 0, 0); il.setSpacing(spacing)
+        for w in widgets: il.addWidget(w)
+        il.addStretch()
+        area = QScrollArea(); area.setWidgetResizable(True); area.setFrameShape(QScrollArea.NoFrame)
+        area.setWidget(inner)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        sb = area.horizontalScrollBar()
+        left = self._triangle_button(False); right = self._triangle_button(True)
+        left.clicked.connect(lambda: sb.setValue(sb.value() - step))
+        right.clicked.connect(lambda: sb.setValue(sb.value() + step))
+        box = QWidget(); row = QHBoxLayout(box); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(2)
+        row.addWidget(left); row.addWidget(area, 1); row.addWidget(right)
         def refresh():
-            # Always SHOWN so the scroll control is discoverable; just greyed out
-            # (disabled) at each end / when there's nothing to scroll.
             left.setEnabled(sb.value() > sb.minimum())
             right.setEnabled(sb.value() < sb.maximum())
-        sb.rangeChanged.connect(lambda *_: refresh())
-        sb.valueChanged.connect(lambda *_: refresh())
+        sb.rangeChanged.connect(lambda *_: refresh()); sb.valueChanged.connect(lambda *_: refresh())
         refresh()
         return box
 
@@ -4272,14 +4269,21 @@ class MainWindow(QMainWindow):
         w.setStyleSheet(
             'QListWidget,QTreeWidget{background:transparent;border:none;}'
             'QAbstractItemView::item{border:none;background:transparent;padding:6px 8px;min-height:22px;}'
-            'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}')
+            'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}'
+            # Remove the dotted/solid tree CONNECTOR LINES but keep the ▸/▾ expand arrows:
+            # blank out the line-only branch states; leave the has-children states to the style.
+            'QTreeWidget::branch{background:transparent;border-image:none;image:none;}'
+            'QTreeWidget::branch:has-siblings:!adjoins-item,'
+            'QTreeWidget::branch:has-siblings:adjoins-item,'
+            'QTreeWidget::branch:!has-children:!has-siblings:adjoins-item{border-image:none;image:none;}')
         try: w.setTextElideMode(Qt.ElideNone)   # show the whole label, don't truncate to '…'
         except Exception: pass
 
     def build_studio(self):
         # Site
-        sw = QWidget(); sl = QVBoxLayout(sw); sl.setContentsMargins(4, 4, 4, 4)
-        self.site_name_label = QLabel(); sl.addWidget(self.site_name_label)
+        sw = QWidget(); sl = QVBoxLayout(sw); sl.setContentsMargins(4, 10, 4, 4)
+        self.site_name_label = QLabel(); self.site_name_label.setContentsMargins(0, 4, 0, 4)
+        sl.addWidget(self.site_name_label)
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setColumnCount(1); self.tree.setIndentation(16)
         self.tree.itemClicked.connect(lambda it, _: self.goto_page(it.data(0, Qt.UserRole)))
         self.tree.itemDoubleClicked.connect(lambda it, _: self.page_props(self.page_by_id(it.data(0, Qt.UserRole))))
@@ -4412,14 +4416,15 @@ class MainWindow(QMainWindow):
         # resize edge is visible on the left without putting a line beside the right-hand docks
         aw.setStyleSheet('#assetpanel{border-right:1px solid palette(mid);}')
         # (Assets panel title and its pin button removed — the panel header is just the buttons now.)
-        btn_row = QHBoxLayout()
         browse = QPushButton(ticon(['folder-open', 'document-open'], ''), 'Browse…'); browse.setToolTip('Add every picture from a folder'); browse.clicked.connect(self.asset_browse_folder)
         add_file = QPushButton(ticon(['document-open'], ''), 'Open…'); add_file.clicked.connect(self.asset_add_file)
         add_ai = QPushButton(ticon(['applications-graphics'], ''), 'AI image…'); add_ai.clicked.connect(self.asset_add_ai)
         paint = QPushButton(ticon(['draw-brush', 'krita', 'applications-graphics'], '🖌'), 'IMAGEpainter')
         paint.setToolTip('Open IMAGEpainter (set in Settings) to paint or edit an image')
         paint.clicked.connect(self.launch_imagepainter)
-        btn_row.addWidget(browse); btn_row.addWidget(add_file); btn_row.addWidget(add_ai); btn_row.addWidget(paint); al.addLayout(btn_row)
+        for b in (browse, add_file, add_ai, paint): b.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        # full words, no truncation — scroll the row with the < > arrows when it overflows
+        al.addWidget(self._hscroll_row([browse, add_file, add_ai, paint]))
         self.asset_filter = 'all'; self.asset_cat_group = QButtonGroup(self); crow = QHBoxLayout(); crow.setSpacing(3)
         for i, (fk, lbl) in enumerate((('all', 'All'), ('pictures', 'Pictures'), ('graphics', 'Graphics'))):
             b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(fk == 'all'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
