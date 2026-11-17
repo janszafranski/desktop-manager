@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-18"
+VERSION = "1.10-19"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -3033,7 +3033,11 @@ class Canvas(QGraphicsView):
         self.win.zoom_changed()
 
     def fit_width(self):
-        z = (self.viewport().width() - 60) / self.win.site['width']
+        # Never magnify past actual size: if the page is NARROWER than the viewport
+        # (a wide/maximised window), show it at 100% — fixed width — instead of blowing
+        # the 970px design up to 2-3× just to fill the canvas. Only shrink to fit when
+        # the page is wider than the viewport.
+        z = min(1.0, (self.viewport().width() - 60) / self.win.site['width'])
         self.set_zoom(z)
         self.centerOn(QPointF(self.win.site['width'] / 2, self.mapToScene(self.viewport().rect().center()).y()))
 
