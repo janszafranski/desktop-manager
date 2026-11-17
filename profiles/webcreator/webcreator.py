@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-10"
+VERSION = "1.10-13"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4185,6 +4185,34 @@ class MainWindow(QMainWindow):
         except Exception: pass
         QScroller.grabGesture(lst.viewport(), QScroller.LeftMouseButtonGesture)
 
+    def _hscroll_wrap(self, lst, step=120):
+        """Wrap a horizontally-scrolling list between a ◀ and a ▶ triangle button so the
+        user can click to scroll it (the thin native scrollbar was never discoverable).
+        Returns a container widget to add in the list's place. The triangles auto-enable
+        only when there is something to scroll, and auto-repeat while held down."""
+        from PySide6.QtWidgets import QToolButton
+        self._enable_hdrag(lst)
+        box = QWidget(); row = QHBoxLayout(box); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(2)
+        sb = lst.horizontalScrollBar()
+        def mk(arrow, delta):
+            b = QToolButton(); b.setArrowType(arrow); b.setAutoRaise(True)
+            b.setAutoRepeat(True); b.setAutoRepeatInterval(60); b.setAutoRepeatDelay(300)
+            b.setFixedWidth(16); b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+            b.setToolTip('Scroll ' + ('left' if delta < 0 else 'right'))
+            b.clicked.connect(lambda: sb.setValue(sb.value() + delta))
+            return b
+        left = mk(Qt.LeftArrow, -step); right = mk(Qt.RightArrow, step)
+        row.addWidget(left); row.addWidget(lst, 1); row.addWidget(right)
+        def refresh():
+            scrollable = sb.maximum() > sb.minimum()
+            for b in (left, right): b.setVisible(scrollable)
+            left.setEnabled(sb.value() > sb.minimum())
+            right.setEnabled(sb.value() < sb.maximum())
+        sb.rangeChanged.connect(lambda *_: refresh())
+        sb.valueChanged.connect(lambda *_: refresh())
+        refresh()
+        return box
+
     def flatten_dock_tabs(self):
         """Flatten the docked-panel tab bars (Site / Swatches / Line / Transform / Layers …) so the
         tabs read as flat text with a highlight on the current one, not raised buttons on a bar.
@@ -4212,8 +4240,8 @@ class MainWindow(QMainWindow):
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setColumnCount(1); self.tree.setIndentation(16)
         self.tree.itemClicked.connect(lambda it, _: self.goto_page(it.data(0, Qt.UserRole)))
         self.tree.itemDoubleClicked.connect(lambda it, _: self.page_props(self.page_by_id(it.data(0, Qt.UserRole))))
-        self._plainify(self.tree); self._enable_hdrag(self.tree)
-        sl.addWidget(self.tree, 3)
+        self._plainify(self.tree)
+        sl.addWidget(self._hscroll_wrap(self.tree), 3)
         ptb = QToolBar(); ptb.setIconSize(QSize(16, 16))
         for text, icon, slot in (('New page', 'document-new', self.insert_page_dialog), ('Delete page', 'edit-delete', self.delete_page),
                                  ('Move up', 'go-up', lambda: self.move_page(-1)), ('Move down', 'go-down', lambda: self.move_page(1)),
@@ -4225,7 +4253,7 @@ class MainWindow(QMainWindow):
         sl.addWidget(QLabel('<b>Master pages</b>'))
         self.mlist = QListWidget(); self.mlist.itemDoubleClicked.connect(lambda it: self.goto_master(it.data(Qt.UserRole)))
         self._plainify(self.mlist)
-        sl.addWidget(self.mlist, 1)
+        sl.addWidget(self._hscroll_wrap(self.mlist), 1)
         mtb = QToolBar(); mtb.setIconSize(QSize(16, 16))
         mtb.addAction(self.act('New master page', self.new_master, None, 'document-new'))
         mtb.addAction(self.act('Edit master page', lambda: self.mlist.currentItem() and self.goto_master(self.mlist.currentItem().data(Qt.UserRole)), None, 'document-edit'))
@@ -4326,9 +4354,8 @@ class MainWindow(QMainWindow):
         self.layers = QListWidget(); self.layers.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.layers.itemSelectionChanged.connect(self.layers_selected)
         self.layers.itemDoubleClicked.connect(lambda it: self.edit_object(self.find(it.data(Qt.UserRole))) if self.find(it.data(Qt.UserRole)) else None)
-        self._enable_hdrag(self.layers)
         self._plainify(self.layers)
-        yl.addWidget(self.layers)
+        yl.addWidget(self._hscroll_wrap(self.layers))
         ytb = QToolBar(); ytb.setIconSize(QSize(16, 16))
         ytb.addAction(self.act('Show / hide', self.toggle_hidden, None, ['view-visible', 'visibility']))
         ytb.addAction(self.a['lock'])
@@ -4341,7 +4368,7 @@ class MainWindow(QMainWindow):
         # a single thin edge on this panel's right side (same Mid colour as the rulers draw), so the
         # resize edge is visible on the left without putting a line beside the right-hand docks
         aw.setStyleSheet('#assetpanel{border-right:1px solid palette(mid);}')
-        head = QHBoxLayout(); head.addWidget(QLabel('<b>Assets</b>')); head.addStretch()
+        head = QHBoxLayout(); head.addStretch()
         self.assets_pin = QToolButton(); self.assets_pin.setCheckable(True); self.assets_pin.setAutoRaise(True)
         self.assets_pin.setIcon(ticon(['window-pin', 'view-pin', 'emblem-locked', 'object-locked'], '📌'))
         self.assets_pin.setToolTip('Pin the panel open — lock it in place so it can’t be moved, floated or closed')
@@ -4369,8 +4396,7 @@ class MainWindow(QMainWindow):
             'QListWidget::item{margin:3px;}'
             'QListWidget::item:selected{border:1px solid palette(highlight);}')
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
-        self._enable_hdrag(self.asset_list)
-        al.addWidget(self.asset_list, 1)
+        al.addWidget(self._hscroll_wrap(self.asset_list), 1)
         al.addWidget(QLabel('<span style="color:gray">Double-click to place · hover for the name.</span>'))
         self.d_assets = self.dock('Assets', aw, 'assets')
 
@@ -6375,16 +6401,46 @@ class MainWindow(QMainWindow):
         self.hint('Preview opened in your web browser.')
 
     # ------------------------------------------------------------ Netlify CLI
+    def _netlify_cli_token(self):
+        """The auth token from an existing `netlify-cli login`
+        (~/.config/netlify/config.json). Returns '' if not logged in.
+
+        We read it ourselves and pass it on to the CLI as NETLIFY_AUTH_TOKEN so
+        a deploy works no matter what minimal environment the app was launched
+        in (a desktop/GUI launcher often has a different HOME/XDG_CONFIG_HOME, so
+        the CLI can fail to find its own login and report 'Unauthorized: could
+        not retrieve project' even though the user is signed in)."""
+        try:
+            with open(os.path.expanduser('~/.config/netlify/config.json')) as fh:
+                cfg = json.load(fh)
+        except (OSError, ValueError):
+            return ''
+        users = cfg.get('users') or {}
+        # Prefer the active user id if the config names one, else any with a token.
+        uid = cfg.get('userId')
+        order = ([users[uid]] if uid in users else []) + [u for k, u in users.items() if k != uid]
+        for info in order:
+            tok = ((info or {}).get('auth') or {}).get('token')
+            if tok: return tok.strip()
+        return ''
+
     def netlify_token(self):
-        """A Netlify personal access token, if the user has stored one: env
-        NETLIFY_AUTH_TOKEN wins, else ~/.config/webcreator/netlify_token."""
+        """A Netlify access token: env NETLIFY_AUTH_TOKEN wins, then a stored
+        ~/.config/webcreator/netlify_token, then an existing netlify-cli login."""
         tok = (os.environ.get('NETLIFY_AUTH_TOKEN') or '').strip()
         if tok: return tok
         try:
             with open(os.path.expanduser('~/.config/webcreator/netlify_token')) as fh:
-                return fh.read().strip()
+                tok = fh.read().strip()
+                if tok: return tok
         except OSError:
-            return ''
+            pass
+        return self._netlify_cli_token()
+
+    def netlify_ready(self):
+        """True if we can deploy without asking the user to sign in — a token
+        from the env, a stored file, or an existing netlify-cli login."""
+        return bool(self.netlify_token())
 
     def _netlify_env(self):
         env = dict(os.environ)
@@ -6410,13 +6466,14 @@ class MainWindow(QMainWindow):
         return ('not logged in' in blob or 'not authenticated' in blob or 'no auth' in blob
                 or 'netlify_auth_token' in blob or 'login' in blob and 'netlify' in blob)
 
-    def publish_netlify(self, folder):
+    def publish_netlify(self, folder, files=None):
         """Deploy the published folder to the SAME Netlify site every time (so
         re-publishing updates the live site instead of creating a duplicate).
-        Links to a site first if we haven't got one stored."""
+        Links to a site first if we haven't got one stored. On success shows a
+        short popup with how many pages/files changed, not the full guide."""
         import os as _os
         net = self.site.setdefault('netlify', {})
-        if not self.netlify_token():
+        if not self.netlify_ready():
             if QMessageBox.question(self, APP,
                     'To update your live Netlify site from here you need to connect your Netlify '
                     'account once.\n\nEither run “npx netlify-cli login” in a terminal, or paste a '
@@ -6448,19 +6505,49 @@ class MainWindow(QMainWindow):
         m = re.search(r'https?://[^\s]+', out)
         live = m.group(0) if m else (net.get('url') or '')
         tail = '\n'.join((out + '\n' + err).strip().splitlines()[-12:])
-        dlg = QDialog(self); dlg.setWindowTitle('Netlify deploy'); dlg.setMinimumWidth(600)
-        dv = QVBoxLayout(dlg)
         if ok:
-            dv.addWidget(QLabel(f'<b>Your live site was updated.</b><br>{esc(live)}' if live
-                                else '<b>Your live site was updated.</b>'))
+            # Short, friendly confirmation: how much changed this publish.
+            stats = getattr(publish_site, 'last_stats', None) or {}
+            nch = stats.get('pages_changed'); tot = stats.get('pages_total')
+            nfiles = len(stats.get('changed_files', []) or [])
+            if tot is None:
+                changed_line = ''
+            elif nch == 0:
+                changed_line = 'No pages had changed since last time — the live site is already up to date.'
+            else:
+                changed_line = (f'{nch} of {tot} page(s) changed'
+                                + (f' ({nfiles} file(s) uploaded)' if nfiles else '')
+                                + ' — only the changes were sent.')
+            dlg = QDialog(self); dlg.setWindowTitle('Live site updated'); dlg.setMinimumWidth(460)
+            dv = QVBoxLayout(dlg)
+            head = QLabel('<b>Your live site was updated.</b>'
+                          + (f'<br>{esc(live)}' if live else ''))
+            head.setWordWrap(True); head.setTextFormat(Qt.RichText); dv.addWidget(head)
+            if changed_line:
+                cl = QLabel(changed_line); cl.setWordWrap(True); cl.setStyleSheet('color:gray'); dv.addWidget(cl)
+            row = QHBoxLayout()
             if live:
-                b = QPushButton('Open the live site'); b.clicked.connect(lambda: open_external(live)); dv.addWidget(b)
+                b = QPushButton('Open the live site'); b.clicked.connect(lambda: open_external(live)); row.addWidget(b)
+            opt = QPushButton('Publishing options…')
+            opt.setToolTip('Change which Netlify site to update, or see other ways to host (drag-drop, GitHub Pages…)')
+            opt.clicked.connect(lambda: (dlg.accept(), self.go_online(folder, files if files is not None
+                                                                      else publish_site(self.site, folder))))
+            row.addWidget(opt); row.addStretch(); dv.addLayout(row)
+            bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
+            dv.addWidget(bb); dlg.exec()
         else:
+            dlg = QDialog(self); dlg.setWindowTitle('Netlify deploy'); dlg.setMinimumWidth(600)
+            dv = QVBoxLayout(dlg)
             dv.addWidget(QLabel('<b>The deploy did not finish.</b> Details below; the drag-and-drop '
                                 'option still works as a fallback.'))
-        log = QPlainTextEdit(tail); log.setReadOnly(True); log.setFixedHeight(180); dv.addWidget(log)
-        bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
-        dv.addWidget(bb); dlg.exec()
+            log = QPlainTextEdit(tail); log.setReadOnly(True); log.setFixedHeight(180); dv.addWidget(log)
+            row = QHBoxLayout()
+            gb = QPushButton('Other ways to publish…')
+            gb.clicked.connect(lambda: (dlg.accept(), self.go_online(folder, files if files is not None
+                                                                     else publish_site(self.site, folder))))
+            row.addWidget(gb); row.addStretch(); dv.addLayout(row)
+            bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
+            dv.addWidget(bb); dlg.exec()
 
     def link_netlify(self):
         """Pick an existing Netlify site to publish to (or create one), and store
@@ -6537,8 +6624,16 @@ class MainWindow(QMainWindow):
         except OSError as ex:
             QMessageBox.warning(self, APP, f"Could not save the site files.\n{ex}"); return
         self.settings.setValue('publishDir', folder)
-        # Step 3: straight to the guide.
-        self.go_online(folder, files)
+        # Step 3: where to go next.
+        # If this site is ALREADY linked to a Netlify site, don't re-present the
+        # whole "how to put it online" guide — the user has published before and
+        # just wants the live site updated. Deploy straight away and show a short
+        # "done" popup with how many pages/files changed. Only an unpublished
+        # site (no stored Netlify link) gets the full first-time hosting guide.
+        if (self.site.get('netlify') or {}).get('site_id') and self.netlify_ready():
+            self.publish_netlify(folder, files)
+        else:
+            self.go_online(folder, files)
 
     def go_online(self, folder, files):
         """Guide a non-technical user from a published folder to a live website.
@@ -6594,7 +6689,7 @@ class MainWindow(QMainWindow):
         h0 = QHBoxLayout()
         pb = QPushButton('Update my live site' if net.get('site_id') else 'Link & publish to Netlify')
         pb.setDefault(True)
-        pb.clicked.connect(lambda: self.publish_netlify(folder))
+        pb.clicked.connect(lambda: self.publish_netlify(folder, files))
         lk = QPushButton('Change which site…')
         lk.clicked.connect(lambda: self.link_netlify())
         h0.addWidget(pb); h0.addWidget(lk); h0.addStretch(); v0.addLayout(h0)
