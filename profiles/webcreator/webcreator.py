@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-09"
+VERSION = "1.10-10"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -3379,22 +3379,40 @@ class ColorButton(QToolButton):
         self.clicked.connect(self.pick)
 
     def pick(self):
-        c = QColorDialog.getColor(QColor(self.color or '#ffffff'), self.window(), self.title)
-        if c.isValid(): self.on_pick(c.name())
+        # Build the colour dialog non-statically so we can drop an eyedropper
+        # button right into it — "Pick from screen" sits in the popup itself,
+        # next to the usual colour choices, not hidden in a menu.
+        dlg = QColorDialog(QColor(self.color or '#ffffff'), self.window())
+        dlg.setWindowTitle(self.title)
+        dlg.setOption(QColorDialog.DontUseNativeDialog, True)   # so our button is shown
+        eye = QPushButton(ticon(['color-picker', 'gtk-color-picker', 'tool-measure', 'input-tablet'], '⊙'),
+                          '  Pick from screen')
+        eye.setToolTip('Pick a colour from anywhere on your screen')
+        def from_screen():
+            hx = self._screen_hex()
+            if hx:
+                dlg.setCurrentColor(QColor(hx)); dlg.accept()
+        eye.clicked.connect(from_screen)
+        lay = dlg.layout()
+        if lay is not None: lay.addWidget(eye)
+        if dlg.exec() == QDialog.Accepted:
+            c = dlg.currentColor()
+            if c.isValid(): self.on_pick(c.name())
 
-    def pick_screen(self):
-        """Pick a colour from anywhere on the screen. On Wayland (Hyprland) Qt's own
-        eyedropper is unreliable, so shell out to a desktop picker: hyprpicker first,
-        then grim+slurp. Falls back to the colour dialog if no tool is available."""
-        hx = None
+    @staticmethod
+    def _screen_hex():
+        """Grab one colour from anywhere on screen and return it as #rrggbb, or None.
+        On Wayland (Hyprland) Qt's own eyedropper is unreliable, so shell out to a
+        desktop picker: hyprpicker first, then grim+slurp."""
         if shutil.which('hyprpicker'):
             try:
                 r = subprocess.run(['hyprpicker', '-a', '-f', 'hex'],
                                    capture_output=True, text=True, timeout=30)
-                hx = self._valid_hex(r.stdout.strip())
+                hx = ColorButton._valid_hex(r.stdout.strip())
+                if hx: return hx
             except Exception:
-                hx = None
-        if not hx and shutil.which('grim') and shutil.which('slurp'):
+                pass
+        if shutil.which('grim') and shutil.which('slurp'):
             try:
                 g = subprocess.run(['slurp', '-p'], capture_output=True, text=True, timeout=30)
                 geom = g.stdout.strip()
@@ -3405,14 +3423,16 @@ class ColorButton(QToolButton):
                     try: os.remove(f)
                     except OSError: pass
                     if not img.isNull():
-                        hx = self._valid_hex(QColor(img.pixel(0, 0)).name())
+                        return ColorButton._valid_hex(QColor(img.pixel(0, 0)).name())
             except Exception:
-                hx = None
+                pass
+        return None
+
+    def pick_screen(self):
+        """Menu entry: pick a colour from the screen and apply it directly."""
+        hx = self._screen_hex()
         if hx:
             self.on_pick(hx)
-        elif not shutil.which('hyprpicker') and not (shutil.which('grim') and shutil.which('slurp')):
-            # No external picker on this box — use the dialog (its own eyedropper may work).
-            self.pick()
 
     @staticmethod
     def _valid_hex(s):
