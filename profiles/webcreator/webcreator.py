@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-14"
+VERSION = "1.10-15"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4186,29 +4186,45 @@ class MainWindow(QMainWindow):
         QScroller.grabGesture(lst.viewport(), QScroller.LeftMouseButtonGesture)
 
     def _hscroll_wrap(self, lst, step=120):
-        """Wrap a horizontally-scrolling list between a ◀ and a ▶ triangle button so the
-        user can click to scroll it (the thin native scrollbar was never discoverable).
-        Returns a container widget to add in the list's place. The triangles auto-enable
-        only when there is something to scroll, and auto-repeat while held down."""
-        from PySide6.QtWidgets import QToolButton
+        """Wrap a horizontally-scrolling list between a left- and a right-pointing
+        triangle button (painted, not a font glyph) so the user can click to scroll
+        it — the thin native scrollbar was never discoverable. Triangles are always
+        shown, grey out at each end, and auto-repeat while held down."""
+        from PySide6.QtWidgets import QAbstractButton
+        from PySide6.QtGui import QPainter, QPolygon
+        from PySide6.QtCore import QPoint
         self._enable_hdrag(lst)
         box = QWidget(); row = QHBoxLayout(box); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(2)
         sb = lst.horizontalScrollBar()
-        # Bold, obvious chevrons drawn as text — the native QToolButton arrow is a
-        # tiny faint glyph that nobody notices; a big ‹ › in a tinted button reads
-        # clearly as 'scroll this list sideways'.
-        arrow_css = ('QToolButton{font-size:20px;font-weight:bold;color:palette(highlighted-text);'
-                     'background:palette(highlight);border:none;border-radius:4px;}'
-                     'QToolButton:hover{background:palette(dark);}'
-                     'QToolButton:disabled{background:palette(midlight);color:palette(mid);}')
-        def mk(glyph, delta):
-            b = QToolButton(); b.setText(glyph); b.setStyleSheet(arrow_css)
-            b.setAutoRepeat(True); b.setAutoRepeatInterval(60); b.setAutoRepeatDelay(300)
-            b.setFixedWidth(22); b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-            b.setToolTip('Scroll ' + ('left' if delta < 0 else 'right'))
+
+        class TriangleButton(QAbstractButton):
+            """A button that PAINTS a real filled triangle (not a font glyph — the
+            keyboard has no triangle character and tiny native arrows are invisible).
+            Points left for delta<0, right for delta>0; greys out when disabled."""
+            def __init__(self, point_right):
+                super().__init__(); self._right = point_right
+                self.setFixedWidth(20); self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+                self.setAutoRepeat(True); self.setAutoRepeatInterval(60); self.setAutoRepeatDelay(300)
+                self.setCursor(Qt.PointingHandCursor)
+            def paintEvent(self, _):
+                p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+                pal = self.palette()
+                bg = pal.highlight().color() if self.isEnabled() else pal.midlight().color()
+                fg = pal.highlightedText().color() if self.isEnabled() else pal.mid().color()
+                r = self.rect().adjusted(1, 1, -1, -1)
+                p.setPen(Qt.NoPen); p.setBrush(bg); p.drawRoundedRect(r, 4, 4)
+                cy = r.center().y(); x0 = r.left() + 6; x1 = r.right() - 6; a = 5
+                if self._right:
+                    tri = QPolygon([QPoint(x0, cy - a), QPoint(x0, cy + a), QPoint(x1, cy)])
+                else:
+                    tri = QPolygon([QPoint(x1, cy - a), QPoint(x1, cy + a), QPoint(x0, cy)])
+                p.setBrush(fg); p.drawPolygon(tri)
+        def mk(point_right, delta):
+            b = TriangleButton(point_right)
+            b.setToolTip('Scroll ' + ('right' if point_right else 'left'))
             b.clicked.connect(lambda: sb.setValue(sb.value() + delta))
             return b
-        left = mk('‹', -step); right = mk('›', step)
+        left = mk(False, -step); right = mk(True, step)
         row.addWidget(left); row.addWidget(lst, 1); row.addWidget(right)
         def refresh():
             # Always SHOWN so the scroll control is discoverable; just greyed out
@@ -4228,9 +4244,14 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QTabBar
         css = ('QTabBar::tab{background:transparent;border:0;padding:5px 12px;margin:0;color:palette(text);}'
                'QTabBar::tab:selected{background:palette(highlight);color:palette(highlighted-text);border-radius:4px;}'
-               'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}')
+               'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}'
+               # make the ◀ ▶ overflow scroll arrows big and obvious, not Qt's hairline default
+               'QTabBar QToolButton{background:palette(highlight);width:20px;}')
         for tb in self.findChildren(QTabBar):
             tb.setStyleSheet(css)
+            tb.setUsesScrollButtons(True)   # show ◀ ▶ arrows when the tabs don't all fit
+            tb.setElideMode(Qt.ElideNone)   # don't shrink names to 'Sw…'; let them scroll instead
+            tb.setExpanding(False)
 
     def _plainify(self, w):
         """Flat 'just a list' look — no per-item button/background frame — so the right-hand
@@ -4401,6 +4422,7 @@ class MainWindow(QMainWindow):
         al.addWidget(self._hscroll_wrap(self.asset_list), 1)
         al.addWidget(QLabel('<span style="color:gray">Double-click to place · hover for the name.</span>'))
         self.d_assets = self.dock('Assets', aw, 'assets')
+        self.d_assets.setWindowTitle('')   # drop the visible 'Assets' word from the dock title bar (keep float/close)
 
         # Right side: Colour sits on top; below it, one tabbed group — the original
         # studio (Site / Swatches / Line / Transparency / Transform / Layers) that you
