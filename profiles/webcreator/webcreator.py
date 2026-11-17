@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-17"
+VERSION = "1.10-18"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4251,19 +4251,22 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QTabBar
         css = ('QTabBar::tab{background:transparent;border:0;padding:5px 10px;margin:0;color:palette(text);}'
                'QTabBar::tab:selected{background:palette(highlight);color:palette(highlighted-text);border-radius:4px;}'
-               'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}')
+               'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}'
+               # the ◀ ▶ scroll buttons the tab bar shows when its tabs overflow: make them
+               # flat plain triangles (transparent background, no box), not Qt's boxed default.
+               'QTabBar QToolButton{background:transparent;border:none;width:16px;}'
+               'QTabBar QToolButton:hover{background:palette(midlight);border-radius:3px;}')
         for tb in self.findChildren(QTabBar):
             tb.setStyleSheet(css)
-            tb.setUsesScrollButtons(False)  # no ugly <> scroll boxes on the tab bar
-            tb.setElideMode(Qt.ElideRight)  # shorten a long tab name cleanly instead
+            tb.setUsesScrollButtons(True)   # the tabs overflow, so allow scrolling the tab bar
+            tb.setElideMode(Qt.ElideNone)   # keep the full tab name; scroll to the hidden ones
             tb.setExpanding(False)
 
     def _plainify(self, w):
-        """Flat 'just a list' look with a thin box border around the list, roomy rows,
-        and NO text elision — long item names keep their full text (drag sideways or use
-        the scrollbar to see the rest) instead of being cut off with '…'."""
+        """Flat 'just a list' look — NO border box (they never had one), roomier rows than
+        the original, and no text elision so long item names keep their full text."""
         w.setStyleSheet(
-            'QListWidget,QTreeWidget{background:transparent;border:1px solid palette(mid);border-radius:4px;}'
+            'QListWidget,QTreeWidget{background:transparent;border:none;}'
             'QAbstractItemView::item{border:none;background:transparent;padding:6px 8px;min-height:22px;}'
             'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}')
         try: w.setTextElideMode(Qt.ElideNone)   # show the whole label, don't truncate to '…'
@@ -4423,7 +4426,7 @@ class MainWindow(QMainWindow):
         # ThumbGrid grows the icons with the panel and reflows between one and two columns.
         self.asset_list = ThumbGrid()
         self.asset_list.setStyleSheet(
-            'QListWidget{background:transparent; border:1px solid palette(mid); border-radius:4px;}'
+            'QListWidget{background:transparent; border:none;}'
             'QListWidget::item{margin:3px;}'
             'QListWidget::item:selected{border:1px solid palette(highlight);}')
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
