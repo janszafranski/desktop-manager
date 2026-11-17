@@ -33,7 +33,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-07"
+VERSION = "1.10-08"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -3359,16 +3359,59 @@ class ColorButton(QToolButton):
         super().__init__(parent)
         self.color, self.on_pick, self.title, self.allow_none = color, on_pick, title, allow_none
         self.setToolTip(title); self.setIcon(swatch_icon(color, 18)); self.setAutoRaise(True)
+        # Every colour button gets a dropdown: choose in a dialog, pick from the
+        # screen (eyedropper), and — when allowed — clear to None. The plain click
+        # still opens the colour dialog, so existing behaviour is unchanged.
+        m = QMenu(self)
+        m.addAction('Choose colour…', self.pick)
+        m.addAction(ticon(['color-picker', 'gtk-color-picker', 'tool-measure', 'input-tablet'], '⊙'),
+                    'Pick from screen', self.pick_screen)
         if allow_none:
-            m = QMenu(self)
             m.addAction(swatch_icon('', 16), 'None', lambda: self.on_pick(''))
-            m.addAction('Choose colour…', self.pick)
-            self.setMenu(m); self.setPopupMode(QToolButton.MenuButtonPopup)
+        self.setMenu(m); self.setPopupMode(QToolButton.MenuButtonPopup)
         self.clicked.connect(self.pick)
 
     def pick(self):
         c = QColorDialog.getColor(QColor(self.color or '#ffffff'), self.window(), self.title)
         if c.isValid(): self.on_pick(c.name())
+
+    def pick_screen(self):
+        """Pick a colour from anywhere on the screen. On Wayland (Hyprland) Qt's own
+        eyedropper is unreliable, so shell out to a desktop picker: hyprpicker first,
+        then grim+slurp. Falls back to the colour dialog if no tool is available."""
+        hx = None
+        if shutil.which('hyprpicker'):
+            try:
+                r = subprocess.run(['hyprpicker', '-a', '-f', 'hex'],
+                                   capture_output=True, text=True, timeout=30)
+                hx = self._valid_hex(r.stdout.strip())
+            except Exception:
+                hx = None
+        if not hx and shutil.which('grim') and shutil.which('slurp'):
+            try:
+                g = subprocess.run(['slurp', '-p'], capture_output=True, text=True, timeout=30)
+                geom = g.stdout.strip()
+                if geom:
+                    f = os.path.join(tempfile.gettempdir(), 'webcreator_pick.png')
+                    subprocess.run(['grim', '-g', geom, f], timeout=30, check=True)
+                    img = QImage(f)
+                    try: os.remove(f)
+                    except OSError: pass
+                    if not img.isNull():
+                        hx = self._valid_hex(QColor(img.pixel(0, 0)).name())
+            except Exception:
+                hx = None
+        if hx:
+            self.on_pick(hx)
+        elif not shutil.which('hyprpicker') and not (shutil.which('grim') and shutil.which('slurp')):
+            # No external picker on this box — use the dialog (its own eyedropper may work).
+            self.pick()
+
+    @staticmethod
+    def _valid_hex(s):
+        s = (s or '').strip()
+        if not s.startswith('#'): s = '#' + s
+        return s.lower() if re.fullmatch(r'#[0-9a-fA-F]{6}', s) else None
 
 
 def form_dialog(parent, title, rows, extra=None):
@@ -4087,6 +4130,12 @@ class MainWindow(QMainWindow):
         d.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.addDockWidget(Qt.RightDockWidgetArea, d); return d
 
+    def _hide_dock_title(self, d):
+        """Drop a dock's visible title. windowTitle='' clears the tab label (for a
+        tabified dock); the empty title-bar widget hides the title strip when the dock
+        is shown untabbed. Panel stays fully usable/resizable."""
+        d.setWindowTitle(''); d.setTitleBarWidget(QWidget())
+
     def style_separators(self):
         """Deliberately set NO stylesheet on the main window. A QMainWindow stylesheet (even just
         for ::separator or QTabBar::tab) can collapse/hide tabbed dock panels — that is what made
@@ -4156,7 +4205,7 @@ class MainWindow(QMainWindow):
         mtb.addAction(self.act('Master properties', self.master_props, None, 'document-properties'))
         mtb.addAction(self.act('Delete master page', self.delete_master, None, 'edit-delete'))
         sl.addWidget(mtb)
-        self.d_site = self.dock('Site', sw, 'site')
+        self.d_site = self.dock('Site', sw, 'site'); self._hide_dock_title(self.d_site)
 
         # Swatches
         cw = QWidget(); cl = QVBoxLayout(cw); cl.setContentsMargins(6, 6, 6, 6)
@@ -4210,7 +4259,7 @@ class MainWindow(QMainWindow):
         self.spectrum.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         co.addWidget(self.spectrum, 1)  # fill the space below instead of wasting it on a stretch
         self.col_mode_changed()
-        self.d_colour = self.dock('Colour', cow, 'colour')
+        self.d_colour = self.dock('Colour', cow, 'colour'); self._hide_dock_title(self.d_colour)
 
         # Line
         lw = QWidget(); lf = QFormLayout(lw)
@@ -4312,8 +4361,12 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.d_assets], [196], Qt.Horizontal)  # two columns; narrow for one
         self.view_menu.addSeparator()
         sm = self.view_menu.addMenu('Studio')
-        for d in (self.d_site, self.d_assets, self.d_swatch, self.d_colour, self.d_line, self.d_trans, self.d_xform, self.d_layers):
-            sm.addAction(d.toggleViewAction())
+        for d, lbl in ((self.d_site, 'Site'), (self.d_assets, 'Assets'), (self.d_swatch, 'Swatches'),
+                       (self.d_colour, 'Colour'), (self.d_line, 'Line'), (self.d_trans, 'Transparency'),
+                       (self.d_xform, 'Transform'), (self.d_layers, 'Layers')):
+            a = d.toggleViewAction()
+            if not a.text(): a.setText(lbl)  # d_site/d_colour have a blank windowTitle (hidden dock title)
+            sm.addAction(a)
         self.resizeDocks([self.d_site], [300], Qt.Horizontal)
 
     def restore_layout(self):
