@@ -27,13 +27,17 @@ try:
                                    QTableWidget, QTableWidgetItem, QMenu, QFrame, QSizePolicy,
                                    QGroupBox, QAbstractItemView, QStyle, QInputDialog)
 except ImportError:
-    print("just a... WEBcreator needs PySide6.\nOn CachyOS / Arch:  sudo pacman -S --needed pyside6")
+    print("just a... WEBcreator needs PySide6 (use your distro package, not pip, so it follows your theme):\n"
+          "  Arch/CachyOS:        sudo pacman -S --needed pyside6\n"
+          "  Debian/Ubuntu/Mint:  sudo apt install python3-pyside6.qtwidgets python3-pyside6.qtwebenginewidgets\n"
+          "  Fedora:              sudo dnf install python3-pyside6\n"
+          "  openSUSE:            sudo zypper install python3-PySide6")
     sys.exit(1)
 
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-08"
+VERSION = "1.10-09"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -1846,7 +1850,10 @@ def import_site_folder(folder, progress=None, render=None):
     try:
         from bs4 import BeautifulSoup
     except ImportError:
-        raise RuntimeError('Importing needs Beautiful Soup.\nInstall it with:  sudo pacman -S --needed python-beautifulsoup4')
+        raise RuntimeError('Importing needs Beautiful Soup.\nInstall it with:\n'
+                           '  Arch/CachyOS:        sudo pacman -S --needed python-beautifulsoup4\n'
+                           '  Debian/Ubuntu/Mint:  sudo apt install python3-bs4\n'
+                           '  Fedora/openSUSE:     sudo dnf install python3-beautifulsoup4  (zypper on openSUSE)')
     folder = os.path.abspath(folder)
     paths = []
     for dp, dns, fns in os.walk(folder):
