@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-15"
+VERSION = "1.10-16"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4198,27 +4198,34 @@ class MainWindow(QMainWindow):
         sb = lst.horizontalScrollBar()
 
         class TriangleButton(QAbstractButton):
-            """A button that PAINTS a real filled triangle (not a font glyph — the
-            keyboard has no triangle character and tiny native arrows are invisible).
-            Points left for delta<0, right for delta>0; greys out when disabled."""
+            """A button that PAINTS a plain filled triangle on a TRANSPARENT background
+            (no box) — a normal ◀ before the row / ▶ after it. The keyboard has no
+            triangle character and tiny native arrows are invisible, so it's painted.
+            Points left for delta<0, right for delta>0; fades when there's no more to
+            scroll that way, highlights on hover."""
             def __init__(self, point_right):
-                super().__init__(); self._right = point_right
-                self.setFixedWidth(20); self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+                super().__init__(); self._right = point_right; self._hover = False
+                self.setFixedWidth(18); self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
                 self.setAutoRepeat(True); self.setAutoRepeatInterval(60); self.setAutoRepeatDelay(300)
                 self.setCursor(Qt.PointingHandCursor)
+            def enterEvent(self, _): self._hover = True; self.update()
+            def leaveEvent(self, _): self._hover = False; self.update()
             def paintEvent(self, _):
                 p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
                 pal = self.palette()
-                bg = pal.highlight().color() if self.isEnabled() else pal.midlight().color()
-                fg = pal.highlightedText().color() if self.isEnabled() else pal.mid().color()
-                r = self.rect().adjusted(1, 1, -1, -1)
-                p.setPen(Qt.NoPen); p.setBrush(bg); p.drawRoundedRect(r, 4, 4)
-                cy = r.center().y(); x0 = r.left() + 6; x1 = r.right() - 6; a = 5
+                if not self.isEnabled():
+                    col = pal.mid().color()
+                elif self._hover:
+                    col = pal.highlight().color()
+                else:
+                    col = pal.text().color()
+                r = self.rect()
+                cy = r.center().y(); x0 = r.left() + 5; x1 = r.right() - 5; a = 6
                 if self._right:
                     tri = QPolygon([QPoint(x0, cy - a), QPoint(x0, cy + a), QPoint(x1, cy)])
                 else:
                     tri = QPolygon([QPoint(x1, cy - a), QPoint(x1, cy + a), QPoint(x0, cy)])
-                p.setBrush(fg); p.drawPolygon(tri)
+                p.setPen(Qt.NoPen); p.setBrush(col); p.drawPolygon(tri)
         def mk(point_right, delta):
             b = TriangleButton(point_right)
             b.setToolTip('Scroll ' + ('right' if point_right else 'left'))
@@ -4242,15 +4249,13 @@ class MainWindow(QMainWindow):
         Styled on each QTabBar widget DIRECTLY — never on the main window — because a QMainWindow
         stylesheet collapses dock panels (which is what hid the file-list earlier)."""
         from PySide6.QtWidgets import QTabBar
-        css = ('QTabBar::tab{background:transparent;border:0;padding:5px 12px;margin:0;color:palette(text);}'
+        css = ('QTabBar::tab{background:transparent;border:0;padding:5px 10px;margin:0;color:palette(text);}'
                'QTabBar::tab:selected{background:palette(highlight);color:palette(highlighted-text);border-radius:4px;}'
-               'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}'
-               # make the ◀ ▶ overflow scroll arrows big and obvious, not Qt's hairline default
-               'QTabBar QToolButton{background:palette(highlight);width:20px;}')
+               'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}')
         for tb in self.findChildren(QTabBar):
             tb.setStyleSheet(css)
-            tb.setUsesScrollButtons(True)   # show ◀ ▶ arrows when the tabs don't all fit
-            tb.setElideMode(Qt.ElideNone)   # don't shrink names to 'Sw…'; let them scroll instead
+            tb.setUsesScrollButtons(False)  # no ugly <> scroll boxes on the tab bar
+            tb.setElideMode(Qt.ElideRight)  # shorten a long tab name cleanly instead
             tb.setExpanding(False)
 
     def _plainify(self, w):
