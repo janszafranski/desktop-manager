@@ -37,7 +37,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-16"
+VERSION = "1.10-17"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4259,12 +4259,15 @@ class MainWindow(QMainWindow):
             tb.setExpanding(False)
 
     def _plainify(self, w):
-        """Flat 'just a list' look — no per-item button/background frame — so the right-hand
-        lists match the plain Assets list instead of looking like buttons on a background."""
+        """Flat 'just a list' look with a thin box border around the list, roomy rows,
+        and NO text elision — long item names keep their full text (drag sideways or use
+        the scrollbar to see the rest) instead of being cut off with '…'."""
         w.setStyleSheet(
-            'QListWidget,QTreeWidget{background:transparent;border:none;}'
+            'QListWidget,QTreeWidget{background:transparent;border:1px solid palette(mid);border-radius:4px;}'
             'QAbstractItemView::item{border:none;background:transparent;padding:6px 8px;min-height:22px;}'
             'QAbstractItemView::item:selected{background:palette(highlight);color:palette(highlighted-text);}')
+        try: w.setTextElideMode(Qt.ElideNone)   # show the whole label, don't truncate to '…'
+        except Exception: pass
 
     def build_studio(self):
         # Site
@@ -4273,8 +4276,8 @@ class MainWindow(QMainWindow):
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setColumnCount(1); self.tree.setIndentation(16)
         self.tree.itemClicked.connect(lambda it, _: self.goto_page(it.data(0, Qt.UserRole)))
         self.tree.itemDoubleClicked.connect(lambda it, _: self.page_props(self.page_by_id(it.data(0, Qt.UserRole))))
-        self._plainify(self.tree)
-        sl.addWidget(self._hscroll_wrap(self.tree), 3)
+        self._plainify(self.tree); self._enable_hdrag(self.tree)
+        sl.addWidget(self.tree, 3)
         ptb = QToolBar(); ptb.setIconSize(QSize(16, 16))
         for text, icon, slot in (('New page', 'document-new', self.insert_page_dialog), ('Delete page', 'edit-delete', self.delete_page),
                                  ('Move up', 'go-up', lambda: self.move_page(-1)), ('Move down', 'go-down', lambda: self.move_page(1)),
@@ -4285,8 +4288,8 @@ class MainWindow(QMainWindow):
         sl.addWidget(ptb)
         sl.addWidget(QLabel('<b>Master pages</b>'))
         self.mlist = QListWidget(); self.mlist.itemDoubleClicked.connect(lambda it: self.goto_master(it.data(Qt.UserRole)))
-        self._plainify(self.mlist)
-        sl.addWidget(self._hscroll_wrap(self.mlist), 1)
+        self._plainify(self.mlist); self._enable_hdrag(self.mlist)
+        sl.addWidget(self.mlist, 1)
         mtb = QToolBar(); mtb.setIconSize(QSize(16, 16))
         mtb.addAction(self.act('New master page', self.new_master, None, 'document-new'))
         mtb.addAction(self.act('Edit master page', lambda: self.mlist.currentItem() and self.goto_master(self.mlist.currentItem().data(Qt.UserRole)), None, 'document-edit'))
@@ -4387,8 +4390,8 @@ class MainWindow(QMainWindow):
         self.layers = QListWidget(); self.layers.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.layers.itemSelectionChanged.connect(self.layers_selected)
         self.layers.itemDoubleClicked.connect(lambda it: self.edit_object(self.find(it.data(Qt.UserRole))) if self.find(it.data(Qt.UserRole)) else None)
-        self._plainify(self.layers)
-        yl.addWidget(self._hscroll_wrap(self.layers))
+        self._plainify(self.layers); self._enable_hdrag(self.layers)
+        yl.addWidget(self.layers)
         ytb = QToolBar(); ytb.setIconSize(QSize(16, 16))
         ytb.addAction(self.act('Show / hide', self.toggle_hidden, None, ['view-visible', 'visibility']))
         ytb.addAction(self.a['lock'])
@@ -4420,11 +4423,12 @@ class MainWindow(QMainWindow):
         # ThumbGrid grows the icons with the panel and reflows between one and two columns.
         self.asset_list = ThumbGrid()
         self.asset_list.setStyleSheet(
-            'QListWidget{background:transparent; border:none;}'
+            'QListWidget{background:transparent; border:1px solid palette(mid); border-radius:4px;}'
             'QListWidget::item{margin:3px;}'
             'QListWidget::item:selected{border:1px solid palette(highlight);}')
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
-        al.addWidget(self._hscroll_wrap(self.asset_list), 1)
+        self._enable_hdrag(self.asset_list)
+        al.addWidget(self.asset_list, 1)
         al.addWidget(QLabel('<span style="color:gray">Double-click to place · hover for the name.</span>'))
         self.d_assets = self.dock('Assets', aw, 'assets')
         self.d_assets.setWindowTitle('')   # drop the visible 'Assets' word from the dock title bar (keep float/close)
