@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-24"
+VERSION = "1.10-25"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -3006,17 +3006,36 @@ class ThumbGrid(QListWidget):
         self.setDragDropMode(QAbstractItemView.DragDrop)
         self.setDefaultDropAction(Qt.CopyAction)
         self.setAcceptDrops(True)
+        self._press = None
 
-    def startDrag(self, actions):
-        it = self.currentItem()
-        key = it.data(Qt.UserRole) if it else None
-        if not key: return
+    # Start the drag ourselves from the mouse handlers rather than relying on
+    # QListView's built-in dispatch: in IconMode with Movement.Static the view
+    # often never calls startDrag on real input, so dragging a thumbnail out did
+    # nothing. Driving QDrag manually makes it work regardless of that quirk.
+    def mousePressEvent(self, e):
+        self._press = e.position().toPoint() if e.button() == Qt.LeftButton else None
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if ((e.buttons() & Qt.LeftButton) and self._press is not None
+                and (e.position().toPoint() - self._press).manhattanLength() >= QApplication.startDragDistance()):
+            it = self.itemAt(self._press); self._press = None
+            if it and it.data(Qt.UserRole):
+                self._begin_drag(it); return
+        super().mouseMoveEvent(e)
+
+    def _begin_drag(self, it):
+        key = it.data(Qt.UserRole)
         md = QMimeData(); md.setData(ASSET_MIME, QByteArray(str(key).encode()))
         drag = QDrag(self); drag.setMimeData(md)
         pm = it.icon().pixmap(self.iconSize())
         if not pm.isNull():
             drag.setPixmap(pm); drag.setHotSpot(QPoint(pm.width() // 2, pm.height() // 2))
         drag.exec(Qt.CopyAction)
+
+    def startDrag(self, actions):   # fallback if the view ever dispatches it
+        it = self.currentItem()
+        if it and it.data(Qt.UserRole): self._begin_drag(it)
 
     @staticmethod
     def _can_drop(md):
@@ -3283,6 +3302,13 @@ class Canvas(QGraphicsView):
             if r_:
                 c = QColor(hi); c.setAlpha(40); p.setBrush(c); pn = QPen(hi, 1, Qt.DashLine); pn.setCosmetic(True); p.setPen(pn)
                 p.drawRect(r_)
+        # Grab grip at the page bottom edge: a short centred bar the user can drag to make
+        # the page taller or shorter. Only on a normal page (not while editing a master).
+        if not win.editor and not win.cur_master():
+            pr = self.page_rect(); gw = 54 / self.zoom; th = 4 / self.zoom
+            grip = QRectF(pr.width() / 2 - gw / 2, pr.height() - th / 2, gw, th)
+            gc = QColor(hi); gc.setAlpha(150); p.setPen(Qt.NoPen); p.setBrush(gc)
+            p.drawRoundedRect(grip, th / 2, th / 2)
 
     # -- hit testing
     def handle_at(self, vpos):
@@ -3298,6 +3324,14 @@ class Canvas(QGraphicsView):
             if isinstance(it, ObjItem):
                 return it
         return None
+
+    def on_page_bottom(self, vpos):
+        """True when the viewport point is on the page's bottom edge — the grab zone for
+        dragging the page taller/shorter. Only on a normal page with the Pointer tool."""
+        if self.win.editor or self.win.tool != 'pointer': return False
+        pr = self.page_rect()
+        bl = self.mapFromScene(QPointF(0, pr.height())); br = self.mapFromScene(QPointF(pr.width(), pr.height()))
+        return abs(vpos.y() - bl.y()) <= 6 and (bl.x() - 12) <= vpos.x() <= (br.x() + 12)
 
     def snap(self, v):
         return round(v / 10) * 10 if self.win.snap_grid else round(v)
@@ -3337,6 +3371,9 @@ class Canvas(QGraphicsView):
         if hk and win.tool == 'pointer':
             it = win.sel_items()[0]
             self.drag = dict(mode='rot' if hk == 'rot' else 'resize', dir=hk, item=it, start=dict(it.o), pt=sp, snap=win.snapshot(), moved=False)
+            return
+        if win.tool == 'pointer' and self.on_page_bottom(vpos):
+            self.drag = dict(mode='pageh', pt=sp, start_h=win.page_h(), snap=win.snapshot(), moved=False)
             return
         if win.tool == 'pointer':
             it = self.obj_at(vpos)
@@ -3381,6 +3418,7 @@ class Canvas(QGraphicsView):
                 if win.tool == 'pointer':
                     it = self.obj_at(vpos)
                     if it and not it.master and not it.o.get('locked'): cur = Qt.SizeAllCursor
+            if not hk and self.on_page_bottom(vpos): cur = Qt.SizeVerCursor   # page-height grip wins over empty-space
             self.viewport().setCursor(cur)
             return
         if d['mode'] == 'pan':
@@ -3431,6 +3469,12 @@ class Canvas(QGraphicsView):
             ang = math.degrees(math.atan2(sp.y() - c.y(), sp.x() - c.x())) + 90
             if e.modifiers() & Qt.ShiftModifier: ang = round(ang / 15) * 15
             it.o['rot'] = round(((ang + 180) % 360) - 180, 1); it.sync(); win.live_update()
+        elif d['mode'] == 'pageh':
+            if not d['moved']: win.push_undo(d['snap']); d['moved'] = True
+            newh = int(self.snap(max(200, d['start_h'] + dy)))
+            win.set_page_height(newh)
+            W = win.site['width']; self.scene().setSceneRect(QRectF(-300, -200, W + 600, newh + 400))
+            win.live_update()
         elif d['mode'] in ('marq', 'create'):
             r_ = QRectF(d['pt'], sp).normalized()
             if d['mode'] == 'create' and e.modifiers() & Qt.ShiftModifier and d['tool'] in ('rect', 'ellipse', 'picture'):
@@ -4033,6 +4077,13 @@ class MainWindow(QMainWindow):
 
     def page_h(self):
         return self.site['height'] if self.edit_master else (self.page().get('height') or self.site['height'])
+
+    def set_page_height(self, h):
+        """Set the height of the current page (or the site default when editing a master).
+        Used by dragging the page's bottom edge."""
+        h = int(max(200, h))
+        if self.edit_master: self.site['height'] = h
+        else: self.page()['height'] = h
 
     def page_bg(self):
         m = self.cur_master()
