@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-27"
+VERSION = "1.10-28"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4307,7 +4307,10 @@ class MainWindow(QMainWindow):
         self.a['update'].setVisible(False)
         self.a['checkupdate'] = self.act('Check for &Updates…', lambda: self.check_updates(quiet=False), None, ['system-software-update', 'view-refresh'])
         self.a['updatesettings'] = self.act('&Settings…', self.update_settings, None, ['configure', 'preferences-system'])
-        menu('&Help', [self.a['update'], self.a['checkupdate'], self.a['updatesettings'], None, a['about']])
+        self.a['donate'] = self.act('&Buy Me a Coffee  ☕', lambda: open_external('https://buymeacoffee.com/janszafranski'),
+                                    None, ['help-donate', 'emblem-favorite', 'face-smile-big'])
+        self.a['donate'].setToolTip('Enjoying WEBcreator? Buy its maker a coffee — opens buymeacoffee.com in your browser')
+        menu('&Help', [self.a['update'], self.a['checkupdate'], self.a['updatesettings'], None, a['about'], None, self.a['donate']])
 
     def recent_menu_action(self):
         self.recent_menu = QMenu('Open &Recent', self)
