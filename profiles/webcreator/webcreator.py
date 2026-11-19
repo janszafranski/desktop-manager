@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-30"
+VERSION = "1.10-31"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -1579,17 +1579,20 @@ def page_html(site, page, img):
     responsive = bool(site.get('responsive'))
     if responsive:
         viewport = 'width=device-width, initial-scale=1'
-        # .pf-wrap is a full-width band; .pf-page is the fixed design, scaled by
-        # JS to ALWAYS fill the window width — shrinking on narrow screens and
-        # growing on wide ones — and horizontally centred.
+        # .pf-wrap is a full-width band; .pf-page is the fixed design, scaled by JS to
+        # fill the window width — shrinking on narrow screens and growing on wide ones up
+        # to MX (150%), after which it stays that size and is centred (so it never gets
+        # absurdly large on big monitors). Centring is done by setting left, since the
+        # scale transforms from the top-left corner.
         css = (f'html,body{{margin:0}}\nbody{{background:{site.get("bg") or bg}{bgpic}}}\n'
-               f'.pf-wrap{{width:100%;overflow-x:hidden}}\n'
-               f'.pf-page{{width:{site["width"]}px;height:{Hh}px;background:{bg};'
-               f'transform-origin:top left;margin:0 auto}}\n'
+               f'.pf-wrap{{position:relative;width:100%;overflow-x:hidden}}\n'
+               f'.pf-page{{position:absolute;top:0;left:0;width:{site["width"]}px;height:{Hh}px;background:{bg};'
+               f'transform-origin:top left}}\n'
                + '\n'.join(rules))
-        scale_js = (f'<script>(function(){{var W={site["width"]},p=document.querySelector(".pf-page"),'
+        scale_js = (f'<script>(function(){{var W={site["width"]},MX=1.5,p=document.querySelector(".pf-page"),'
                     f'w=document.querySelector(".pf-wrap");function fit(){{var vw=w.clientWidth,'
-                    f's=vw/W;p.style.transform="scale("+s+")";w.style.height=(p.offsetHeight*s)+"px"}}'
+                    f's=Math.min(vw/W,MX);p.style.transform="scale("+s+")";'
+                    f'p.style.left=Math.max(0,(vw-W*s)/2)+"px";w.style.height=(p.offsetHeight*s)+"px"}}'
                     f'window.addEventListener("resize",fit);fit();}})();</script>')
         return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="{viewport}">\n'
                 f'<title>{esc(seo_title)}</title>\n{seo}<meta name="generator" content="{APP} {VERSION}">\n'
