@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-28"
+VERSION = "1.10-29"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -3038,24 +3038,48 @@ class ThumbGrid(QListWidget):
         if it and it.data(Qt.UserRole): self._begin_drag(it)
 
     @staticmethod
+    def _moz_url(md):
+        """URL out of Firefox/Chrome's text/x-moz-url (UTF-16 'URL\\nTitle'), or None."""
+        if not md.hasFormat('text/x-moz-url'): return None
+        raw = bytes(md.data('text/x-moz-url'))
+        for enc in ('utf-16', 'utf-8'):
+            try:
+                s = raw.decode(enc).split('\n', 1)[0].strip()
+                if s.lower().startswith(('http://', 'https://')): return s
+            except Exception:
+                pass
+        return None
+
+    @staticmethod
+    def _html_img(md):
+        """First <img src="http…"> inside dropped text/html (how some browsers drag), or None."""
+        if not md.hasHtml(): return None
+        m = re.search(r'<img[^>]+src\s*=\s*["\']?(https?://[^"\'> ]+)', md.html(), re.I)
+        return m.group(1) if m else None
+
+    @staticmethod
     def _can_drop(md):
-        """Cheap test (safe to call on every drag-move) for a droppable picture:
-        a local image file, a remote image URL (dragged from a browser), or an
-        embedded bitmap. Our own thumbnail drags (ASSET_MIME) are not 'drops in'."""
+        """Cheap test (safe to call on every drag-move) for a droppable picture: a local
+        image file, ANY web URL (dragged from a browser — extensionless CDN URLs included;
+        validated as an image only on drop), an <img> in dropped HTML, or an embedded
+        bitmap. Our own thumbnail drags (ASSET_MIME) are not 'drops in'."""
         if md.hasFormat(ASSET_MIME): return False
         if md.hasImage(): return True
         if md.hasUrls():
             for u in md.urls():
-                if u.isLocalFile() and os.path.splitext(u.toLocalFile())[1].lower() in IMG_DROP_EXTS: return True
-                if u.scheme() in ('http', 'https') and os.path.splitext(u.path())[1].lower() in IMG_DROP_EXTS: return True
-        return False
+                if u.isLocalFile():
+                    if os.path.splitext(u.toLocalFile())[1].lower() in IMG_DROP_EXTS: return True
+                elif u.scheme() in ('http', 'https'):
+                    return True
+        return bool(ThumbGrid._html_img(md) or ThumbGrid._moz_url(md))
 
     @staticmethod
     def _image_sources(md):
         """Resolve a drop into picture sources, called once at drop time. Each is a
-        tuple ('file', path) | ('url', http-url) | ('img', QImage). Local files win
-        over remote URLs, which win over an embedded bitmap, so a single browser image
-        isn't imported twice."""
+        tuple ('file', path) | ('url', http-url) | ('img', QImage). Local files win over
+        remote URLs, which win over an embedded bitmap, so a single browser image isn't
+        imported twice. Remote URLs keep ALL web links (not just .png/.jpg ones) — the
+        downloader keeps a result only if the bytes actually decode as a picture."""
         if md.hasFormat(ASSET_MIME): return []
         files, remote = [], []
         if md.hasUrls():
@@ -3063,9 +3087,12 @@ class ThumbGrid(QListWidget):
                 if u.isLocalFile():
                     p = u.toLocalFile()
                     if os.path.splitext(p)[1].lower() in IMG_DROP_EXTS: files.append(('file', p))
-                elif u.scheme() in ('http', 'https') and os.path.splitext(u.path())[1].lower() in IMG_DROP_EXTS:
+                elif u.scheme() in ('http', 'https'):
                     remote.append(('url', u.toString()))
         if files: return files
+        if not remote:   # browsers that drag an <img> as HTML or a text/x-moz-url
+            u = ThumbGrid._html_img(md) or ThumbGrid._moz_url(md)
+            if u: remote.append(('url', u))
         if remote: return remote
         img = md.imageData()
         if isinstance(img, QImage) and not img.isNull(): return [('img', img)]
