@@ -9,8 +9,9 @@ import subprocess, shutil
 
 try:
     from PySide6.QtCore import (Qt, QRectF, QPointF, QSizeF, QTimer, QSettings, QUrl,
-                                QByteArray, QBuffer, QIODevice, QSize, QLineF, QEvent)
-    from PySide6.QtGui import (QAction, QActionGroup, QIcon, QPixmap, QImage, QPainter, QColor,
+                                QByteArray, QBuffer, QIODevice, QSize, QLineF, QEvent,
+                                Signal, QMimeData, QPoint)
+    from PySide6.QtGui import (QAction, QActionGroup, QIcon, QPixmap, QImage, QPainter, QColor, QDrag,
                                QPen, QBrush, QFont, QFontMetrics, QPainterPath, QPalette, QTransform,
                                QTextDocument, QTextOption, QTextCursor, QTextCharFormat, QTextFormat,
                                QTextBlockFormat, QAbstractTextDocumentLayout, QKeySequence,
@@ -37,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-22"
+VERSION = "1.10-24"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -138,7 +139,7 @@ def ai_generate_image(prompt, provider, settings):
 
     if provider == 'openai':
         key = settings.value('aiOpenAIKey', '')
-        if not key: raise RuntimeError('No OpenAI API key. Add it in File ▸ Site Properties.')
+        if not key: raise RuntimeError('No OpenAI API key. Add it in Help ▸ Settings.')
         body = _json.dumps({'model': 'gpt-image-1', 'prompt': prompt, 'size': '1024x1024', 'n': 1}).encode()
         req = urllib.request.Request('https://api.openai.com/v1/images/generations', data=body,
                                      headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
@@ -153,7 +154,7 @@ def ai_generate_image(prompt, provider, settings):
 
     if provider == 'stability':
         key = settings.value('aiStabilityKey', '')
-        if not key: raise RuntimeError('No Stability API key. Add it in File ▸ Site Properties.')
+        if not key: raise RuntimeError('No Stability API key. Add it in Help ▸ Settings.')
         # Stability v2 core: multipart form. Build minimal multipart body.
         boundary = '----wcboundary'
         parts = []
@@ -281,6 +282,12 @@ def add_asset(site, data_uri):
     key = hashlib.sha1(data_uri.encode()).hexdigest()[:12]
     site.setdefault('assets', {})[key] = data_uri
     return key
+
+# Dragging a thumbnail OUT of the Assets panel onto the page carries just the asset key
+# under this private MIME type; dragging a picture file IN from another app carries file
+# URLs (handled via picture_uri). These extensions are what we accept from outside drops.
+ASSET_MIME = 'application/x-webcreator-asset'
+IMG_DROP_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tif', '.tiff')
 
 # ----------------------------------------------------------------------------
 # Procedural artwork for the design templates (original, generated here)
@@ -1395,6 +1402,82 @@ def _page_text(page):
     """Plain text of a page's text objects (tags stripped, whitespace tidied)."""
     return re.sub(r'\s+', ' ', H.unescape(re.sub(r'<[^>]+>', ' ',
                   ' '.join(o.get('html', '') for o in page.get('objects', []) if o.get('type') == 'text')))).strip()
+
+# Small stop-word set for deriving a focus keyword from page text.
+_SEO_STOP = set('the a an and or but of to in on at for with from by as is are was were be been '
+                'this that these those it its it\'s you your we our they their he she his her i me my '
+                'not no do does did can could will would should may might must have has had about into '
+                'over under more most some any all each if then than so such up out off down who whom '
+                'which what when where why how here there page site also them then just like get got one '
+                'two will can’t don’t'.split())
+
+def _seo_strip_meta(body):
+    """Strip the Google-Sites 'posted <date> by <name> [ updated … ]' byline that
+    begins most of the imported news pages, so the auto description starts on the
+    real article text."""
+    b = re.sub(r'^\s*posted\b[^\]]*\]\s*', '', body, flags=re.I)          # posted … [ updated … ]
+    b = re.sub(r'^\s*posted\b.*?\bby\b\s+\S+(?:\s+\S+){0,3}\s*', '', b, flags=re.I)  # posted … by Name
+    b = re.sub(r'^\s*(contributed by|by)\s+\S+(?:\s+\S+){0,3}\s*', '', b, flags=re.I)
+    return b.strip()
+
+def _auto_seo_fields(title, body, site_name, keep_title=''):
+    """Heuristic SEO (no AI, instant): compelling title, a 120–160 char meta
+    description from the page's own text, and a focus keyword. keep_title lets a
+    caller preserve an existing hand-written title."""
+    from collections import Counter
+    # Drop a leading repeat of the page heading first, then strip any byline, so
+    # the description doesn't start by echoing the title or the 'posted … by …'
+    # metadata (which sits just under the title in reading order).
+    clean = body
+    t = title.strip()
+    if t and clean[:len(t)].lower() == t.lower():
+        clean = clean[len(t):].lstrip(' -–—:·|.').strip()
+    clean = _seo_strip_meta(clean)
+    # Description: first ~155 chars, cut at a word boundary, tidy trailing punctuation.
+    desc = clean[:300].strip()
+    if len(clean) > 155:
+        cut = desc[:155]
+        sp = cut.rfind(' ')
+        if sp > 110: cut = cut[:sp]
+        desc = cut.rstrip(' ,;:-') + '…'
+    else:
+        desc = desc.rstrip()
+    # SEO title: page title, plus " | Site" when it still fits in ~60 chars.
+    seo_title = (keep_title or '').strip()
+    if not seo_title:
+        seo_title = title.strip()
+        if site_name and len(seo_title) + len(site_name) + 3 <= 60 and site_name.lower() not in seo_title.lower():
+            seo_title = f'{seo_title} | {site_name}'
+    # Focus keyword: most salient content word (title words weighted up).
+    words = re.findall(r"[a-zA-Z][a-zA-Z'\-]{3,}", f'{title} {title} {clean}'.lower())
+    freq = Counter(w for w in words if w not in _SEO_STOP and "'" not in w)
+    keyword = freq.most_common(1)[0][0] if freq else ''
+    return {'title': seo_title, 'description': desc, 'keyword': keyword}
+
+def _ai_seo_fields(key, title, body, site_name, timeout=40):
+    """AI SEO via OpenAI chat (needs an OpenAI key). Returns the same dict shape
+    as _auto_seo_fields, or raises on any network/parse error so the caller can
+    fall back to the heuristic."""
+    import urllib.request, json as _json, ssl
+    ctx = ssl.create_default_context()
+    sysmsg = ('You are an SEO assistant. Given a web page, reply with ONLY a JSON object with keys '
+              '"title", "description", "keyword". title = a compelling SEO title under 60 characters. '
+              'description = a meta description between 120 and 160 characters, plain prose, no quotes. '
+              'keyword = the single best focus keyphrase (1-4 words). No commentary.')
+    usermsg = f'Website name: {site_name}\nPage heading: {title}\nPage text:\n{_seo_strip_meta(body)[:2000]}'
+    payload = _json.dumps({'model': 'gpt-4o-mini',
+                           'messages': [{'role': 'system', 'content': sysmsg},
+                                        {'role': 'user', 'content': usermsg}],
+                           'temperature': 0.4,
+                           'response_format': {'type': 'json_object'}}).encode()
+    req = urllib.request.Request('https://api.openai.com/v1/chat/completions', data=payload,
+                                 headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        out = _json.loads(r.read())
+    obj = _json.loads(out['choices'][0]['message']['content'])
+    return {'title': (obj.get('title') or '').strip(),
+            'description': (obj.get('description') or '').strip(),
+            'keyword': (obj.get('keyword') or '').strip()}
 
 def seo_head(site, page, img):
     """The page's SEO <head> block: effective title + all meta/OG/Twitter/
@@ -2901,7 +2984,11 @@ class SpectrumBar(QWidget):
 
 class ThumbGrid(QListWidget):
     """Icon grid whose thumbnails grow with the panel and reflow between columns:
-    two columns at the default width, one when narrowed, more (and larger) when widened."""
+    two columns at the default width, one when narrowed, more (and larger) when widened.
+    Thumbnails can be dragged OUT onto the page to place them, and picture files dragged
+    IN from another app are imported (emitted via `filesDropped`)."""
+    filesDropped = Signal(list)   # list of local picture file paths dropped onto the panel
+
     def __init__(self, min_cell=86, max_cell=170, parent=None):
         super().__init__(parent)
         self._min, self._max = min_cell, max_cell
@@ -2913,6 +3000,70 @@ class ThumbGrid(QListWidget):
         # column count oscillate between 3 and 4 (and the thumbnails jitter in size).
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Drag a thumbnail out to place it; accept picture files dropped in from elsewhere.
+        # (Scrolling is by the wheel and the always-on scrollbar, not by dragging the body.)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.CopyAction)
+        self.setAcceptDrops(True)
+
+    def startDrag(self, actions):
+        it = self.currentItem()
+        key = it.data(Qt.UserRole) if it else None
+        if not key: return
+        md = QMimeData(); md.setData(ASSET_MIME, QByteArray(str(key).encode()))
+        drag = QDrag(self); drag.setMimeData(md)
+        pm = it.icon().pixmap(self.iconSize())
+        if not pm.isNull():
+            drag.setPixmap(pm); drag.setHotSpot(QPoint(pm.width() // 2, pm.height() // 2))
+        drag.exec(Qt.CopyAction)
+
+    @staticmethod
+    def _can_drop(md):
+        """Cheap test (safe to call on every drag-move) for a droppable picture:
+        a local image file, a remote image URL (dragged from a browser), or an
+        embedded bitmap. Our own thumbnail drags (ASSET_MIME) are not 'drops in'."""
+        if md.hasFormat(ASSET_MIME): return False
+        if md.hasImage(): return True
+        if md.hasUrls():
+            for u in md.urls():
+                if u.isLocalFile() and os.path.splitext(u.toLocalFile())[1].lower() in IMG_DROP_EXTS: return True
+                if u.scheme() in ('http', 'https') and os.path.splitext(u.path())[1].lower() in IMG_DROP_EXTS: return True
+        return False
+
+    @staticmethod
+    def _image_sources(md):
+        """Resolve a drop into picture sources, called once at drop time. Each is a
+        tuple ('file', path) | ('url', http-url) | ('img', QImage). Local files win
+        over remote URLs, which win over an embedded bitmap, so a single browser image
+        isn't imported twice."""
+        if md.hasFormat(ASSET_MIME): return []
+        files, remote = [], []
+        if md.hasUrls():
+            for u in md.urls():
+                if u.isLocalFile():
+                    p = u.toLocalFile()
+                    if os.path.splitext(p)[1].lower() in IMG_DROP_EXTS: files.append(('file', p))
+                elif u.scheme() in ('http', 'https') and os.path.splitext(u.path())[1].lower() in IMG_DROP_EXTS:
+                    remote.append(('url', u.toString()))
+        if files: return files
+        if remote: return remote
+        img = md.imageData()
+        if isinstance(img, QImage) and not img.isNull(): return [('img', img)]
+        return []
+
+    def dragEnterEvent(self, e):
+        (e.acceptProposedAction() if self._can_drop(e.mimeData()) else e.ignore())
+
+    def dragMoveEvent(self, e):
+        (e.acceptProposedAction() if self._can_drop(e.mimeData()) else e.ignore())
+
+    def dropEvent(self, e):
+        srcs = self._image_sources(e.mimeData())
+        if srcs:
+            e.acceptProposedAction(); self.filesDropped.emit(srcs)
+        else:
+            e.ignore()
 
     def resizeEvent(self, e):
         super().resizeEvent(e); self.relayout()
@@ -3034,6 +3185,28 @@ class Canvas(QGraphicsView):
         self.ghost = None
         self.horizontalScrollBar().valueChanged.connect(lambda *_: win.update_rulers())
         self.verticalScrollBar().valueChanged.connect(lambda *_: win.update_rulers())
+        self.setAcceptDrops(True); self.viewport().setAcceptDrops(True)   # drop assets or picture files onto the page
+
+    # -- drag & drop onto the page
+    def _accepts(self, md):
+        return md.hasFormat(ASSET_MIME) or ThumbGrid._can_drop(md)
+
+    def dragEnterEvent(self, e):
+        (e.acceptProposedAction() if self._accepts(e.mimeData()) else e.ignore())
+
+    def dragMoveEvent(self, e):
+        (e.acceptProposedAction() if self._accepts(e.mimeData()) else e.ignore())
+
+    def dropEvent(self, e):
+        md = e.mimeData()
+        pt = self.mapToScene(e.position().toPoint())
+        if md.hasFormat(ASSET_MIME):
+            self.win.place_asset_at(bytes(md.data(ASSET_MIME)).decode(), pt)
+            e.acceptProposedAction(); return
+        srcs = ThumbGrid._image_sources(md)
+        if srcs:
+            self.win.import_asset_files(srcs, place_at=pt); e.acceptProposedAction(); return
+        e.ignore()
 
     # -- geometry
     def page_rect(self):
@@ -3961,7 +4134,7 @@ class MainWindow(QMainWindow):
             save=A('&Save', self.save, QKeySequence.Save, 'document-save'),
             saveas=A('Save &As…', self.save_as, QKeySequence.SaveAs, 'document-save-as'),
             import_=None,
-            siteprops=A('Site &Properties…', self.site_props, None, 'document-properties'),
+            siteprops=A('Settings…', self.site_props, None, ['configure', 'preferences-system', 'document-properties']),
             checklinks=A('Check &Links…', self.check_links, None, ['tools-check-spelling', 'insert-link', 'link']),
             prevpage=A('Preview &Page in Browser', self.preview_page, 'F12', ['document-preview', 'view-preview']),
             prevsite=A('Preview &Site in Browser', self.preview_site, 'Shift+F12', ['internet-web-browser', 'applications-internet']),
@@ -4028,7 +4201,7 @@ class MainWindow(QMainWindow):
                 elif isinstance(it, tuple): sub = m.addMenu(it[0]); [sub.addAction(x) if x else sub.addSeparator() for x in it[1]]
                 else: m.addAction(it)
             return m
-        menu('&File', [a['new'], a['open'], self.recent_menu_action(), a['openwpp'], a['import'], None, a['save'], a['saveas'], None, a['siteprops'], a['checklinks'], None,
+        menu('&File', [a['new'], a['open'], self.recent_menu_action(), a['openwpp'], a['import'], None, a['save'], a['saveas'], None, a['checklinks'], None,
                        a['prevpage'], a['prevsite'], a['publish'], None, a['quit']])
         menu('&Edit', [a['undo'], a['redo'], None, a['cut'], a['copy'], a['paste'], a['dup'], a['delete'], None, a['selall']])
         self.view_menu = menu('&View', [a['rulers'], a['grid'], a['snap'], None, a['zin'], a['zout'], a['z100'], a['zfit'], None])
@@ -4057,7 +4230,9 @@ class MainWindow(QMainWindow):
         self.a['seo_page'].setToolTip('Search-engine title, description, focus keyword and social preview for this page')
         self.a['seo_site'] = self.act('&Site-wide SEO…', self.site_seo_dialog, None, ['configure', 'preferences-system'])
         self.a['seo_site'].setToolTip('Base web address, default social image, Twitter handle and organisation details')
-        menu('&SEO', [self.a['seo_page'], None, self.a['seo_site']])
+        self.a['seo_auto'] = self.act('&Auto-generate SEO for all pages…', self.auto_seo, None, ['tools-wizard', 'system-run', 'text-html'])
+        self.a['seo_auto'].setToolTip('Fill in titles, descriptions and keywords for every page automatically, then publish')
+        menu('&SEO', [self.a['seo_auto'], None, self.a['seo_page'], None, self.a['seo_site']])
         self.a['htmlview'] = self.act('View &HTML', self.toggle_html_view, None, ['text-html', 'code-context', 'view-source'], checkable=True)
         self.a['htmlview'].setToolTip('Show the HTML source of this page (toggle)')
         self.a['update'] = self.act('Update Available', self.install_update, None, ['system-software-update', 'update-none', 'download'])
@@ -4207,18 +4382,20 @@ class MainWindow(QMainWindow):
         except Exception: pass
         QScroller.grabGesture(lst.viewport(), QScroller.LeftMouseButtonGesture)
 
-    def _triangle_button(self, point_right, height=24):
-        """A small button that PAINTS a plain filled triangle on a transparent
-        background (no box). '<' before a row, '>' after it. Auto-repeats when held;
-        greys out when disabled; highlights on hover."""
+    def _triangle_button(self, point_right, height=24, width=16, size=5, opaque=False):
+        """A small button that PAINTS a plain filled triangle. '<' before a row, '>' after it.
+        Auto-repeats when held; brightens on hover. `size` is the triangle half-height (bigger =
+        bolder). `opaque=True` fills the button with the window colour first, so it cleanly sits
+        'in front of' a tab instead of letting the tab show through. A disabled arrow stays clearly
+        visible (just dimmed), not near-invisible, so it reads as an affordance even when idle."""
         from PySide6.QtWidgets import QAbstractButton
-        from PySide6.QtGui import QPainter, QPolygon
+        from PySide6.QtGui import QPainter, QPolygon, QColor
         from PySide6.QtCore import QPoint
         win = self
         class TriangleButton(QAbstractButton):
             def __init__(self):
-                super().__init__(); self._right = point_right; self._hover = False
-                self.setFixedWidth(16); self.setFixedHeight(height)
+                super().__init__(); self._right = point_right; self._hover = False; self._opaque = opaque
+                self.setFixedWidth(width); self.setFixedHeight(height)
                 self.setAutoRepeat(True); self.setAutoRepeatInterval(60); self.setAutoRepeatDelay(300)
                 self.setCursor(Qt.PointingHandCursor)
                 self.setToolTip('Scroll ' + ('right' if point_right else 'left'))
@@ -4227,9 +4404,12 @@ class MainWindow(QMainWindow):
             def paintEvent(self, _):
                 p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
                 pal = self.palette()
-                col = (pal.mid().color() if not self.isEnabled()
-                       else pal.highlight().color() if self._hover else pal.text().color())
-                r = self.rect(); cy = r.center().y(); x0 = r.left() + 4; x1 = r.right() - 4; a = 5
+                if self._opaque: p.fillRect(self.rect(), pal.window().color())
+                if not self.isEnabled():
+                    col = QColor(pal.text().color()); col.setAlpha(150)   # dimmed but still clearly there
+                elif self._hover: col = pal.highlight().color()
+                else: col = pal.text().color()
+                r = self.rect(); cy = r.center().y(); x0 = r.left() + 4; x1 = r.right() - 4; a = size
                 tri = (QPolygon([QPoint(x0, cy - a), QPoint(x0, cy + a), QPoint(x1, cy)]) if self._right
                        else QPolygon([QPoint(x1, cy - a), QPoint(x1, cy + a), QPoint(x0, cy)]))
                 p.setPen(Qt.NoPen); p.setBrush(col); p.drawPolygon(tri)
@@ -4268,9 +4448,13 @@ class MainWindow(QMainWindow):
         Styled on each QTabBar widget DIRECTLY — never on the main window — because a QMainWindow
         stylesheet collapses dock panels (which is what hid the file-list earlier)."""
         from PySide6.QtWidgets import QTabBar
-        css = ('QTabBar::tab{background:transparent;border:0;padding:5px 10px;margin:0;color:palette(text);}'
+        css = ('QTabBar::tab{background:transparent;border:0;padding:5px 7px;margin:0;color:palette(text);}'
                'QTabBar::tab:selected{background:palette(highlight);color:palette(highlighted-text);border-radius:4px;}'
                'QTabBar::tab:hover{background:palette(midlight);border-radius:4px;}'
+               # reserve a strip of space inside the first and last tab so our ◀ / ▶ scroll
+               # triangles sit cleanly BEFORE 'Site' and AFTER 'Layers' without covering the text.
+               'QTabBar::tab:first{padding-left:26px;}'
+               'QTabBar::tab:last{padding-right:26px;}'
                # the ◀ ▶ scroll buttons the tab bar shows when its tabs overflow: make them
                # flat plain triangles (transparent background, no box), not Qt's boxed default.
                'QTabBar QToolButton{background:transparent;border:none;width:16px;}'
@@ -4293,14 +4477,15 @@ class MainWindow(QMainWindow):
                 tb.setTabText(i, tip or 'Site')
 
     def _add_tabbar_arrows(self, tb):
-        """Flank a dock tab bar with a ◀ on its LEFT and a ▶ on its RIGHT (the same
-        plain painted triangles used elsewhere). They scroll the tabs when the row is
-        wider than the panel; each hides itself when there's nothing to scroll that way.
-        Implemented as child widgets kept pinned to the bar's left/right edges."""
+        """Flank a dock tab bar with a ◀ before the first tab and a ▶ after the last (the same
+        plain painted triangles used elsewhere). They scroll the tab row left/right when it is
+        wider than the panel. Both stay visible as a scroll affordance and simply grey out when
+        there is nothing to scroll that way. Implemented as child widgets pinned to the bar."""
         if getattr(tb, '_arrowed', False): return
         tb._arrowed = True
-        left = self._triangle_button(False, height=tb.height() or 26)
-        right = self._triangle_button(True, height=tb.height() or 26)
+        aw = 20
+        left = self._triangle_button(False, height=tb.height() or 26, width=aw, size=6, opaque=True)
+        right = self._triangle_button(True, height=tb.height() or 26, width=aw, size=6, opaque=True)
         left.setParent(tb); right.setParent(tb)
 
         def scroll_tabs(step):
@@ -4311,14 +4496,19 @@ class MainWindow(QMainWindow):
         right.clicked.connect(lambda: scroll_tabs(+1))
 
         def reposition():
-            h = tb.height(); aw = 16
+            h = tb.height()
             left.setFixedHeight(h); right.setFixedHeight(h)
-            left.move(0, 0); right.move(max(aw, tb.width() - aw), 0)
-            # Only needed when the tabs don't all fit.
-            need = tb.sizeHint().width() > tb.width()
-            left.setVisible(need); right.setVisible(need)
-            left.setEnabled(tb.currentIndex() > 0)
-            right.setEnabled(tb.currentIndex() < tb.count() - 1)
+            last = tb.count() - 1
+            overflow = tb.sizeHint().width() > tb.width()
+            # ◀ sits in the reserved pad before 'Site'; ▶ sits in the reserved pad just after the
+            # last tab's text. If the row spills past the panel edge, pin ▶ to the right edge.
+            left.move(0, 0)
+            rx = tb.tabRect(last).right() - aw if last >= 0 else tb.width() - aw
+            right.move(min(max(aw, rx), tb.width() - aw - 2), 0)
+            # Only shown when a tab is actually hidden off either end — otherwise they're redundant.
+            left.setVisible(overflow); right.setVisible(overflow)
+            left.setEnabled(overflow and tb.currentIndex() > 0)
+            right.setEnabled(overflow and tb.currentIndex() < last)
             left.raise_(); right.raise_()
         tb._reposition_arrows = reposition
         # Reposition on resize/selection changes via an event filter + signals.
@@ -4342,7 +4532,8 @@ class MainWindow(QMainWindow):
     def build_studio(self):
         # Site
         sw = QWidget(); sl = QVBoxLayout(sw); sl.setContentsMargins(4, 4, 4, 4)
-        self.site_name_label = QLabel(); self.site_name_label.setContentsMargins(0, 12, 0, 6)
+        # generous top+bottom margins → a clear gap separating the tab row above and the page list below
+        self.site_name_label = QLabel(); self.site_name_label.setContentsMargins(0, 28, 0, 18)
         sl.addWidget(self.site_name_label)
         self.tree = LinelessTree(); self.tree.setHeaderHidden(True); self.tree.setColumnCount(1); self.tree.setIndentation(16)
         self.tree.itemClicked.connect(lambda it, _: self.goto_page(it.data(0, Qt.UserRole)))
@@ -4372,20 +4563,22 @@ class MainWindow(QMainWindow):
         # but still suppress the untabbed title strip with an empty title-bar widget.
         self.d_site.setTitleBarWidget(QWidget())
 
-        # Swatches
-        cw = QWidget(); cl = QVBoxLayout(cw); cl.setContentsMargins(6, 6, 6, 6)
+        # Swatches — sections spread out vertically; bigger swatch chips.
+        SW = 28  # swatch chip size (px)
+        cw = QWidget(); cl = QVBoxLayout(cw); cl.setContentsMargins(8, 10, 8, 8); cl.setSpacing(10)
         mrow = QHBoxLayout(); self.sw_group = QButtonGroup(self)
         for i, (k, lbl) in enumerate((('fill', 'Fill'), ('line', 'Line'), ('text', 'Text'))):
             b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(k == 'fill'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
             self.sw_group.addButton(b, i); mrow.addWidget(b)
         self.sw_group.idClicked.connect(lambda i: self.set_sw_mode(('fill', 'line', 'text')[i]))
         mrow.addStretch(); cl.addLayout(mrow)
-        cl.addWidget(QLabel('Site palette')); self.pal_grid = QGridLayout(); self.pal_grid.setSpacing(3); cl.addLayout(self.pal_grid)
-        cl.addWidget(QLabel('Standard')); sg = QGridLayout(); sg.setSpacing(3); cl.addLayout(sg)
-        none_b = QToolButton(); none_b.setIcon(swatch_icon('', 20)); none_b.setToolTip('None'); none_b.setAutoRaise(True)
+        cl.addSpacing(10)   # gap between the Fill/Line/Text row and the swatch sections below
+        cl.addWidget(QLabel('Site palette')); self.pal_grid = QGridLayout(); self.pal_grid.setSpacing(4); cl.addLayout(self.pal_grid)
+        cl.addWidget(QLabel('Standard')); sg = QGridLayout(); sg.setSpacing(4); cl.addLayout(sg)
+        none_b = QToolButton(); none_b.setIcon(swatch_icon('', SW)); none_b.setIconSize(QSize(SW, SW)); none_b.setToolTip('None'); none_b.setAutoRaise(True)
         none_b.clicked.connect(lambda: self.apply_swatch('')); sg.addWidget(none_b, 0, 0)
         for i, c in enumerate(STANDARD, 1):
-            b = QToolButton(); b.setIcon(swatch_icon(c, 20)); b.setToolTip(c); b.setAutoRaise(True)
+            b = QToolButton(); b.setIcon(swatch_icon(c, SW)); b.setIconSize(QSize(SW, SW)); b.setToolTip(c); b.setAutoRaise(True)
             b.clicked.connect(lambda _=False, c=c: self.apply_swatch(c)); sg.addWidget(b, i // 7, i % 7)
         cb = QPushButton('Custom colour…'); cb.clicked.connect(self.custom_swatch); cl.addWidget(cb)
         ab = QPushButton('Add selected colour to site palette'); ab.clicked.connect(self.add_to_palette); cl.addWidget(ab)
@@ -4394,7 +4587,9 @@ class MainWindow(QMainWindow):
 
         # Colour — a live RGB / HSL mixer with spectrum, matching Serif's Colour tab.
         self._col_gesture = False; self._updating_col = False
-        cow = QWidget(); co = QVBoxLayout(cow); co.setContentsMargins(6, 6, 6, 6); co.setSpacing(7)
+        # bottom margin kept generous so the colour spectrum isn't jammed flush against the
+        # Site / Swatches tab bar that sits directly below this dock — gives the tabs breathing room.
+        cow = QWidget(); co = QVBoxLayout(cow); co.setContentsMargins(6, 6, 6, 18); co.setSpacing(7)
         crow = QHBoxLayout(); self.col_group = QButtonGroup(self)
         for i, (k, lbl) in enumerate((('fill', 'Fill'), ('line', 'Line'), ('text', 'Text'))):
             b = QToolButton(); b.setText(lbl); b.setCheckable(True); b.setChecked(k == 'fill'); b.setToolButtonStyle(Qt.ToolButtonTextOnly)
@@ -4426,8 +4621,8 @@ class MainWindow(QMainWindow):
         self.col_mode_changed()
         self.d_colour = self.dock('Colour', cow, 'colour'); self._hide_dock_title(self.d_colour)
 
-        # Line
-        lw = QWidget(); lf = QFormLayout(lw)
+        # Line — a gap above the first row and roomier spacing between rows
+        lw = QWidget(); lf = QFormLayout(lw); lf.setContentsMargins(8, 16, 8, 8); lf.setVerticalSpacing(12)
         self.ln_w = QDoubleSpinBox(); self.ln_w.setRange(0, 60); self.ln_w.setSuffix(' px'); self.ln_w.setDecimals(1)
         self.ln_w.valueChanged.connect(lambda v: self.studio_set('strokeW', v))
         self.ln_style = QComboBox(); self.ln_style.addItems(['solid', 'dashed', 'dotted'])
@@ -4437,8 +4632,8 @@ class MainWindow(QMainWindow):
         lf.addRow('Width:', self.ln_w); lf.addRow('Style:', self.ln_style); lf.addRow('Corner radius:', self.ln_rad)
         self.d_line = self.dock('Line', lw, 'line')
 
-        # Transparency
-        tw = QWidget(); tl = QFormLayout(tw)
+        # Transparency — dropped down a little from the top
+        tw = QWidget(); tl = QFormLayout(tw); tl.setContentsMargins(8, 22, 8, 8); tl.setVerticalSpacing(10)
         self.op_slider = QSlider(Qt.Horizontal); self.op_slider.setRange(0, 100)
         self.op_spin = QSpinBox(); self.op_spin.setRange(0, 100); self.op_spin.setSuffix(' %')
         self.op_slider.valueChanged.connect(self.op_spin.setValue)
@@ -4447,8 +4642,8 @@ class MainWindow(QMainWindow):
         tl.addRow('Transparency:', self.op_slider); tl.addRow('', self.op_spin)
         self.d_trans = self.dock('Transparency', tw, 'transparency')
 
-        # Transform
-        xw = QWidget(); xf = QFormLayout(xw); self.tf = {}
+        # Transform — rows spread out vertically with a gap above
+        xw = QWidget(); xf = QFormLayout(xw); xf.setContentsMargins(8, 12, 8, 8); xf.setVerticalSpacing(12); self.tf = {}
         for k, lbl, lo, hi, suf in (('x', 'X:', -5000, 20000, ' px'), ('y', 'Y:', -5000, 20000, ' px'), ('w', 'Width:', 1, 20000, ' px'),
                                     ('h', 'Height:', 1, 20000, ' px'), ('rot', 'Rotation:', -180, 180, '°')):
             sp = QDoubleSpinBox(); sp.setRange(lo, hi); sp.setSuffix(suf); sp.setDecimals(0 if k != 'rot' else 1)
@@ -4478,7 +4673,11 @@ class MainWindow(QMainWindow):
         # a single thin edge on this panel's right side (same Mid colour as the rulers draw), so the
         # resize edge is visible on the left without putting a line beside the right-hand docks
         aw.setStyleSheet('#assetpanel{border-right:1px solid palette(mid);}')
-        # (Assets panel title and its pin button removed — the panel header is just the buttons now.)
+        # Panel header: a proper 'Assets' title inside the panel (not the tiny top-left dock
+        # title-bar text) — larger, with a little left/top padding so it reads as a heading.
+        asset_title = QLabel('Assets')
+        asset_title.setStyleSheet('font-size:15px; font-weight:bold; color:palette(text); padding:28px 2px 4px 8px;')
+        al.addWidget(asset_title)
         browse = QPushButton(ticon(['folder-open', 'document-open'], ''), 'Browse…'); browse.setToolTip('Add every picture from a folder'); browse.clicked.connect(self.asset_browse_folder)
         add_file = QPushButton(ticon(['document-open'], ''), 'Open…'); add_file.clicked.connect(self.asset_add_file)
         add_ai = QPushButton(ticon(['applications-graphics'], ''), 'AI image…'); add_ai.clicked.connect(self.asset_add_ai)
@@ -4502,11 +4701,16 @@ class MainWindow(QMainWindow):
             'QListWidget::item{margin:3px;}'
             'QListWidget::item:selected{border:1px solid palette(highlight);}')
         self.asset_list.itemDoubleClicked.connect(self.asset_insert)
-        self._enable_hdrag(self.asset_list)
+        self.asset_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.asset_list.customContextMenuRequested.connect(self.asset_context_menu)
+        self.asset_list.filesDropped.connect(self.import_asset_files)
         al.addWidget(self.asset_list, 1)
-        al.addWidget(QLabel('<span style="color:gray">Double-click to place · hover for the name.</span>'))
+        al.addWidget(QLabel('<span style="color:gray">Double-click or drag onto the page · drop pictures here to add · hover for the name.</span>'))
         self.d_assets = self.dock('Assets', aw, 'assets')
-        self.d_assets.setWindowTitle('')   # drop the visible 'Assets' word from the dock title bar (keep float/close)
+        self.d_assets.setWindowTitle('')   # keep windowTitle blank
+        # Hide the empty dock title strip entirely: the in-panel 'Assets' heading is the title now, so
+        # that strip only left 'Assets' stranded below it and wasted height the thumbnail list can use.
+        self.d_assets.setTitleBarWidget(QWidget())
 
         # Right side: Colour sits on top; below it, one tabbed group — the original
         # studio (Site / Swatches / Line / Transparency / Transform / Layers) that you
@@ -4515,6 +4719,9 @@ class MainWindow(QMainWindow):
         self.splitDockWidget(self.d_colour, self.d_site, Qt.Vertical)
         for d in (self.d_swatch, self.d_line, self.d_trans, self.d_xform, self.d_layers):
             self.tabifyDockWidget(self.d_site, d)
+            # Suppress each panel's own title strip: the tab above it already names the panel,
+            # so the in-panel title is redundant. windowTitle is kept so the TAB stays labelled.
+            d.setTitleBarWidget(QWidget())
         # Assets lives on the left, as a flyout tab, like Serif's Assets studio.
         self.addDockWidget(Qt.LeftDockWidgetArea, self.d_assets)
         self.d_colour.raise_(); self.d_site.raise_()
@@ -4546,8 +4753,10 @@ class MainWindow(QMainWindow):
         if s: self.restoreState(s, LAYOUT_VERSION)
         self.toggle_rulers()
         # A restored layout can collapse the right-hand studio group to zero size, which hides the
-        # Site file-list AND its toolbar buttons together. Self-heal once sizes are realised.
+        # Site file-list AND its toolbar buttons together. Self-heal once sizes are realised — twice,
+        # since a single pass at t=0 can run before the dock sizes have settled and miss the collapse.
         QTimer.singleShot(0, self._ensure_studio_visible)
+        QTimer.singleShot(200, self._ensure_studio_visible)
 
     def _ensure_studio_visible(self):
         """If the Site / Colour studio group came back hidden or collapsed to near-zero, give it a
@@ -4803,7 +5012,7 @@ class MainWindow(QMainWindow):
             w = self.pal_grid.takeAt(0).widget()
             if w: w.deleteLater()
         for i, c in enumerate(self.site.get('palette', [])):
-            b = QToolButton(); b.setIcon(swatch_icon(c, 20)); b.setToolTip(c); b.setAutoRaise(True)
+            b = QToolButton(); b.setIcon(swatch_icon(c, 28)); b.setIconSize(QSize(28, 28)); b.setToolTip(c); b.setAutoRaise(True)
             b.clicked.connect(lambda _=False, c=c: self.apply_swatch(c)); self.pal_grid.addWidget(b, i // 7, i % 7)
 
     def refresh_props(self):
@@ -4909,7 +5118,7 @@ class MainWindow(QMainWindow):
         c = self.site.get('contact', {})
         if not any(c.values()):
             QMessageBox.information(self, APP, 'No contact details yet.\n\nAdd them first in '
-                                    'File ▸ Site Properties (the “Contact details” fields).')
+                                    'Help ▸ Settings (the “Contact details” fields).')
             return
         def esc_(s): return H.escape(s or '')
         rows = []
@@ -4924,7 +5133,7 @@ class MainWindow(QMainWindow):
         else:
             v = c.get(field, '')
             if not v:
-                QMessageBox.information(self, APP, f'The “{field}” field is empty in Site Properties.'); return
+                QMessageBox.information(self, APP, f'The “{field}” field is empty in Settings (Help ▸ Settings).'); return
             if field == 'email': rows.append(f'<p><a href="mailto:{esc_(v)}">{esc_(v)}</a></p>')
             elif field == 'website':
                 u = v if v.startswith('http') else 'https://' + v
@@ -5314,13 +5523,137 @@ class MainWindow(QMainWindow):
         key = it.data(Qt.UserRole) if it else None
         if not key: return
         cc = self.view.mapToScene(self.view.viewport().rect().center())
+        self.place_asset_at(key, cc)
+
+    def _picture_at(self, key, scene_pt, off=0):
+        """Build (but don't add) a picture object for `key`, sized to the asset's aspect
+        ratio and centred on `scene_pt` (snapped to the grid). `off` cascades multiples."""
         o = mk('picture', 0, 0)
         pm = pixmap_for(self.site, key)
         if pm and not pm.isNull():
             o['h'] = round(o['w'] * pm.height() / pm.width())
         o['src'] = key
-        o['x'] = self.view.snap(max(0, cc.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, cc.y() - o['h'] / 2))
-        self.add_object(o)
+        o['x'] = self.view.snap(max(0, scene_pt.x() - o['w'] / 2 + off))
+        o['y'] = self.view.snap(max(0, scene_pt.y() - o['h'] / 2 + off))
+        return o
+
+    def place_asset_at(self, key, scene_pt):
+        """Place an existing asset as a picture on the current page at `scene_pt`.
+        Used by double-click (page centre) and by dragging a thumbnail onto the page."""
+        if not key or key not in self.site.get('assets', {}): return
+        self.add_object(self._picture_at(key, scene_pt))
+
+    def _download(self, url):
+        """Fetch bytes from an http(s) URL for a picture dragged in from a web browser.
+        Deliberately uses urllib (not QNetworkAccessManager + a nested QEventLoop): a
+        nested event loop is unsafe while QtWebEngine — which the preview uses — is live,
+        and could freeze the app. This blocks the GUI thread briefly under a wait cursor
+        instead. Returns the raw bytes (capped at 25 MB), or None on any error/timeout."""
+        import urllib.request
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'WEBcreator'})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.read(25 * 1024 * 1024) or None
+        except Exception:
+            return None
+
+    def _source_uri(self, src):
+        """Turn a dropped picture source into (data_uri, display_name), or (None, None).
+        `src` is ('file', path) | ('url', http-url) | ('img', QImage)."""
+        kind, val = src
+        if kind == 'file':
+            return self.picture_uri(val), os.path.basename(val)
+        if kind == 'img':
+            ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly); val.save(buf, 'PNG')
+            return 'data:image/png;base64,' + bytes(ba.toBase64()).decode(), 'image'
+        if kind == 'url':
+            data = self._download(val)
+            if not data: return None, None
+            from urllib.parse import urlparse, unquote
+            path = urlparse(val).path
+            name = os.path.basename(unquote(path)) or 'image'
+            ext = os.path.splitext(path)[1].lower().lstrip('.')
+            mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp', 'svg': 'svg+xml'}.get(ext)
+            if mime:
+                return f'data:image/{mime};base64,' + base64.b64encode(data).decode(), name
+            img = QImage()
+            if img.loadFromData(data):
+                ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly); img.save(buf, 'PNG')
+                return 'data:image/png;base64,' + bytes(ba.toBase64()).decode(), name
+            return None, None
+        return None, None
+
+    def import_asset_files(self, sources, place_at=None):
+        """Register dropped pictures as assets. `sources` is a list of ('file', path) /
+        ('url', http-url) / ('img', QImage) — a bare string is treated as a local file
+        path (so the file picker can reuse this). If `place_at` (a scene point) is given,
+        also drop each onto the current page; the whole import+placement is one undo step."""
+        norm = [('file', s) if isinstance(s, str) else tuple(s) for s in sources]
+        remote = any(k == 'url' for k, _ in norm)
+        if remote: QApplication.setOverrideCursor(Qt.WaitCursor)
+        added = []
+        try:
+            for src in norm:
+                uri, name = self._source_uri(src)
+                if not uri: continue
+                if not added: self.commit()   # one undo snapshot before the first change
+                k = add_asset(self.site, uri)
+                self.site.setdefault('assetnames', {})[k] = name or 'image'
+                added.append(k)
+        finally:
+            if remote: QApplication.restoreOverrideCursor()
+        if not added:
+            QMessageBox.warning(self, APP, "No pictures could be read from that drop."); return
+        self.refresh_assets()
+        if place_at is None:
+            self.hint(f'Added {len(added)} picture(s) to Assets — double-click one to place it.'); return
+        off, ids = 0, []
+        for k in added:
+            o = self._picture_at(k, place_at, off); self.layer().append(o); ids.append(o['id']); off += 24
+        self.sel = ids; self.refresh()
+        self.hint(f'Added {len(added)} picture(s) and placed them on the page.')
+
+    def asset_context_menu(self, pos):
+        """Right-click a thumbnail in the Assets panel: insert it, or delete the asset
+        from the site (with a warning if it's currently used on a page)."""
+        it = self.asset_list.itemAt(pos)
+        if not it: return
+        key = it.data(Qt.UserRole)
+        if not key: return
+        name = self.site.get('assetnames', {}).get(key, key)
+        m = QMenu(self)
+        m.addAction(ticon(['insert-image', 'gtk-add'], ''), 'Insert on page', lambda: self.asset_insert(it))
+        m.addSeparator()
+        m.addAction(ticon(['edit-delete', 'trash-empty'], ''), 'Delete asset…', lambda: self.delete_asset(key))
+        m.exec(self.asset_list.viewport().mapToGlobal(pos))
+
+    def _asset_usage(self, key):
+        """How many objects (across all pages and masters) reference this asset key."""
+        n = 0
+        for coll in (self.site.get('pages', []), self.site.get('masters', [])):
+            for pg in coll:
+                for o in pg.get('objects', []):
+                    if o.get('src') == key or (o.get('srcs') and key in o.get('srcs')):
+                        n += 1
+        return n
+
+    def delete_asset(self, key):
+        """Remove an image from the site's asset library. Warns first if it's in use."""
+        name = self.site.get('assetnames', {}).get(key, key)
+        used = self._asset_usage(key)
+        if used:
+            msg = (f'“{name}” is used {used} time(s) on your pages.\n\n'
+                   'Deleting it will leave those picture boxes empty. Delete it anyway?')
+        else:
+            msg = f'Delete “{name}” from your assets? This cannot be undone.'
+        if QMessageBox.question(self, APP, msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.commit()
+        self.site.get('assets', {}).pop(key, None)
+        self.site.get('assetnames', {}).pop(key, None)
+        self.dirty = True
+        self.refresh_assets()
+        self.hint(f'Deleted “{name}” from assets.')
 
     def ai_picture(self, o):
         """Generate an image from a text prompt. Provider is set in Site Properties;
@@ -5331,7 +5664,7 @@ class MainWindow(QMainWindow):
         prompt = QPlainTextEdit(); prompt.setPlaceholderText('e.g. a calm watercolour of a lighthouse at dawn, soft colours')
         prompt.setFixedHeight(80); v.addWidget(prompt)
         prov = self.settings.value('aiProvider', 'pollinations')
-        v.addWidget(QLabel(f'<span style="color:gray">Using: <b>{prov}</b> — change in File ▸ Site Properties.</span>'))
+        v.addWidget(QLabel(f'<span style="color:gray">Using: <b>{prov}</b> — change in Help ▸ Settings.</span>'))
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.button(QDialogButtonBox.Ok).setText('Generate')
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
@@ -5892,61 +6225,9 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def site_props(self):
-        name = QLineEdit(self.site['name'])
-        w = QSpinBox(); w.setRange(320, 4000); w.setValue(self.site['width']); w.setSuffix(' px')
-        h = QSpinBox(); h.setRange(200, 30000); h.setValue(self.site['height']); h.setSuffix(' px')
-        bgc = [self.site.get('bg', '#ffffff')]
-        bgb = ColorButton(bgc[0], lambda c: (bgc.__setitem__(0, c), bgb.setIcon(swatch_icon(c, 18))), 'Browser background')
-        pic = [self.site.get('bgimage')]
-        picb = QPushButton(self.site.get('assetnames', {}).get(pic[0], 'Choose picture…') if pic[0] else 'Choose picture…')
-        picm = QMenu(picb)
-        def choose_pic():
-            path, _ = QFileDialog.getOpenFileName(self, 'Background picture', os.path.expanduser('~/Pictures'), 'Pictures (*.png *.jpg *.jpeg *.gif *.webp)')
-            uri = self.picture_uri(path) if path else None
-            if uri:
-                k = add_asset(self.site, uri); self.site.setdefault('assetnames', {})[k] = os.path.basename(path)
-                pic[0] = k; picb.setText(os.path.basename(path))
-        picm.addAction('Choose picture…', choose_pic); picm.addAction('No picture', lambda: (pic.__setitem__(0, None), picb.setText('Choose picture…')))
-        picb.setMenu(picm)
-        # --- Contact / author details (stored on site['contact']; insertable from Insert menu) ---
-        contact = self.site.get('contact', {})
-        c_name = QLineEdit(contact.get('name', ''))
-        c_email = QLineEdit(contact.get('email', ''))
-        c_phone = QLineEdit(contact.get('phone', ''))
-        c_addr = QLineEdit(contact.get('address', ''))
-        c_web = QLineEdit(contact.get('website', ''))
-        # --- AI image provider (used by Insert ▸ Picture ▸ Create with AI) ---
-        ai_prov = QComboBox()
-        ai_prov.addItem('Pollinations (free, no account)', 'pollinations')
-        ai_prov.addItem('OpenAI (DALL·E — needs API key)', 'openai')
-        ai_prov.addItem('Stability (Stable Diffusion — needs API key)', 'stability')
-        cur = self.settings.value('aiProvider', 'pollinations')
-        ai_prov.setCurrentIndex(max(0, ai_prov.findData(cur)))
-        ai_key = QLineEdit(self.settings.value('aiOpenAIKey', '') or self.settings.value('aiStabilityKey', ''))
-        ai_key.setEchoMode(QLineEdit.Password); ai_key.setPlaceholderText('Only needed for OpenAI / Stability')
-        dlg = form_dialog(self, 'Site Properties', [('Site name:', name), ('Page width:', w), ('Default page height:', h),
-                                                     ('Browser background:', bgb), ('Background picture:', picb),
-                                                     ('— Contact details —', QLabel('Used by Insert ▸ Contact details')),
-                                                     ('Author / name:', c_name), ('Email:', c_email),
-                                                     ('Phone:', c_phone), ('Address:', c_addr), ('Website:', c_web),
-                                                     ('— AI images —', QLabel('Used by Insert ▸ Picture ▸ Create with AI')),
-                                                     ('Image generator:', ai_prov), ('API key (if needed):', ai_key)],
-                          QLabel('The browser background (and picture, tiled) fills the window around your pages when published.'))
-        if not dlg.exec(): return
-        self.commit()
-        dh = h.value() - self.site['height']
-        for m in self.site['masters']:
-            for o in m['objects']:
-                if o.get('anchor') == 'bottom': o['y'] += dh
-        self.site.update(name=name.text().strip() or self.site['name'], width=w.value(), height=h.value(), bg=bgc[0], bgimage=pic[0])
-        self.site['contact'] = {'name': c_name.text().strip(), 'email': c_email.text().strip(),
-                                'phone': c_phone.text().strip(), 'address': c_addr.text().strip(),
-                                'website': c_web.text().strip()}
-        prov = ai_prov.currentData(); self.settings.setValue('aiProvider', prov)
-        k = ai_key.text().strip()
-        if prov == 'openai': self.settings.setValue('aiOpenAIKey', k)
-        elif prov == 'stability': self.settings.setValue('aiStabilityKey', k)
-        self.refresh()
+        # Site properties were merged into the single Settings dialog (Help ▸
+        # Settings); this stays so the page toolbar's button still works.
+        return self.update_settings()
 
     def seo_dialog(self):
         """Per-page SEO editor (Yoast-style) for the current page: title/description
@@ -6066,6 +6347,94 @@ class MainWindow(QMainWindow):
         if new: self.site['seo'] = new
         else: self.site.pop('seo', None)
         self.dirty = True; self.hint('Site-wide SEO saved.')
+
+    def auto_seo(self):
+        """Fill in SEO (title + meta description + focus keyword) for every page
+        automatically, from each page's own text — then offer to publish. If an
+        OpenAI key is set in Settings, the text can be AI-written; otherwise a
+        fast built-in generator is used. Existing hand-written SEO is kept unless
+        the user asks to overwrite."""
+        if self.editor: self.finish_edit()
+        pages = self.site['pages']
+        key = self.settings.value('aiOpenAIKey', '') or ''
+
+        # One dialog gathers the choices: scope, overwrite, and (if available) AI.
+        dlg = QDialog(self); dlg.setWindowTitle('Auto-generate SEO'); dlg.setMinimumWidth(480)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel('<b>Generate search-engine titles, descriptions and keywords '
+                           'for your pages.</b>'))
+        only_missing = QRadioButton('Only pages that have no SEO yet'); only_missing.setChecked(True)
+        all_over = QRadioButton('Every page — overwrite what’s already there')
+        v.addWidget(only_missing); v.addWidget(all_over)
+        use_ai = QCheckBox('Write the text with AI (OpenAI) — slower, higher quality')
+        if key:
+            use_ai.setToolTip('Uses the OpenAI key from Settings')
+        else:
+            use_ai.setEnabled(False)
+            use_ai.setText('Write the text with AI (OpenAI) — add an OpenAI key in Help ▸ Settings to enable')
+        v.addWidget(use_ai)
+        note = QLabel('The built-in generator writes a tidy description from each page’s own text — '
+                      'no account needed, and it’s instant.')
+        note.setWordWrap(True); note.setStyleSheet('color:gray'); v.addWidget(note)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText('Generate')
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); v.addWidget(bb)
+        if not dlg.exec(): return
+        overwrite = all_over.isChecked()
+        ai = use_ai.isChecked() and bool(key)
+
+        self.commit()
+        from PySide6.QtWidgets import QProgressDialog
+        prog = QProgressDialog('Generating SEO…', 'Cancel', 0, len(pages), self)
+        prog.setWindowTitle(APP); prog.setWindowModality(Qt.WindowModal); prog.setMinimumDuration(0)
+        site_name = self.site.get('name', '')
+        done = ai_used = ai_failed = 0
+        for i, p in enumerate(pages):
+            if prog.wasCanceled(): break
+            prog.setValue(i); prog.setLabelText(f'Generating SEO… ({i + 1}/{len(pages)})\n{p["title"]}')
+            QApplication.processEvents()
+            cur = dict(p.get('seo', {}) or {})
+            has_all = cur.get('title') and cur.get('description') and cur.get('keyword')
+            if has_all and not overwrite:
+                continue
+            # Body in visual reading order (top-to-bottom, left-to-right) so the
+            # description flows like the page, not in object-creation order.
+            ordered = sorted((o for o in p['objects'] if o.get('type') == 'text'),
+                             key=lambda o: (o.get('y', 0), o.get('x', 0)))
+            body = re.sub(r'\s+', ' ', H.unescape(re.sub(r'<[^>]+>', ' ',
+                          ' '.join(o.get('html', '') for o in ordered)))).strip()
+            if not body.strip():
+                continue
+            fields = None
+            if ai:
+                try:
+                    fields = _ai_seo_fields(key, p['title'], body, site_name); ai_used += 1
+                except Exception:
+                    ai_failed += 1
+            if not fields:
+                fields = _auto_seo_fields(p['title'], body, site_name,
+                                          keep_title=('' if overwrite else cur.get('title', '')))
+            # Keep any existing value unless overwriting (or the field is empty).
+            merged = dict(cur)
+            for k2, val in fields.items():
+                if val and (overwrite or not cur.get(k2)):
+                    merged[k2] = val
+            merged = {k2: val for k2, val in merged.items() if val}
+            if merged:
+                p['seo'] = merged; done += 1
+        prog.setValue(len(pages))
+
+        self.dirty = True; self.update_title()
+        msg = f'SEO generated for {done} page(s).'
+        if ai: msg += f'\nAI wrote {ai_used}; '  + (f'{ai_failed} fell back to the built-in generator.' if ai_failed else 'no fallbacks needed.')
+        if not (self.site.get('seo') or {}).get('base_url'):
+            msg += ('\n\nTip: set your web address in SEO ▸ Site-wide SEO so the site can build a '
+                    'sitemap.xml and proper links.')
+        msg += '\n\nPublish the updated site now?'
+        if QMessageBox.question(self, APP, msg, QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes:
+            self.publish_disk()
+        else:
+            self.hint(f'SEO generated for {done} page(s). Publish when you’re ready.')
 
     def new_master(self):
         self.commit()
@@ -6566,18 +6935,63 @@ class MainWindow(QMainWindow):
         if tok: env['NETLIFY_AUTH_TOKEN'] = tok
         return env
 
-    def _run_netlify(self, args, timeout=300):
-        """Run `npx netlify-cli <args>`; return (ok, stdout, stderr). ok is False
-        on a missing npx, a timeout or a non-zero exit."""
-        try:
-            r = subprocess.run(['npx', '--yes', 'netlify-cli'] + args,
-                               capture_output=True, text=True, timeout=timeout, env=self._netlify_env())
-        except FileNotFoundError:
+    def _netlify_cmd(self):
+        """The command to run the Netlify CLI. Prefer a globally installed
+        binary (fast — no npx resolution), falling back to `npx --yes netlify-cli`."""
+        for exe in ('netlify', 'netlify-cli', 'ntl'):
+            p = shutil.which(exe)
+            if p: return [p]
+        return ['npx', '--yes', 'netlify-cli']
+
+    def _run_netlify(self, args, timeout=300, busy_msg=None):
+        """Run the Netlify CLI with <args>; return (ok, stdout, stderr). ok is
+        False on a missing CLI, a timeout, a cancel or a non-zero exit.
+
+        Runs via QProcess with a local event loop so the GUI stays alive while
+        the deploy uploads: the 'please wait' dialog keeps animating (not frozen)
+        and the user can Cancel. subprocess.run would block the UI thread and the
+        dialog would look hung — which is exactly what made publishing feel stuck."""
+        from PySide6.QtCore import QProcess, QProcessEnvironment, QEventLoop, QTimer
+        from PySide6.QtWidgets import QProgressDialog
+        cmd = self._netlify_cmd() + list(args)
+        proc = QProcess(self)
+        qenv = QProcessEnvironment.systemEnvironment()
+        tok = self.netlify_token()
+        if tok: qenv.insert('NETLIFY_AUTH_TOKEN', tok)
+        proc.setProcessEnvironment(qenv)
+        out, err = [], []
+        proc.readyReadStandardOutput.connect(
+            lambda: out.append(bytes(proc.readAllStandardOutput()).decode('utf-8', 'replace')))
+        proc.readyReadStandardError.connect(
+            lambda: err.append(bytes(proc.readAllStandardError()).decode('utf-8', 'replace')))
+        loop = QEventLoop()
+        st = {'cancelled': False, 'timed_out': False}
+        proc.finished.connect(lambda *a: loop.quit())
+        # Cancellable, animated busy dialog (indeterminate 0..0 range = spinning).
+        dlg = QProgressDialog(busy_msg or 'Working with Netlify…', 'Cancel', 0, 0, self)
+        dlg.setWindowTitle(APP); dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(0); dlg.setAutoClose(False); dlg.setAutoReset(False); dlg.setValue(0)
+        dlg.canceled.connect(lambda: (st.__setitem__('cancelled', True), proc.kill(), loop.quit()))
+        dlg.show()
+        tmr = QTimer(); tmr.setSingleShot(True)
+        tmr.timeout.connect(lambda: (st.__setitem__('timed_out', True), proc.kill(), loop.quit()))
+        tmr.start(int(timeout * 1000))
+        proc.start(cmd[0], cmd[1:])
+        if not proc.waitForStarted(5000):
+            tmr.stop(); dlg.close()
             return False, '', ('Node.js / npx was not found. Install Node.js to deploy straight to Netlify, '
                                'or use the drag-and-drop option below.')
-        except subprocess.TimeoutExpired:
-            return False, '', f'Netlify took longer than {timeout} seconds and was stopped.'
-        return r.returncode == 0, (r.stdout or ''), (r.stderr or '')
+        loop.exec()
+        tmr.stop(); dlg.close()
+        if proc.state() != QProcess.NotRunning:
+            proc.kill(); proc.waitForFinished(2000)
+        out_s, err_s = ''.join(out), ''.join(err)
+        if st['cancelled']:
+            return False, out_s, 'Publishing was cancelled.'
+        if st['timed_out']:
+            return False, out_s, f'Netlify took longer than {timeout} seconds and was stopped.'
+        ok = proc.exitStatus() == QProcess.NormalExit and proc.exitCode() == 0
+        return ok, out_s, err_s
 
     def _netlify_not_authed(self, out, err):
         blob = (out + '\n' + err).lower()
@@ -6611,11 +7025,13 @@ class MainWindow(QMainWindow):
         if not net.get('site_id'):
             if not self.link_netlify(): return
         self.hint('Deploying to Netlify…')
-        prog = QMessageBox(QMessageBox.Information, APP,
-                           'Deploying to Netlify — this can take a minute…', QMessageBox.NoButton, self)
-        prog.setStandardButtons(QMessageBox.NoButton); prog.show(); QApplication.processEvents()
-        ok, out, err = self._run_netlify(['deploy', '--prod', '--dir', folder, '--site', net['site_id']])
-        prog.close()
+        ok, out, err = self._run_netlify(
+            ['deploy', '--prod', '--dir', folder, '--site', net['site_id']],
+            busy_msg='Deploying to Netlify — uploading your site…\n\n'
+                     'This can take a minute or two (longer the first time).\n'
+                     'You can keep working, or Cancel to stop.')
+        if not ok and 'cancelled' in err.lower():
+            return
         if not ok and self._netlify_not_authed(out, err):
             QMessageBox.warning(self, APP, 'Netlify says you are not signed in.\n\nRun '
                                 '“npx netlify-cli login” in a terminal once, then try again.')
@@ -6736,11 +7152,18 @@ class MainWindow(QMainWindow):
             root = os.path.expanduser('~/Published Sites')
             folder = os.path.join(root, base)
             self.site['publishDir'] = folder
+        from PySide6.QtWidgets import QProgressDialog
+        _wait = QProgressDialog('Publishing site files…', None, 0, 0, self)
+        _wait.setWindowTitle(APP); _wait.setWindowModality(Qt.WindowModal)
+        _wait.setMinimumDuration(0); _wait.setValue(0)
+        _wait.show(); QApplication.processEvents(); QApplication.processEvents()
         try:
             os.makedirs(folder, exist_ok=True)
             files = publish_site(self.site, folder)
         except OSError as ex:
+            _wait.close()
             QMessageBox.warning(self, APP, f"Could not save the site files.\n{ex}"); return
+        _wait.close()
         self.settings.setValue('publishDir', folder)
         # Step 3: where to go next.
         # If this site is ALREADY linked to a Netlify site, don't re-present the
@@ -6988,37 +7411,101 @@ class MainWindow(QMainWindow):
             self.hint(f'Updated to {ver}. The new version starts next time you open the app.')
 
     def update_settings(self):
-        c = (self.site or {}).get('contact', {}) if getattr(self, 'site', None) else {}
+        """The single Settings dialog (Help ▸ Settings). Merges what used to be a
+        separate File ▸ Site Properties dialog: site design, contact details, AI
+        image provider, image editor and the software-update source — all in one
+        place, so there are no longer two overlapping 'settings' dialogs."""
+        from PySide6.QtWidgets import QScrollArea
+        s = self.site
+        # --- Site design ---
+        name = QLineEdit(s['name'])
+        w = QSpinBox(); w.setRange(320, 4000); w.setValue(s['width']); w.setSuffix(' px')
+        h = QSpinBox(); h.setRange(200, 30000); h.setValue(s['height']); h.setSuffix(' px')
+        bgc = [s.get('bg', '#ffffff')]
+        bgb = ColorButton(bgc[0], lambda c: (bgc.__setitem__(0, c), bgb.setIcon(swatch_icon(c, 18))), 'Browser background')
+        pic = [s.get('bgimage')]
+        picb = QPushButton(s.get('assetnames', {}).get(pic[0], 'Choose picture…') if pic[0] else 'Choose picture…')
+        picm = QMenu(picb)
+        def choose_pic():
+            path, _ = QFileDialog.getOpenFileName(self, 'Background picture', os.path.expanduser('~/Pictures'), 'Pictures (*.png *.jpg *.jpeg *.gif *.webp)')
+            uri = self.picture_uri(path) if path else None
+            if uri:
+                k = add_asset(s, uri); s.setdefault('assetnames', {})[k] = os.path.basename(path)
+                pic[0] = k; picb.setText(os.path.basename(path))
+        picm.addAction('Choose picture…', choose_pic)
+        picm.addAction('No picture', lambda: (pic.__setitem__(0, None), picb.setText('Choose picture…')))
+        picb.setMenu(picm)
+        # --- Contact / author details ---
+        c = s.get('contact', {})
         c_name = QLineEdit(c.get('name', '')); c_name.setPlaceholderText('Your name / the site author')
         c_email = QLineEdit(c.get('email', '')); c_email.setPlaceholderText('name@example.org')
         c_phone = QLineEdit(c.get('phone', ''))
         c_addr = QLineEdit(c.get('address', ''))
         c_web = QLineEdit(c.get('website', '')); c_web.setPlaceholderText('example.org')
+        # --- AI image provider ---
+        ai_prov = QComboBox()
+        ai_prov.addItem('Pollinations (free, no account)', 'pollinations')
+        ai_prov.addItem('OpenAI (DALL·E — needs API key)', 'openai')
+        ai_prov.addItem('Stability (Stable Diffusion — needs API key)', 'stability')
+        ai_prov.setCurrentIndex(max(0, ai_prov.findData(self.settings.value('aiProvider', 'pollinations'))))
+        ai_key = QLineEdit(self.settings.value('aiOpenAIKey', '') or self.settings.value('aiStabilityKey', ''))
+        ai_key.setEchoMode(QLineEdit.Password); ai_key.setPlaceholderText('Only needed for OpenAI / Stability')
+        # --- Tools & software updates ---
         painter = QLineEdit(self.settings.value('imagePainterCmd', '') or 'IMAGEpainter'); painter.setPlaceholderText('IMAGEpainter')
         repo = QLineEdit(self.update_repo()); repo.setPlaceholderText('yourname/webcreator')
         branch = QLineEdit(self.settings.value('updateBranch', '') or UPDATE_BRANCH)
         path = QLineEdit(self.settings.value('updatePath', '') or UPDATE_PATH); path.setPlaceholderText('webcreator.py')
         auto = QCheckBox('Check for updates when the app starts'); auto.setChecked(self.settings.value('autoUpdate', True, type=bool))
-        dlg = form_dialog(self, 'Settings',
-                          [('Author / name:', c_name), ('Email:', c_email), ('Phone:', c_phone),
-                           ('Address:', c_addr), ('Website:', c_web),
-                           ('Image editor (the IMAGEpainter button):', painter),
-                           ('GitHub repository:', repo), ('Branch:', branch), ('File in it:', path), ('', auto)],
-                          QLabel('Author / contact details belong to this site — Insert ▸ Contact details drops them '
-                                 'onto a page, and they’re also editable in File ▸ Site Properties.\n'
-                                 'The image editor is the command the Assets ▸ IMAGEpainter button runs.\n'
-                                 'Updates are read from the file in the repository below, which must be public.\n'
-                                 f'Now: {self.update_url()}'))
+
+        def section(txt, hint):
+            lab = QLabel(hint); lab.setStyleSheet('color:gray'); return (f'— {txt} —', lab)
+        rows = [section('Site', 'Name, size and background of this site'),
+                ('Site name:', name), ('Page width:', w), ('Default page height:', h),
+                ('Browser background:', bgb), ('Background picture:', picb),
+                section('Contact details', 'Used by Insert ▸ Contact details'),
+                ('Author / name:', c_name), ('Email:', c_email), ('Phone:', c_phone),
+                ('Address:', c_addr), ('Website:', c_web),
+                section('AI images', 'Used by Insert ▸ Picture ▸ Create with AI'),
+                ('Image generator:', ai_prov), ('API key (if needed):', ai_key),
+                section('Tools & updates', 'Image editor, and where app updates come from'),
+                ('Image editor (IMAGEpainter button):', painter),
+                ('GitHub repository:', repo), ('Branch:', branch), ('File in it:', path), ('', auto)]
+
+        # The merged form is long, so make the dialog scrollable.
+        dlg = QDialog(self); dlg.setWindowTitle('Settings'); dlg.resize(560, 660)
+        outer = QVBoxLayout(dlg)
+        area = QScrollArea(); area.setWidgetResizable(True); area.setFrameShape(QScrollArea.NoFrame)
+        inner = QWidget(); form = QFormLayout(inner)
+        for lbl, wdg in rows: form.addRow(lbl, wdg)
+        area.setWidget(inner); outer.addWidget(area, 1)
+        note = QLabel('The browser background (and picture, tiled) fills the window around your pages when '
+                      f'published. App updates are read from the public repository above.\nNow: {self.update_url()}')
+        note.setWordWrap(True); note.setStyleSheet('color:gray'); outer.addWidget(note)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); outer.addWidget(bb)
         if not dlg.exec(): return
-        if getattr(self, 'site', None) is not None:
-            self.site.setdefault('contact', {}).update(
-                name=c_name.text().strip(), email=c_email.text().strip(), phone=c_phone.text().strip(),
-                address=c_addr.text().strip(), website=c_web.text().strip())
-            self.dirty = True; self.update_title()
+
+        # --- Save: site design (incl. footer shift when the default height changes) ---
+        self.commit()
+        dh = h.value() - s['height']
+        for m in s['masters']:
+            for o in m['objects']:
+                if o.get('anchor') == 'bottom': o['y'] += dh
+        s.update(name=name.text().strip() or s['name'], width=w.value(), height=h.value(), bg=bgc[0], bgimage=pic[0])
+        s['contact'] = {'name': c_name.text().strip(), 'email': c_email.text().strip(),
+                        'phone': c_phone.text().strip(), 'address': c_addr.text().strip(),
+                        'website': c_web.text().strip()}
+        # --- Save: AI provider ---
+        prov = ai_prov.currentData(); self.settings.setValue('aiProvider', prov)
+        k = ai_key.text().strip()
+        if prov == 'openai': self.settings.setValue('aiOpenAIKey', k)
+        elif prov == 'stability': self.settings.setValue('aiStabilityKey', k)
+        # --- Save: tools & updates ---
         self.settings.setValue('imagePainterCmd', painter.text().strip() or 'IMAGEpainter')
         self.settings.setValue('updateRepo', repo.text().strip()); self.settings.setValue('updateBranch', branch.text().strip() or UPDATE_BRANCH)
         self.settings.setValue('updatePath', path.text().strip() or UPDATE_PATH)
         self.settings.setValue('autoUpdate', auto.isChecked())
+        self.dirty = True; self.update_title(); self.refresh()
         if repo.text().strip(): self.check_updates(quiet=False)
 
     def about(self):
