@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-26"
+VERSION = "1.10-27"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -5203,7 +5203,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue('bmcUrl', url)
         accent = self.palette_accent()
         c = self.view.mapToScene(self.view.viewport().rect().center())
-        o = mk('button', 0, 0, w=240, h=44)
+        o = mk('button', 0, 0, w=200, h=44)
         o.update(html='<p>☕ Buy me a coffee</p>', font='Arial', size=14, bold=True,
                  align='center', radius=6, fill=accent, color=self.ink_for(accent),
                  link={'type': 'url', 'target': url})
