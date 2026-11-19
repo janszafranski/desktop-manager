@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-25"
+VERSION = "1.10-26"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4085,6 +4085,23 @@ class MainWindow(QMainWindow):
         if self.edit_master: self.site['height'] = h
         else: self.page()['height'] = h
 
+    def palette_accent(self):
+        """Pick the most saturated 'accent' colour from the site palette (skipping
+        whites/greys/near-black) for call-to-action buttons. Falls back to the app teal."""
+        best, bs = '#2a7d6b', -1
+        for hx in self.site.get('palette', []):
+            c = QColor(hx)
+            if not c.isValid(): continue
+            _, s, v, _ = c.getHsv()
+            if s < 60 or v < 40: continue
+            if s > bs: best, bs = hx, s
+        return best
+
+    def ink_for(self, hx):
+        """Black or white text, whichever reads better on the given background colour."""
+        c = QColor(hx); lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
+        return '#ffffff' if lum < 150 else '#222222'
+
     def page_bg(self):
         m = self.cur_master()
         if m: return m.get('bg') or self.site.get('bg') or '#ffffff'
@@ -4329,6 +4346,12 @@ class MainWindow(QMainWindow):
         ins.addAction(ss); ins.widgetForAction(ss).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         ins.addSeparator()
         for k in ('aleft', 'acenter', 'aright'): ins.addAction(self.a[k])
+        coffee = QAction(ticon(['help-donate', 'emblem-favorite', 'face-smile-big'], '☕'), 'Buy Me a Coffee', self)
+        coffee.setToolTip('Insert a “Buy me a coffee” button, matched to the site palette (asks for your page link the first time)')
+        coffee.triggered.connect(self.insert_coffee_button); self.a['coffee'] = coffee
+        ins.addSeparator(); ins.addAction(coffee)
+        cw = ins.widgetForAction(coffee)
+        if cw: cw.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.TopToolBarArea, ins)
         # Context toolbar — same row; all top toolbars wrap onto more rows only when
         # the window is too narrow to hold them.
@@ -5162,6 +5185,31 @@ class MainWindow(QMainWindow):
         self.add_object(o)
         if kind == 'picture': self.pick_picture(o)
         elif kind == 'gallery': self.gallery_dialog(o)
+
+    def insert_coffee_button(self):
+        """Toolbar one-click: drop a 'Buy me a coffee' button, coloured to match the
+        site palette and linked to the user's page. The link is asked for once and
+        remembered (in settings) so it works across sites too."""
+        from PySide6.QtWidgets import QInputDialog
+        url = (self.settings.value('bmcUrl', '') or '').strip()
+        if not url:
+            txt, ok = QInputDialog.getText(self, 'Buy Me a Coffee',
+                'Your Buy Me a Coffee page — paste the link or just your username\n'
+                '(e.g. https://buymeacoffee.com/janszafranski  or  janszafranski):')
+            if not ok or not txt.strip(): return
+            url = txt.strip()
+        if not url.lower().startswith('http'):
+            url = 'https://buymeacoffee.com/' + url.strip().strip('/').split('/')[-1]
+        self.settings.setValue('bmcUrl', url)
+        accent = self.palette_accent()
+        c = self.view.mapToScene(self.view.viewport().rect().center())
+        o = mk('button', 0, 0, w=240, h=44)
+        o.update(html='<p>☕ Buy me a coffee</p>', font='Arial', size=14, bold=True,
+                 align='center', radius=6, fill=accent, color=self.ink_for(accent),
+                 link={'type': 'url', 'target': url})
+        o['x'] = self.view.snap(max(0, c.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, c.y() - o['h'] / 2))
+        self.add_object(o)
+        self.hint(f'Added a Buy Me a Coffee button → {url}. Drag it where you like; the link is saved for next time.')
 
     def insert_contact(self, field):
         """Drop a text frame showing a contact detail from Site Properties.
