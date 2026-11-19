@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-29"
+VERSION = "1.10-30"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -1579,8 +1579,9 @@ def page_html(site, page, img):
     responsive = bool(site.get('responsive'))
     if responsive:
         viewport = 'width=device-width, initial-scale=1'
-        # .pf-wrap is a full-width band; .pf-page is the fixed design, scaled
-        # down by JS to fit narrower viewports and horizontally centred.
+        # .pf-wrap is a full-width band; .pf-page is the fixed design, scaled by
+        # JS to ALWAYS fill the window width — shrinking on narrow screens and
+        # growing on wide ones — and horizontally centred.
         css = (f'html,body{{margin:0}}\nbody{{background:{site.get("bg") or bg}{bgpic}}}\n'
                f'.pf-wrap{{width:100%;overflow-x:hidden}}\n'
                f'.pf-page{{width:{site["width"]}px;height:{Hh}px;background:{bg};'
@@ -1588,7 +1589,7 @@ def page_html(site, page, img):
                + '\n'.join(rules))
         scale_js = (f'<script>(function(){{var W={site["width"]},p=document.querySelector(".pf-page"),'
                     f'w=document.querySelector(".pf-wrap");function fit(){{var vw=w.clientWidth,'
-                    f's=vw<W?vw/W:1;p.style.transform="scale("+s+")";w.style.height=(p.offsetHeight*s)+"px"}}'
+                    f's=vw/W;p.style.transform="scale("+s+")";w.style.height=(p.offsetHeight*s)+"px"}}'
                     f'window.addEventListener("resize",fit);fit();}})();</script>')
         return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="{viewport}">\n'
                 f'<title>{esc(seo_title)}</title>\n{seo}<meta name="generator" content="{APP} {VERSION}">\n'
