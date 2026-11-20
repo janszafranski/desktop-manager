@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-34"
+VERSION = "1.10-35"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -904,6 +904,7 @@ def serif_site(row, scheme=None):
 # ----------------------------------------------------------------------------
 
 _PIX = {}
+_YT_THUMBS = {}   # YouTube video id -> QPixmap poster (for the editor canvas; None while in-flight/failed)
 def pixmap_for(site, key):
     src = site.get('assets', {}).get(key)
     if not src: return None
@@ -1195,15 +1196,24 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
         br = QRectF(w - bw, 0, bw, h); p.drawRoundedRect(br, 6, 6)
         p.setFont(fb); p.setPen(QColor('#ffffff')); p.drawText(br, Qt.AlignCenter, lbl)
     elif t == 'youtube':
-        p.fillRect(QRectF(0, 0, w, h), QColor('#0f0f0f'))
+        vid = re.sub(r'[^A-Za-z0-9_-]', '', o.get('video', ''))[:11]
+        pm = _YT_THUMBS.get(vid) if vid else None
+        if pm and not pm.isNull():   # draw the real poster, cropped to COVER the frame
+            sp = pm.scaled(max(1, int(w)), max(1, int(h)), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            p.save(); p.setClipRect(QRectF(0, 0, w, h))
+            p.drawPixmap(QRectF(0, 0, w, h), sp, QRectF((sp.width() - w) / 2, (sp.height() - h) / 2, w, h))
+            p.restore()
+        else:
+            p.fillRect(QRectF(0, 0, w, h), QColor('#0f0f0f'))
         bw2 = max(16, min(w, h) * 0.16); cx, cy = w / 2, h / 2
-        p.setPen(Qt.NoPen); p.setBrush(QColor('#ff0000'))
+        p.setPen(Qt.NoPen); p.setBrush(QColor(255, 0, 0, 235))
         p.drawRoundedRect(QRectF(cx - bw2, cy - bw2 * 0.7, bw2 * 2, bw2 * 1.4), bw2 * 0.35, bw2 * 0.35)
         p.setBrush(QColor('#ffffff'))
         p.drawPolygon(QPolygonF([QPointF(cx - bw2 * 0.28, cy - bw2 * 0.45), QPointF(cx - bw2 * 0.28, cy + bw2 * 0.45), QPointF(cx + bw2 * 0.5, cy)]))
-        cap = ('YouTube · ' + o['video']) if o.get('video') else 'YouTube video — double-click to add a link'
-        p.setFont(qfont(o)); p.setPen(QColor('#aaaaaa'))
-        p.drawText(QRectF(6, h - 24, w - 12, 20), Qt.AlignHCenter | Qt.AlignVCenter, cap)
+        if not (pm and not pm.isNull()):
+            cap = ('YouTube · ' + o['video']) if o.get('video') else 'YouTube video — double-click to add a link'
+            p.setFont(qfont(o)); p.setPen(QColor('#aaaaaa'))
+            p.drawText(QRectF(6, h - 24, w - 12, 20), Qt.AlignHCenter | Qt.AlignVCenter, cap)
     elif t == 'share':
         f = qfont(dict(o, bold=True)); p.setFont(f); fm = QFontMetrics(f)
         x, bh, gap = 0, fm.height() + 18, o.get('gap', 8)
@@ -4378,9 +4388,10 @@ class MainWindow(QMainWindow):
         self.a['lock'] = self.act('&Lock / Unlock', self.toggle_lock, 'Ctrl+L', ['object-locked', 'lock'])
         self.a['tomaster'] = self.act('Move Repeated Objects to &Master Page…', self.move_common_to_master, None, ['document-multiple', 'edit-copy'])
         menu('&Arrange', [a['front'], a['fwd'], a['back1'], a['back'], None, ('Align', al), None, self.a['lock'], None, self.a['tomaster']])
-        # Preview and Publish sit on the menu bar as clickable items, with SEO and Help after them.
-        mb.addAction(self.act('Preview', self.preview_site, None, ['internet-web-browser', 'applications-internet']))
-        mb.addAction(self.act('Publish', self.publish_disk, None, ['document-export', 'folder-publicshare']))
+        # Preview and Publish sit on the menu bar as clickable items (text only, no icon,
+        # so the words show), with SEO and Help after them.
+        mb.addAction(self.act('Preview', self.preview_site))
+        mb.addAction(self.act('Publish', self.publish_disk))
         self.a['seo_page'] = self.act('&This Page’s SEO…', self.seo_dialog, None, ['text-html', 'find', 'edit-find'])
         self.a['seo_page'].setToolTip('Search-engine title, description, focus keyword and social preview for this page')
         self.a['seo_site'] = self.act('&Site-wide SEO…', self.site_seo_dialog, None, ['configure', 'preferences-system'])
@@ -4971,6 +4982,9 @@ class MainWindow(QMainWindow):
         for o in self.layer():
             if o.get('hidden'): continue
             it = ObjItem(o, self); it.setZValue(1000 + z); z += 1; sc.addItem(it); self.items[o['id']] = it
+        rendered = self.layer() + (self.master_of(self.page())['objects'] if not self.edit_master else [])
+        for o in rendered:
+            if o.get('type') == 'youtube' and o.get('video'): self._ensure_yt_thumb(o['video'])
         self.view.viewport().update()
 
     def schedule_ui(self):
@@ -5747,6 +5761,26 @@ class MainWindow(QMainWindow):
         Used by double-click (page centre) and by dragging a thumbnail onto the page."""
         if not key or key not in self.site.get('assets', {}): return
         self.add_object(self._picture_at(key, scene_pt))
+
+    def _ensure_yt_thumb(self, vid):
+        """Fetch a YouTube video's poster thumbnail (async, non-blocking) so the editor
+        canvas shows the real still rather than a blank box. Fetched once per id and
+        cached; the published page already shows YouTube's own poster via the player."""
+        vid = re.sub(r'[^A-Za-z0-9_-]', '', vid or '')[:11]
+        if not vid or vid in _YT_THUMBS: return
+        _YT_THUMBS[vid] = None   # mark in-flight so we only request it once
+        from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+        if not hasattr(self, 'nam'): self.nam = QNetworkAccessManager(self)
+        req = QNetworkRequest(QUrl(f'https://img.youtube.com/vi/{vid}/hqdefault.jpg')); req.setTransferTimeout(12000)
+        reply = self.nam.get(req)
+        def done():
+            try:
+                if reply.error() == QNetworkReply.NoError:
+                    pm = QPixmap(); pm.loadFromData(bytes(reply.readAll()))
+                    if not pm.isNull(): _YT_THUMBS[vid] = pm; self.view.viewport().update()
+            finally:
+                reply.deleteLater()
+        reply.finished.connect(done)
 
     def _download(self, url):
         """Fetch bytes from an http(s) URL for a picture dragged in from a web browser.
