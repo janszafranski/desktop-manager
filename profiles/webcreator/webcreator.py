@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-35"
+VERSION = "1.11-00"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -1036,6 +1036,10 @@ def nav_items(site, o=None):
             out.append((q, []))
     return out
 
+def nav_label(o, q):
+    """Text shown for a nav item — a per-item custom label if the bar defines one, else the page title."""
+    return ((o or {}).get('labels') or {}).get(q['id']) or q['title']
+
 def paint_obj(p, o, site, page, hide_text=False, edit=True):
     t, w, h = o['type'], o['w'], o['h']
     r = QRectF(0, 0, w, h)
@@ -1126,18 +1130,28 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
             for q, kids in items:
                 rects.append((q, QRectF(0, y, w, ih))); y += ih + gap
         else:
-            rows, row, rw = [], [], 0
-            for q, _ in items:
-                wi = fm.horizontalAdvance(q['title']) + 2 * padx
-                if row and rw + gap + wi > w: rows.append((row, rw)); row, rw = [], 0
-                rw += (gap if row else 0) + wi; row.append((q, wi))
-            if row: rows.append((row, rw))
-            y0 = (h - ih) / 2 if len(rows) == 1 else 0
-            for row, rw in rows:
-                x = {'center': (w - rw) / 2, 'right': w - rw}.get(o.get('align', 'left'), 0)
-                for q, wi in row:
-                    rects.append((q, QRectF(x, y0, wi, ih))); x += wi + gap
-                y0 += ih + gap
+            split = int(o.get('split') or 0)
+            widths = [fm.horizontalAdvance(nav_label(o, q)) + 2 * padx for q, _ in items]
+            if 0 < split < len(items):
+                # Grouped bar: first `split` items pinned to the left, the rest pushed to the right edge.
+                y0 = (h - ih) / 2; x = 0
+                for i in range(split):
+                    rects.append((items[i][0], QRectF(x, y0, widths[i], ih))); x += widths[i] + gap
+                rx = w - (sum(widths[split:]) + gap * (len(items) - split - 1))
+                for i in range(split, len(items)):
+                    rects.append((items[i][0], QRectF(rx, y0, widths[i], ih))); rx += widths[i] + gap
+            else:
+                rows, row, rw = [], [], 0
+                for (q, _), wi in zip(items, widths):
+                    if row and rw + gap + wi > w: rows.append((row, rw)); row, rw = [], 0
+                    rw += (gap if row else 0) + wi; row.append((q, wi))
+                if row: rows.append((row, rw))
+                y0 = (h - ih) / 2 if len(rows) == 1 else 0
+                for row, rw in rows:
+                    x = {'center': (w - rw) / 2, 'right': w - rw}.get(o.get('align', 'left'), 0)
+                    for q, wi in row:
+                        rects.append((q, QRectF(x, y0, wi, ih))); x += wi + gap
+                    y0 += ih + gap
         for q, rr in rects:
             on = page is not None and q['id'] == page['id']
             col = QColor(o.get('color', '#000'))
@@ -1152,7 +1166,7 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
                 p.fillRect(QRectF(rr.left(), rr.bottom() - 2, rr.width(), 2), acc)
             elif style == 'plain' and on:
                 col = acc
-            p.setPen(col); p.drawText(rr, Qt.AlignCenter, q['title'])
+            p.setPen(col); p.drawText(rr, Qt.AlignCenter, nav_label(o, q))
     elif t == 'table':
         cells = o.get('cells') or [['']]
         n, mcols = len(cells), max(len(rw) for rw in cells)
@@ -1388,13 +1402,17 @@ def obj_html(o, site, page, img):
         if o.get('fill'): st += f"background:{o['fill']};"
         st += 'justify-content:' + {'center': 'center', 'right': 'flex-end'}.get(o.get('align'), 'flex-start') + ';'
         cls = f" nav-{o.get('style', 'pills')}" + (' v' if o.get('orient') == 'v' else '')
+        split = int(o.get('split') or 0)
         parts = []
-        for q, kids in nav_items(site, o):
+        for idx, (q, kids) in enumerate(nav_items(site, o)):
             on = ' class="on"' if page and q['id'] == page['id'] or (page and page['id'] in [k['id'] for k in kids]) else ''
             sub = ''
             if kids:
                 sub = '<div class="sub">' + ''.join(f'<a href="{esc(k["file"])}">{esc(k["title"])}</a>' for k in kids) + '</div>'
-            parts.append(f'<div class="nv"><a href="{esc(q["file"])}"{on}>{esc(q["title"])}</a>{sub}</div>')
+            # The item at the split boundary gets margin-left:auto, which in a flex row pushes it
+            # and every following item to the right edge (the "pin first N items left" grouping).
+            push = ' style="margin-left:auto"' if split and idx == split else ''
+            parts.append(f'<div class="nv"{push}><a href="{esc(q["file"])}"{on}>{esc(nav_label(o, q))}</a>{sub}</div>')
         return f'<nav class="obj obj-nav{cls}" style="{st}">' + ''.join(parts) + '</nav>'
     elif t == 'table':
         st += text_css(o) + f"--tb:{o.get('stroke')};--th:{o.get('head')};background:{o.get('fill') or '#fff'};"
@@ -3453,7 +3471,7 @@ class Canvas(QGraphicsView):
             it = self.obj_at(vpos)
             if it and not it.master and it.o['id'] not in win.sel:
                 win.select([it.o['id']])
-            win.context_menu(e.globalPosition().toPoint()); return
+            win.context_menu(e.globalPosition().toPoint(), it); return
         if e.button() != Qt.LeftButton: return
         if win.tool == 'pointer' and e.modifiers() & Qt.ControlModifier:
             it = self.obj_at(vpos)
@@ -3606,6 +3624,8 @@ class Canvas(QGraphicsView):
         if win.tool != 'pointer': return
         it = self.obj_at(e.position().toPoint())
         if it and it.master:
+            if it.o['type'] == 'nav' and not it.o.get('locked'):
+                win.edit_object(it.o); return   # let the nav bar be edited straight from any page
             win.hint('This object is on the master page. Use Site ▸ Master Pages ▸ Edit to change it.'); return
         if it: win.edit_object(it.o)
 
@@ -5974,14 +5994,72 @@ class MainWindow(QMainWindow):
             self.refresh()
 
     def nav_dialog(self, o):
-        """Edit the navigation bar's spacing, size and look. Lower the spacing/size
-        or widen the bar if the items wrap onto a second line."""
-        dlg = QDialog(self); dlg.setWindowTitle('Navigation Bar'); lay = QVBoxLayout(dlg)
-        lab = QLabel('The bar lists your pages automatically (add or remove pages in the Site panel). '
-                     'If the items wrap onto a second line, reduce the spacing or text size below, '
-                     'or make the bar wider.')
+        """Edit the navigation bar: which pages it lists, their order and labels, the
+        left/right grouping, plus spacing, size and look."""
+        dlg = QDialog(self); dlg.setWindowTitle('Navigation Bar'); dlg.resize(460, 560); lay = QVBoxLayout(dlg)
+        lab = QLabel('Choose which pages appear, in what order. Drag an item to reorder it, '
+                     'or double-click it to change the text shown in the bar.')
         lab.setWordWrap(True); lay.addWidget(lab)
+
+        byid = {q['id']: q for q in self.site['pages']}
+        lst = QListWidget(); lst.setDragDropMode(QAbstractItemView.InternalMove); lst.setMinimumHeight(200)
+        lay.addWidget(lst, 1)
+
+        def disp(pid, label):
+            title = byid.get(pid, {}).get('title', '(page deleted)')
+            return f'{label}      —  {title}' if label and label != title else title
+
+        def add_row(pid, label=''):
+            it = QListWidgetItem(disp(pid, label))
+            it.setData(Qt.UserRole, pid); it.setData(Qt.UserRole + 1, label); lst.addItem(it)
+
+        seed = o.get('pages')
+        if seed:
+            labels = o.get('labels') or {}
+            for pid in seed:
+                if pid in byid: add_row(pid, labels.get(pid, ''))
+        else:   # bar is in automatic mode — seed the editor from the pages it currently shows
+            for q, _ in nav_items(self.site, o): add_row(q['id'], '')
+
+        def add_page():
+            present = {lst.item(i).data(Qt.UserRole) for i in range(lst.count())}
+            choices = [q for q in self.site['pages'] if q['id'] not in present]
+            if not choices:
+                QMessageBox.information(dlg, 'Navigation Bar', 'Every page is already in this bar.'); return
+            names = [f'{q["title"]}   ({q["file"]})' for q in choices]
+            name, ok = QInputDialog.getItem(dlg, 'Add page', 'Add which page to the bar?', names, 0, False)
+            if ok and name in names: add_row(choices[names.index(name)]['id'], '')
+
+        def rename():
+            it = lst.currentItem()
+            if not it: return
+            pid = it.data(Qt.UserRole); title = byid.get(pid, {}).get('title', '')
+            text, ok = QInputDialog.getText(dlg, 'Item label', 'Text shown in the bar for this page:',
+                                            text=(it.data(Qt.UserRole + 1) or title))
+            if ok:
+                label = text.strip()
+                if label == title: label = ''
+                it.setData(Qt.UserRole + 1, label); it.setText(disp(pid, label))
+
+        def remove():
+            for it in lst.selectedItems(): lst.takeItem(lst.row(it))
+
+        def move(d):
+            r = lst.currentRow(); n = r + d
+            if 0 <= r < lst.count() and 0 <= n < lst.count():
+                it = lst.takeItem(r); lst.insertItem(n, it); lst.setCurrentRow(n)
+
+        lst.itemDoubleClicked.connect(lambda *_: rename())
+        row = QHBoxLayout(); lay.addLayout(row)
+        for text, icon, fn in (('Add page…', 'list-add', add_page), ('Remove', 'list-remove', remove),
+                               ('Rename…', 'document-edit', rename),
+                               ('Move Up', 'go-up', lambda: move(-1)), ('Move Down', 'go-down', lambda: move(1))):
+            b = QPushButton(ticon([icon], ''), text); b.clicked.connect(fn); row.addWidget(b)
+        row.addStretch()
+
         form = QFormLayout(); lay.addLayout(form)
+        pin = QSpinBox(); pin.setRange(0, 99); pin.setValue(int(o.get('split') or 0))
+        pin.setToolTip('Keep this many items on the left; everything after them is pushed to the right edge. 0 = off.')
         style = QComboBox(); style.addItems(['Plain', 'Pills', 'Underline', 'Tabs'])
         style.setCurrentIndex({'plain': 0, 'pills': 1, 'underline': 2, 'tabs': 3}.get(o.get('style', 'pills'), 1))
         align = QComboBox(); align.addItems(['Left', 'Centre', 'Right'])
@@ -5990,6 +6068,7 @@ class MainWindow(QMainWindow):
         gap = QSpinBox(); gap.setRange(0, 60); gap.setSuffix(' px'); gap.setValue(int(o.get('gap', 6)))
         pad = QSpinBox(); pad.setRange(0, 40); pad.setSuffix(' px'); pad.setValue(int(o.get('pad', 14)))
         bold = QCheckBox('Bold'); bold.setChecked(bool(o.get('bold')))
+        form.addRow('Pin to left, rest right:', pin)
         form.addRow('Look:', style); form.addRow('Align:', align)
         form.addRow('Text size:', size); form.addRow('Space between items:', gap)
         form.addRow('Padding inside items:', pad); form.addRow('', bold)
@@ -5997,6 +6076,17 @@ class MainWindow(QMainWindow):
         bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject); lay.addWidget(bb)
         if dlg.exec():
             self.commit()
+            pages, labels = [], {}
+            for i in range(lst.count()):
+                it = lst.item(i); pid = it.data(Qt.UserRole); lb = it.data(Qt.UserRole + 1)
+                pages.append(pid)
+                if lb: labels[pid] = lb
+            o['pages'] = pages
+            if labels: o['labels'] = labels
+            else: o.pop('labels', None)
+            sp = min(int(pin.value()), len(pages))
+            if sp > 0: o['split'] = sp
+            else: o.pop('split', None)
             o['style'] = ['plain', 'pills', 'underline', 'tabs'][style.currentIndex()]
             o['align'] = ['left', 'center', 'right'][align.currentIndex()]
             o['size'] = size.value(); o['gap'] = gap.value(); o['pad'] = pad.value(); o['bold'] = bold.isChecked()
@@ -6937,8 +7027,21 @@ class MainWindow(QMainWindow):
         if v: self.sel = []
         self.refresh()
 
-    def context_menu(self, gpos):
+    def context_menu(self, gpos, hit=None):
         m = QMenu(self)
+        if hit is not None and hit.master:
+            # Master-page objects aren't selectable on a normal page, but the nav bar is the one
+            # thing people routinely want to change, so offer it right here under the cursor.
+            mo = hit.o
+            if mo['type'] == 'nav':
+                m.addAction(ticon(['application-menu', 'view-list-details'], '☰'),
+                            'Edit navigation bar…', lambda: self.edit_object(mo))
+            cur = self.page()
+            if cur and cur.get('master'):
+                m.addAction(ticon(['document-edit'], ''), 'Edit master page…',
+                            lambda: self.goto_master(cur['master']))
+            if not m.isEmpty(): m.exec(gpos)
+            return
         if self.sel:
             for k in ('cut', 'copy', 'paste', 'dup', 'delete'): m.addAction(self.a[k])
             m.addSeparator(); m.addAction(self.a['link'])
