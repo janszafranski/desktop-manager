@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-33"
+VERSION = "1.10-34"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -204,6 +204,7 @@ DEF = {
     'share':    dict(w=480, h=40, nets=['facebook', 'x', 'linkedin', 'email'], style='colour', font='Arial', size=14, radius=6, gap=8),
     'form':     dict(w=360, h=300, font='Noto Sans', size=14, color='#2b2b2b', accent='#2a7d6b', fields=['Name', 'Email', 'Message'], submit='Send'),
     'search':   dict(w=360, h=46, font='Noto Sans', size=14, color='#2b2b2b', accent='#2a7d6b', placeholder='Search this site…', submit='Search', provider='google', scope='site'),
+    'youtube':  dict(w=560, h=315, font='Noto Sans', size=13, video='', title='', radius=0),
 }
 SHARE_NETS = [  # id, label, button colour, share address ({u} = page address, {t} = page title)
     ('facebook', 'Facebook', '#1877f2', 'https://www.facebook.com/sharer/sharer.php?u={u}'),
@@ -218,7 +219,7 @@ SHARE_NETS = [  # id, label, button colour, share address ({u} = page address, {
 NET = {n[0]: n for n in SHARE_NETS}
 
 TYPE_NAMES = dict(text='Text frame', artistic='Artistic text', shape='QuickShape', line='Line', picture='Picture',
-                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery', share='Share buttons', search='Search box')
+                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery', share='Share buttons', search='Search box', youtube='YouTube video')
 
 def mk(t, x, y, w=None, h=None, **p):
     o = dict(id=uid(), type=t, x=x, y=y, rot=0, opacity=1.0, hidden=False, locked=False, link=None)
@@ -1193,6 +1194,16 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
         p.setPen(Qt.NoPen); p.setBrush(QColor(o.get('accent', '#2a7d6b')))
         br = QRectF(w - bw, 0, bw, h); p.drawRoundedRect(br, 6, 6)
         p.setFont(fb); p.setPen(QColor('#ffffff')); p.drawText(br, Qt.AlignCenter, lbl)
+    elif t == 'youtube':
+        p.fillRect(QRectF(0, 0, w, h), QColor('#0f0f0f'))
+        bw2 = max(16, min(w, h) * 0.16); cx, cy = w / 2, h / 2
+        p.setPen(Qt.NoPen); p.setBrush(QColor('#ff0000'))
+        p.drawRoundedRect(QRectF(cx - bw2, cy - bw2 * 0.7, bw2 * 2, bw2 * 1.4), bw2 * 0.35, bw2 * 0.35)
+        p.setBrush(QColor('#ffffff'))
+        p.drawPolygon(QPolygonF([QPointF(cx - bw2 * 0.28, cy - bw2 * 0.45), QPointF(cx - bw2 * 0.28, cy + bw2 * 0.45), QPointF(cx + bw2 * 0.5, cy)]))
+        cap = ('YouTube · ' + o['video']) if o.get('video') else 'YouTube video — double-click to add a link'
+        p.setFont(qfont(o)); p.setPen(QColor('#aaaaaa'))
+        p.drawText(QRectF(6, h - 24, w - 12, 20), Qt.AlignHCenter | Qt.AlignVCenter, cap)
     elif t == 'share':
         f = qfont(dict(o, bold=True)); p.setFont(f); fm = QFontMetrics(f)
         x, bh, gap = 0, fm.height() + 18, o.get('gap', 8)
@@ -1290,6 +1301,8 @@ a.obj{color:inherit;text-decoration:none}
 .obj-search{display:flex;gap:8px;align-items:stretch}
 .obj-search input{flex:1;min-width:0;font:inherit;padding:8px 12px;border:1px solid #c9d1d6;border-radius:6px;background:#fff;color:#222}
 .obj-search button{flex:none;font:inherit;font-weight:700;padding:10px 20px;border:0;border-radius:6px;background:var(--na);color:#fff;cursor:pointer}
+.obj-youtube{overflow:hidden;background:#000}
+.obj-youtube iframe{display:block;width:100%;height:100%;border:0}
 """
 
 def esc(s): return H.escape(str(s), quote=True)
@@ -1400,6 +1413,15 @@ def obj_html(o, site, page, img):
         return (f'<form class="obj obj-search" style="{st}" method="get" action="{action}" target="_blank" rel="noopener"{onsub}>'
                 f'<input type="text" name="q" placeholder="{esc(o.get("placeholder", "Search…"))}" aria-label="Search">'
                 f'<button type="submit">{esc(o.get("submit", "Search"))}</button></form>')
+    elif t == 'youtube':
+        vid = re.sub(r'[^A-Za-z0-9_-]', '', o.get('video', ''))[:11]
+        st += f"border-radius:{o.get('radius', 0):g}px;overflow:hidden;background:#000;"
+        if vid:
+            return (f'<div class="obj obj-youtube" style="{st}">'
+                    f'<iframe src="https://www.youtube-nocookie.com/embed/{vid}" title="{esc(o.get("title") or "YouTube video")}" '
+                    f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" '
+                    f'allowfullscreen loading="lazy"></iframe></div>')
+        return f'<div class="obj obj-youtube" style="{st}"></div>'
     elif t == 'html':
         inner = o.get('code', '')
     elif t == 'share':
@@ -3177,6 +3199,7 @@ TOOLS = [
     ('search', 'Search Box', ['system-search', 'edit-find'], '⌕', 'Drag to place a search box — visitors type a term and it searches your site via Google, Bing or DuckDuckGo.'),
     ('share', 'Share Buttons', ['document-share', 'emblem-shared-symbolic', 'mail-forward'], '⇪', 'Drag to place a row of buttons that let visitors share the page on social media.'),
     ('html', 'HTML Code', ['text-html', 'code-context'], '</>', 'Drag to place an HTML fragment.'),
+    ('youtube', 'YouTube Video', ['youtube', 'applications-multimedia', 'media-playback-start'], '▶', 'Drag to place a YouTube video that plays embedded in the page. Paste its link.'),
 ]
 
 class LinelessTree(QTreeWidget):
@@ -4355,6 +4378,9 @@ class MainWindow(QMainWindow):
         self.a['lock'] = self.act('&Lock / Unlock', self.toggle_lock, 'Ctrl+L', ['object-locked', 'lock'])
         self.a['tomaster'] = self.act('Move Repeated Objects to &Master Page…', self.move_common_to_master, None, ['document-multiple', 'edit-copy'])
         menu('&Arrange', [a['front'], a['fwd'], a['back1'], a['back'], None, ('Align', al), None, self.a['lock'], None, self.a['tomaster']])
+        # Preview and Publish sit on the menu bar as clickable items, with SEO and Help after them.
+        mb.addAction(self.act('Preview', self.preview_site, None, ['internet-web-browser', 'applications-internet']))
+        mb.addAction(self.act('Publish', self.publish_disk, None, ['document-export', 'folder-publicshare']))
         self.a['seo_page'] = self.act('&This Page’s SEO…', self.seo_dialog, None, ['text-html', 'find', 'edit-find'])
         self.a['seo_page'].setToolTip('Search-engine title, description, focus keyword and social preview for this page')
         self.a['seo_site'] = self.act('&Site-wide SEO…', self.site_seo_dialog, None, ['configure', 'preferences-system'])
@@ -4372,9 +4398,6 @@ class MainWindow(QMainWindow):
                                     None, ['help-donate', 'emblem-favorite', 'face-smile-big'])
         self.a['donate'].setToolTip('Enjoying WEBcreator? Buy its maker a coffee — opens buymeacoffee.com in your browser')
         menu('&Help', [self.a['update'], self.a['checkupdate'], self.a['updatesettings'], None, a['about'], None, self.a['donate']])
-        # Preview and Publish live on the menu bar itself (clickable, not in a drop-down).
-        mb.addAction(self.act('Preview', self.preview_site, None, ['internet-web-browser', 'applications-internet']))
-        mb.addAction(self.act('Publish', self.publish_disk, None, ['document-export', 'folder-publicshare']))
 
     def recent_menu_action(self):
         self.recent_menu = QMenu('Open &Recent', self)
@@ -5076,6 +5099,8 @@ class MainWindow(QMainWindow):
             if t == 'search':
                 btn(['system-search', 'edit-find'], 'Edit Search…', lambda: self.edit_object(o))
                 label('Button'); add(ColorButton(o.get('accent'), lambda c: self.set_prop('accent', c), 'Button colour'))
+            if t == 'youtube':
+                btn(['document-edit'], 'Edit Video…', lambda: self.edit_object(o))
             if t == 'html':
                 btn(['document-edit'], 'Edit HTML…', lambda: self.edit_object(o))
             if t == 'share':
@@ -5263,6 +5288,7 @@ class MainWindow(QMainWindow):
         if kind == 'picture': self.pick_picture(o)
         elif kind == 'gallery': self.gallery_dialog(o)
         elif kind == 'search': self.search_dialog(o)
+        elif kind == 'youtube': self.youtube_dialog(o)
 
     def insert_coffee_button(self):
         """Toolbar one-click: drop a 'Buy me a coffee' button, coloured to match the
@@ -5335,6 +5361,7 @@ class MainWindow(QMainWindow):
         elif t == 'html': self.html_dialog(o)
         elif t == 'form': self.form_dialog(o)
         elif t == 'search': self.search_dialog(o)
+        elif t == 'youtube': self.youtube_dialog(o)
         elif t == 'gallery': self.gallery_dialog(o)
         elif t == 'share': self.share_dialog(o)
         elif t == 'nav': self.nav_dialog(o)
@@ -6017,6 +6044,26 @@ class MainWindow(QMainWindow):
             o['placeholder'] = ph.text() or 'Search…'
             o['submit'] = sub.text() or 'Search'
             self.refresh()
+
+    @staticmethod
+    def _youtube_id(s):
+        """Pull the 11-char video id out of any YouTube link (watch, youtu.be, embed, shorts) or a bare id."""
+        s = (s or '').strip()
+        if re.fullmatch(r'[A-Za-z0-9_-]{11}', s): return s
+        m = re.search(r'(?:v=|/embed/|/shorts/|youtu\.be/)([A-Za-z0-9_-]{11})', s)
+        return m.group(1) if m else ''
+
+    def youtube_dialog(self, o):
+        url = QLineEdit('https://youtu.be/' + o['video'] if o.get('video') else '')
+        url.setPlaceholderText('https://www.youtube.com/watch?v=…   or   https://youtu.be/…')
+        title = QLineEdit(o.get('title', ''))
+        dlg = form_dialog(self, 'YouTube Video', [('YouTube link or ID:', url), ('Title (optional):', title)],
+                          QLabel('Paste a YouTube link — the video plays embedded right in the page when published.'))
+        if dlg.exec():
+            vid = self._youtube_id(url.text())
+            if not vid:
+                QMessageBox.warning(self, APP, "That doesn't look like a YouTube link, so nothing was changed."); return
+            self.commit(); o['video'] = vid; o['title'] = title.text().strip(); self.refresh()
 
     # ------------------------------------------------------------ hyperlinks
     def link_to_href(self, L):
