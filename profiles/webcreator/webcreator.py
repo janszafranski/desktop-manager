@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-32"
+VERSION = "1.10-33"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -4372,6 +4372,9 @@ class MainWindow(QMainWindow):
                                     None, ['help-donate', 'emblem-favorite', 'face-smile-big'])
         self.a['donate'].setToolTip('Enjoying WEBcreator? Buy its maker a coffee — opens buymeacoffee.com in your browser')
         menu('&Help', [self.a['update'], self.a['checkupdate'], self.a['updatesettings'], None, a['about'], None, self.a['donate']])
+        # Preview and Publish live on the menu bar itself (clickable, not in a drop-down).
+        mb.addAction(self.act('Preview', self.preview_site, None, ['internet-web-browser', 'applications-internet']))
+        mb.addAction(self.act('Publish', self.publish_disk, None, ['document-export', 'folder-publicshare']))
 
     def recent_menu_action(self):
         self.recent_menu = QMenu('Open &Recent', self)
@@ -4387,7 +4390,7 @@ class MainWindow(QMainWindow):
     def build_toolbars(self):
         # Standard toolbar
         tb = QToolBar('Standard'); tb.setObjectName('standard'); tb.setIconSize(QSize(20, 20)); self._std_toolbar = tb
-        for k in ('new', 'open', 'save', None, 'undo', 'redo', None, 'cut', 'copy', 'paste', None, 'prevsite', 'publish', 'htmlview', None, 'update'):
+        for k in ('new', 'open', 'save', None, 'undo', 'redo', None, 'cut', 'copy', 'paste', None, 'htmlview', None, 'update'):
             tb.addAction(self.a[k]) if k else tb.addSeparator()
         hw = tb.widgetForAction(self.a['htmlview'])
         if hw: hw.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
@@ -4396,11 +4399,6 @@ class MainWindow(QMainWindow):
         if uw:
             uw.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             f = uw.font(); f.setBold(True); uw.setFont(f)
-        tb.widgetForAction(self.a['prevsite']).setToolButtonStyle(Qt.ToolButtonTextBesideIcon) if tb.widgetForAction(self.a['prevsite']) else None
-        self.a['prevsite'].setIconText('Preview'); self.a['publish'].setIconText('Publish')
-        for k in ('prevsite', 'publish'):
-            w = tb.widgetForAction(self.a[k])
-            if w: w.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.TopToolBarArea, tb)
         # Insert toolbar sits alongside Standard on row 1. Only non-duplicate actions —
         # the object-insert icons already live on the left tool rail.
@@ -4450,6 +4448,18 @@ class MainWindow(QMainWindow):
         for name, glyph in (('Rotate', '⟳'), ('Node Edit', '✎'), ('Crop', '⌗'), ('Pen / Curve', '✐'), ('Hotspot', '⬚'), ('Rollover', '◳')):
             pt = QAction(ticon([], glyph), name, self); pt.setToolTip(f'{name} — not available in this clone yet')
             pt.triggered.connect(lambda _=False, n=name: self.hint(f'The {n} tool isn’t available in this clone yet.')); tt.addAction(pt)
+        # The Insert-menu entries that aren't drawing tools, as icons at the foot of the rail.
+        tt.addSeparator()
+        tt.addAction(self.a['newpage']); tt.addAction(self.a['index_page'])
+        from PySide6.QtWidgets import QToolButton, QMenu
+        cmenu = QMenu(self)
+        for fld, lbl in (('name', 'Author / Name'), ('email', 'Email'), ('phone', 'Phone'),
+                         ('address', 'Address'), ('website', 'Website'), ('all', 'All contact details')):
+            cmenu.addAction(lbl, lambda _=False, fk=fld: self.insert_contact(fk))
+        cbtn = QToolButton(); cbtn.setIcon(ticon(['contact-new', 'x-office-address-book', 'address-book-new'], '☎'))
+        cbtn.setToolTip('Insert a contact detail from Settings'); cbtn.setMenu(cmenu)
+        cbtn.setPopupMode(QToolButton.InstantPopup); tt.addWidget(cbtn)
+        tt.addAction(self.a['link'])
         for t in (tb, ins, self.ctx, photo, tt):
             t.setMovable(True); self.view_menu.addAction(t.toggleViewAction())
 
