@@ -38,7 +38,7 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.10-31"
+VERSION = "1.10-32"
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -203,6 +203,7 @@ DEF = {
     'gallery':  dict(w=600, h=300, images=[], interval=5, fade=0.5, fit='cover', radius=0, strokeW=0, stroke='#333333', fill=''),
     'share':    dict(w=480, h=40, nets=['facebook', 'x', 'linkedin', 'email'], style='colour', font='Arial', size=14, radius=6, gap=8),
     'form':     dict(w=360, h=300, font='Noto Sans', size=14, color='#2b2b2b', accent='#2a7d6b', fields=['Name', 'Email', 'Message'], submit='Send'),
+    'search':   dict(w=360, h=46, font='Noto Sans', size=14, color='#2b2b2b', accent='#2a7d6b', placeholder='Search this site…', submit='Search', provider='google', scope='site'),
 }
 SHARE_NETS = [  # id, label, button colour, share address ({u} = page address, {t} = page title)
     ('facebook', 'Facebook', '#1877f2', 'https://www.facebook.com/sharer/sharer.php?u={u}'),
@@ -217,7 +218,7 @@ SHARE_NETS = [  # id, label, button colour, share address ({u} = page address, {
 NET = {n[0]: n for n in SHARE_NETS}
 
 TYPE_NAMES = dict(text='Text frame', artistic='Artistic text', shape='QuickShape', line='Line', picture='Picture',
-                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery', share='Share buttons')
+                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery', share='Share buttons', search='Search box')
 
 def mk(t, x, y, w=None, h=None, **p):
     o = dict(id=uid(), type=t, x=x, y=y, rot=0, opacity=1.0, hidden=False, locked=False, link=None)
@@ -1180,6 +1181,18 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
         br = QRectF(0, y, bw, fm.height() + 20); p.drawRoundedRect(br, 6, 6)
         fb = QFont(f); fb.setBold(True); p.setFont(fb); p.setPen(QColor('#ffffff'))
         p.drawText(br, Qt.AlignCenter, o.get('submit', 'Send'))
+    elif t == 'search':
+        f = qfont(o); p.setFont(f); fm = QFontMetrics(f)
+        fb = QFont(f); fb.setBold(True)
+        lbl = o.get('submit', 'Search'); bw = QFontMetrics(fb).horizontalAdvance(lbl) + 40; gap = 8
+        iw = max(12, w - bw - gap)
+        p.setPen(QPen(QColor('#c9d1d6'), 1)); p.setBrush(QColor('#ffffff'))
+        p.drawRoundedRect(QRectF(.5, .5, iw - 1, h - 1), 6, 6)
+        p.setPen(QColor('#9aa0a6'))
+        p.drawText(QRectF(12, 0, iw - 20, h), Qt.AlignVCenter | Qt.AlignLeft, o.get('placeholder', 'Search…'))
+        p.setPen(Qt.NoPen); p.setBrush(QColor(o.get('accent', '#2a7d6b')))
+        br = QRectF(w - bw, 0, bw, h); p.drawRoundedRect(br, 6, 6)
+        p.setFont(fb); p.setPen(QColor('#ffffff')); p.drawText(br, Qt.AlignCenter, lbl)
     elif t == 'share':
         f = qfont(dict(o, bold=True)); p.setFont(f); fm = QFontMetrics(f)
         x, bh, gap = 0, fm.height() + 18, o.get('gap', 8)
@@ -1274,6 +1287,9 @@ a.obj{color:inherit;text-decoration:none}
 .obj-form input,.obj-form textarea{display:block;width:100%;font:inherit;padding:8px 10px;margin:4px 0 10px;border:1px solid #c9d1d6;border-radius:6px;background:#fff;color:#222}
 .obj-form textarea{height:84px;resize:vertical}
 .obj-form button{align-self:flex-start;font:inherit;font-weight:700;padding:10px 20px;border:0;border-radius:6px;background:var(--na);color:#fff;cursor:pointer}
+.obj-search{display:flex;gap:8px;align-items:stretch}
+.obj-search input{flex:1;min-width:0;font:inherit;padding:8px 12px;border:1px solid #c9d1d6;border-radius:6px;background:#fff;color:#222}
+.obj-search button{flex:none;font:inherit;font-weight:700;padding:10px 20px;border:0;border-radius:6px;background:var(--na);color:#fff;cursor:pointer}
 """
 
 def esc(s): return H.escape(str(s), quote=True)
@@ -1371,6 +1387,19 @@ def obj_html(o, site, page, img):
             fl += f'<label>{esc(fld)}{ctl}</label>'
         return (f'<form class="obj obj-form" style="{st}" method="post" action="#" onsubmit="alert(\'Connect this form to a form handler on your web host.\');return false">'
                 f'{fl}<button type="submit">{esc(o.get("submit", "Send"))}</button></form>')
+    elif t == 'search':
+        st += text_css(o) + f"--na:{o.get('accent')};"
+        action = {'google': 'https://www.google.com/search', 'bing': 'https://www.bing.com/search',
+                  'duckduckgo': 'https://duckduckgo.com/'}.get(o.get('provider', 'google'), 'https://www.google.com/search')
+        onsub = ''
+        if o.get('scope', 'site') == 'site':
+            b = (site.get('seo') or {}).get('base_url', '') or ''
+            dom = re.sub(r'^https?://', '', b).strip('/').split('/')[0]
+            if dom:   # restrict to the site by appending a site: operator on submit (no server needed)
+                onsub = f" onsubmit=\"if(!/site:/.test(this.q.value))this.q.value+=' site:{dom}'\""
+        return (f'<form class="obj obj-search" style="{st}" method="get" action="{action}" target="_blank" rel="noopener"{onsub}>'
+                f'<input type="text" name="q" placeholder="{esc(o.get("placeholder", "Search…"))}" aria-label="Search">'
+                f'<button type="submit">{esc(o.get("submit", "Search"))}</button></form>')
     elif t == 'html':
         inner = o.get('code', '')
     elif t == 'share':
@@ -3145,6 +3174,7 @@ TOOLS = [
     ('nav', 'Navigation Bar', ['application-menu', 'view-list-details'], '☰', 'Drag to place a navigation bar. It lists the pages in your site automatically.'),
     ('button', 'Button', ['insert-button', 'dialog-ok'], '⬭', 'Drag to place a button, then give it a hyperlink.'),
     ('form', 'Form', ['view-form', 'document-edit'], '✎', 'Drag to place a contact form.'),
+    ('search', 'Search Box', ['system-search', 'edit-find'], '⌕', 'Drag to place a search box — visitors type a term and it searches your site via Google, Bing or DuckDuckGo.'),
     ('share', 'Share Buttons', ['document-share', 'emblem-shared-symbolic', 'mail-forward'], '⇪', 'Drag to place a row of buttons that let visitors share the page on social media.'),
     ('html', 'HTML Code', ['text-html', 'code-context'], '</>', 'Drag to place an HTML fragment.'),
 ]
@@ -5033,6 +5063,9 @@ class MainWindow(QMainWindow):
             if t == 'form':
                 btn(['document-edit'], 'Edit Form…', lambda: self.edit_object(o))
                 label('Button'); add(ColorButton(o.get('accent'), lambda c: self.set_prop('accent', c), 'Button colour'))
+            if t == 'search':
+                btn(['system-search', 'edit-find'], 'Edit Search…', lambda: self.edit_object(o))
+                label('Button'); add(ColorButton(o.get('accent'), lambda c: self.set_prop('accent', c), 'Button colour'))
             if t == 'html':
                 btn(['document-edit'], 'Edit HTML…', lambda: self.edit_object(o))
             if t == 'share':
@@ -5219,6 +5252,7 @@ class MainWindow(QMainWindow):
         self.add_object(o)
         if kind == 'picture': self.pick_picture(o)
         elif kind == 'gallery': self.gallery_dialog(o)
+        elif kind == 'search': self.search_dialog(o)
 
     def insert_coffee_button(self):
         """Toolbar one-click: drop a 'Buy me a coffee' button, coloured to match the
@@ -5290,6 +5324,7 @@ class MainWindow(QMainWindow):
         elif t == 'table': self.table_dialog(o)
         elif t == 'html': self.html_dialog(o)
         elif t == 'form': self.form_dialog(o)
+        elif t == 'search': self.search_dialog(o)
         elif t == 'gallery': self.gallery_dialog(o)
         elif t == 'share': self.share_dialog(o)
         elif t == 'nav': self.nav_dialog(o)
@@ -5949,6 +5984,29 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             self.commit(); o['fields'] = [x.strip() for x in fields.toPlainText().splitlines() if x.strip()]; o['submit'] = sub.text() or 'Send'
             o['h'] = max(o['h'], 60 + 70 * len(o['fields'])); self.refresh()
+
+    def search_dialog(self, o):
+        provs = [('google', 'Google'), ('bing', 'Bing'), ('duckduckgo', 'DuckDuckGo')]
+        prov = QComboBox(); prov.addItems([lbl for _, lbl in provs])
+        prov.setCurrentIndex(next((i for i, (k, _) in enumerate(provs) if k == o.get('provider', 'google')), 0))
+        scope = QComboBox(); scope.addItems(['This site only', 'The whole web'])
+        scope.setCurrentIndex(0 if o.get('scope', 'site') == 'site' else 1)
+        ph = QLineEdit(o.get('placeholder', 'Search this site…'))
+        sub = QLineEdit(o.get('submit', 'Search'))
+        base = (self.site.get('seo') or {}).get('base_url', '')
+        note = QLabel('Visitors type a term and are taken to the chosen search engine — no server needed. '
+                      + ('“This site only” restricts results to ' + base + ' (works best once that engine has indexed the site).'
+                         if base else 'Set a web address in Settings to enable “this site only” search.'))
+        note.setWordWrap(True)
+        dlg = form_dialog(self, 'Search Box', [('Search engine:', prov), ('Search scope:', scope),
+                          ('Placeholder text:', ph), ('Button label:', sub)], note)
+        if dlg.exec():
+            self.commit()
+            o['provider'] = provs[prov.currentIndex()][0]
+            o['scope'] = 'site' if scope.currentIndex() == 0 else 'web'
+            o['placeholder'] = ph.text() or 'Search…'
+            o['submit'] = sub.text() or 'Search'
+            self.refresh()
 
     # ------------------------------------------------------------ hyperlinks
     def link_to_href(self, L):
