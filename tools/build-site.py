@@ -513,7 +513,8 @@ you can see what it will do before it does anything.</p>
 <p style="margin-bottom:.4em">Desktop Manager also installs <b>just a&hellip; CREATORsuite</b> &mdash;
 ground-up recreations of the Serif creative line (WEBcreator, PAGEdesigner, PAINTcanvas,
 DRAWmaster). They live in their own project.</p>
-<p class="small" style="margin:0"><a href="{SUITE}">Browse the Creative suite &rsaquo;</a></p>
+<p class="small" style="margin:0"><a href="{SUITE}welcome.html">See the whole family on one page &rsaquo;</a>
+&nbsp;&middot;&nbsp; <a href="{SUITE}">Browse the Creative suite &rsaquo;</a></p>
 </div>
 
 <h2>Restore a whole machine</h2>
