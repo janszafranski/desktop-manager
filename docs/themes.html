@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desktop Manager — Themes &amp; rices</title>
+<link rel="stylesheet" href="style.css">
+<header class="top"><div class="wrap">
+<h1><a href="index.html" style="color:inherit;text-decoration:none">Desktop Manager</a></h1>
+<p class="mute" style="margin:0">Save, restore and re-theme your Linux desktop — plus the small tools that smooth the day.</p>
+</div></header>
+<div class="wrap">
+<nav class="crumbs mute"><a href="index.html">Desktop Manager</a> &rsaquo; Themes &amp; rices</nav>
+<h2 style="margin-top:0">Themes &amp; rices</h2>
+<img class="shot" src="assets/shot-desktop.jpg" alt="Themes &amp; rices">
+<p class="lede">Desktop Manager is, first of all, a snapshot of a complete desktop: the Nordic / Nordic-bluish KDE Plasma 6 theme, the matching GTK/Qt styling, window decorations and KWin tiling scripts, the SDDM login screen, and Hyprland rices — bundled so a fresh machine can be made to look like this one from a single picker.</p>
+<h2>What it does</h2><ul><li><b>KDE Plasma 6</b> (Wayland) — Nordic / Nordic-bluish look-and-feel, icons, cursors, Krohnkite tiling</li><li><b>SDDM login screens</b> — the White-Tiger theme, plus an optional Hello-Kitty theme</li><li><b>Hyprland rices</b> — Caelestia and end4 (illogical-impulse) sessions</li><li><b>macOS profile</b> — an optional WhiteSur / Monterey look, user-level, no sudo</li><li>Terminal, shell and editor configs to match (Alacritty · Fish/Zsh · Micro)</li></ul>
+<h2>Install</h2>
+<p class="small mute">Theme restore targets KDE Plasma 6 and Hyprland on Arch / CachyOS. The SDDM stage needs sudo.</p>
+<pre><code>git clone https://github.com/janszafranski/desktop-manager.git ~/system-replica
+cd ~/system-replica
+./scripts/install.sh --dry-run   # preview everything, change nothing
+./scripts/install.sh             # packages + files + sddm + services</code></pre>
+<p class="small mute">Prefer clicking? Everything here also installs from <b>Desktop Manager &rsaquo; Apps</b>. Each tool has an <code>uninstall.sh</code> beside its installer.</p>
+<p class="small mute">Source: <a href="https://github.com/janszafranski/desktop-manager">https://github.com/janszafranski/desktop-manager</a></p>
+<p class="small mute"><a href="index.html">&lsaquo; Back to Desktop Manager</a></p>
+<footer>Built from the source in
+<a href="https://github.com/janszafranski/desktop-manager">janszafranski/desktop-manager</a> on 2026-11-24.
+Part of the <a href="https://janszafranski.github.io/just-a-collection-of-apps/">just a&hellip;</a> family.</footer>
+</div>
+</html>

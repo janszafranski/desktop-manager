@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desktop Manager — Desktop Manager</title>
+<link rel="stylesheet" href="style.css">
+<header class="top"><div class="wrap">
+<h1><a href="index.html" style="color:inherit;text-decoration:none">Desktop Manager</a></h1>
+<p class="mute" style="margin:0">Save, restore and re-theme your Linux desktop — plus the small tools that smooth the day.</p>
+</div></header>
+<div class="wrap">
+<nav class="crumbs mute"><a href="index.html">Desktop Manager</a> &rsaquo; Desktop Manager</nav>
+<h2 style="margin-top:0">Desktop Manager</h2>
+<img class="shot" src="assets/shot-gui.jpg" alt="Desktop Manager">
+<p class="lede">A self-contained snapshot of this machine's look and configuration, with a graphical picker to restore it on a fresh install. Choose a desktop configuration and which stages to deploy — with a dry-run option — and it runs the work in a terminal window so <code>sudo</code> prompts and live output still work. It also installs every tool on this page, and the Creative apps, from one <b>Apps</b> list.</p>
+<h2>What it does</h2><ul><li>Restore themes and rices: KDE Plasma (Nordic), SDDM login screens, Hyprland (Caelestia / end4)</li><li>Deploy in stages — <code>files</code> (no sudo), <code>packages</code>, <code>services</code>, <code>sddm</code></li><li>Dry-run first: preview everything, change nothing</li><li>Snapshot <i>your</i> machine back into the repo with <code>collect.sh</code></li><li>Install the standalone utilities and the just a… apps from its Apps list</li></ul>
+<h2>Install</h2>
+<p class="small mute">Built for KDE Plasma 6 (Wayland) on Arch / CachyOS; the GUI is GTK and runs on any desktop.</p>
+<pre><code>git clone https://github.com/janszafranski/desktop-manager.git ~/system-replica
+cd ~/system-replica
+./scripts/install-launcher.sh    # add “Desktop Manager” to your app menu
+./scripts/gui.sh                 # …or just open the picker now</code></pre>
+<p class="small mute">Prefer clicking? Everything here also installs from <b>Desktop Manager &rsaquo; Apps</b>. Each tool has an <code>uninstall.sh</code> beside its installer.</p>
+<p class="small mute">Source: <a href="https://github.com/janszafranski/desktop-manager">https://github.com/janszafranski/desktop-manager</a></p>
+<p class="small mute"><a href="index.html">&lsaquo; Back to Desktop Manager</a></p>
+<footer>Built from the source in
+<a href="https://github.com/janszafranski/desktop-manager">janszafranski/desktop-manager</a> on 2026-11-24.
+Part of the <a href="https://janszafranski.github.io/just-a-collection-of-apps/">just a&hellip;</a> family.</footer>
+</div>
+</html>

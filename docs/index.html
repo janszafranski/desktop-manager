@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desktop Manager</title>
+<link rel="stylesheet" href="style.css">
+<header class="top"><div class="wrap">
+<h1><a href="index.html" style="color:inherit;text-decoration:none">Desktop Manager</a></h1>
+<p class="mute" style="margin:0">Save, restore and re-theme your Linux desktop — plus the small tools that smooth the day.</p>
+</div></header>
+<div class="wrap">
+
+<p class="lede">Desktop Manager keeps a whole Linux desktop in one place. It is a snapshot of this
+machine&rsquo;s look and configuration &mdash; themes, login screen, window rules, shell and
+editor &mdash; with a one-click picker to restore it on a fresh install. Below it are the small,
+single-purpose tools it can install for you.</p>
+
+<img class="shot" src="assets/shot-gui.jpg" alt="The Desktop Manager picker">
+
+<h2>What it installs</h2>
+<div class="cards">
+<a class="card lead" href="desktop-manager.html"><span class="thumb"><img src="assets/shot-gui.jpg" alt="Desktop Manager"></span><span class="body"><span class="ribbon">Start here</span><span class="kind">the app</span><div class="name">Desktop Manager</div><div class="tag">Pick a desktop configuration, choose which stages to run, go.</div></span></a><a class="card" href="shakefree-mouse.html"><span class="thumb"><img src="assets/shot-shakefree.jpg" alt="Shakefree Mouse"></span><span class="body"><span class="kind">utility</span><div class="name">Shakefree Mouse</div><div class="tag">A steadier pointer for a shaky hand.</div></span></a><a class="card" href="openclaw-flyout.html"><span class="thumb"><img src="assets/shot-openclaw.jpg" alt="OpenClaw flyout"></span><span class="body"><span class="kind">utility</span><div class="name">OpenClaw flyout</div><div class="tag">An AI assistant in a side panel.</div></span></a><a class="card" href="app-launcher.html"><span class="thumb"><img src="assets/shot-launcher.jpg" alt="App launcher"></span><span class="body"><span class="kind">utility</span><div class="name">App launcher</div><div class="tag">Type a few letters and go — on Super + Space.</div></span></a><a class="card" href="keybinds.html"><span class="thumb"><img src="assets/shot-keybinds.jpg" alt="Keybinds cheat-sheet"></span><span class="body"><span class="kind">utility</span><div class="name">Keybinds cheat-sheet</div><div class="tag">Every shortcut, a tap away.</div></span></a><a class="card" href="desktop-icons.html"><span class="thumb"><img src="assets/shot-desktopicons.jpg" alt="Desktop icons"></span><span class="body"><span class="kind">utility</span><div class="name">Desktop icons</div><div class="tag">App icons on the wallpaper, double-click to open.</div></span></a><a class="card" href="mic-fixer.html"><span class="noimg">🎤</span><span class="body"><span class="kind">utility</span><div class="name">Mic Fixer</div><div class="tag">Test your microphone, and fix it when it's too quiet.</div></span></a>
+</div>
+
+<h2 style="margin-top:2.2em">The desktop itself</h2>
+<p>Before any of the tools, Desktop Manager restores the <b>look</b>: the KDE Plasma theme, the
+SDDM login screen, Hyprland rices and the configs to match &mdash; in stages, with a dry-run so
+you can see what it will do before it does anything.</p>
+<a class="card lead" href="themes.html" style="margin:1.2em 0">
+<span class="thumb"><img src="assets/shot-desktop.jpg" alt="The restored desktop"></span>
+<span class="body"><span class="kind">themes &amp; rices</span>
+<div class="name">Themes & rices</div>
+<div class="tag">The whole look, bundled — restore it in one picker.</div></span></a>
+
+<div class="crosslink">
+<h3>Looking for the creative apps?</h3>
+<p style="margin-bottom:.4em">Desktop Manager also installs <b>just a&hellip; CREATORsuite</b> &mdash;
+ground-up recreations of the Serif creative line (WEBcreator, PAGEdesigner, PAINTcanvas,
+DRAWmaster). They live in their own project.</p>
+<p class="small" style="margin:0"><a href="https://janszafranski.github.io/just-a-collection-of-apps/">Browse the Creative suite &rsaquo;</a></p>
+</div>
+
+<h2>Restore a whole machine</h2>
+<p class="small mute">On a fresh Arch / CachyOS install, clone once and run the installer &mdash;
+<code>--dry-run</code> first to preview, then for real. Individual stages
+(<code>files</code>, <code>packages</code>, <code>services</code>, <code>sddm</code>) can be run
+on their own; only <code>sddm</code> needs sudo.</p>
+<pre><code>git clone https://github.com/janszafranski/desktop-manager.git ~/system-replica
+cd ~/system-replica
+./scripts/install.sh --dry-run   # preview everything, change nothing
+./scripts/install.sh             # packages + files + sddm + services
+./scripts/install-launcher.sh    # add "Desktop Manager" to your app menu</code></pre>
+
+<footer>Built from the source in
+<a href="https://github.com/janszafranski/desktop-manager">janszafranski/desktop-manager</a> on 2026-11-24.
+Part of the <a href="https://janszafranski.github.io/just-a-collection-of-apps/">just a&hellip;</a> family.</footer>
+</div>
+</html>
