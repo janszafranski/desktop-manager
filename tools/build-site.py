@@ -26,7 +26,39 @@ TAGLINE = "Save, restore and re-theme your Linux desktop — plus the small tool
 REPO = "https://github.com/janszafranski/desktop-manager"
 TREE = REPO + "/tree/master"
 SUITE = "https://janszafranski.github.io/just-a-collection-of-apps/"
+BASE = "https://janszafranski.github.io/desktop-manager/"  # trailing slash; GitHub Pages root
+AUTHOR = "Jan Szafranski"
+OG_DEFAULT = "assets/og-default.png"
 TODAY = date.today().isoformat()
+
+# One-line, plain-text SEO descriptions (≈155 chars) keyed by page. Written fresh
+# rather than stripped from the HTML blurbs so they read cleanly in search results.
+DESC = {
+    "index": "Desktop Manager saves, restores and re-themes a whole Linux desktop — KDE Plasma, "
+             "SDDM login screens and Hyprland rices — and installs a handful of friendly utilities. For Arch and CachyOS.",
+    "desktop-manager": "A graphical picker that restores this machine's KDE / Hyprland look and configuration "
+             "on a fresh Linux install, in dry-runnable stages, and installs its companion tools and apps.",
+    "shakefree-mouse": "A tremor-smoothing filter for the mouse pointer on Linux, with a tray toggle, so clicks "
+             "land where you mean them without making the pointer feel sluggish.",
+    "openclaw-flyout": "An AI assistant in a slide-in side panel for your Linux desktop — ask a question without "
+             "leaving what you're doing.",
+    "app-launcher": "A categorised, Omarchy-style application launcher for Linux, opened with Super + Space: "
+             "browse by category or type-to-filter and press Enter.",
+    "keybinds": "An on-screen keyboard-shortcut cheat-sheet overlay for your Linux desktop, grouped by what the "
+             "shortcuts do — summon it, read the one you want, carry on.",
+    "desktop-icons": "Clickable app icons on the wallpaper for a tiling Linux desktop — double-click to open, drag "
+             "to arrange, on a setup that normally has no desktop of its own.",
+    "mic-fixer": "A quick microphone tester for Linux with a live level meter, to track down a too-quiet mic and set it right.",
+    "themes": "Restore a complete Linux desktop look — Nordic KDE Plasma 6, SDDM login screens, Hyprland rices and "
+             "matching shell/editor configs — from one picker.",
+}
+# schema.org applicationCategory per tool page.
+CATEGORY = {
+    "desktop-manager": "SystemUtilities", "shakefree-mouse": "UtilitiesApplication",
+    "openclaw-flyout": "UtilitiesApplication", "app-launcher": "UtilitiesApplication",
+    "keybinds": "UtilitiesApplication", "desktop-icons": "DesktopEnhancementApplication",
+    "mic-fixer": "UtilitiesApplication", "themes": "DesktopEnhancementApplication",
+}
 
 try:
     from PIL import Image
@@ -298,13 +330,76 @@ footer { border-top: 1px solid var(--line); margin-top: 56px; padding-top: 20px;
 
 
 # --------------------------------------------------------------- render  ----
-def page(title: str, body: str) -> str:
+import json
+
+
+def head(title: str, desc: str, slug: str, og_image: str, jsonld: str = "") -> str:
+    """The full <head>: unique title/description, canonical, Open Graph, Twitter,
+    favicon and optional JSON-LD structured data."""
+    canonical = BASE + ("" if slug == "index.html" else slug)
+    og_abs = BASE + og_image
+    e = html.escape
+    tags = [
+        f'<title>{e(title)}</title>',
+        f'<meta name="description" content="{e(desc)}">',
+        '<meta name="robots" content="index, follow">',
+        f'<meta name="author" content="{e(AUTHOR)}">',
+        f'<link rel="canonical" href="{e(canonical)}">',
+        '<meta name="theme-color" content="#3c6694">',
+        '<link rel="icon" href="assets/icon.svg" type="image/svg+xml">',
+        '<link rel="icon" href="assets/icon.png" sizes="any">',
+        '<link rel="apple-touch-icon" href="assets/icon.png">',
+        '<link rel="stylesheet" href="style.css">',
+        # Open Graph
+        '<meta property="og:type" content="website">',
+        f'<meta property="og:site_name" content="{e(SITE)}">',
+        f'<meta property="og:title" content="{e(title)}">',
+        f'<meta property="og:description" content="{e(desc)}">',
+        f'<meta property="og:url" content="{e(canonical)}">',
+        f'<meta property="og:image" content="{e(og_abs)}">',
+        '<meta property="og:locale" content="en_GB">',
+        # Twitter
+        '<meta name="twitter:card" content="summary_large_image">',
+        f'<meta name="twitter:title" content="{e(title)}">',
+        f'<meta name="twitter:description" content="{e(desc)}">',
+        f'<meta name="twitter:image" content="{e(og_abs)}">',
+    ]
+    if jsonld:
+        tags.append(f'<script type="application/ld+json">{jsonld}</script>')
+    return "\n".join(tags)
+
+
+def jsonld_app(t: dict, url: str, img_abs: str | None) -> str:
+    data = {
+        "@context": "https://schema.org", "@type": "SoftwareApplication",
+        "name": t["name"], "description": DESC.get(t["key"], t["tag"]),
+        "applicationCategory": CATEGORY.get(t["key"], "UtilitiesApplication"),
+        "operatingSystem": "Linux", "url": url,
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        "author": {"@type": "Person", "name": AUTHOR},
+        "isAccessibleForFree": True,
+    }
+    if img_abs:
+        data["screenshot"] = img_abs
+    return json.dumps(data, ensure_ascii=False)
+
+
+def jsonld_site() -> str:
+    data = {
+        "@context": "https://schema.org", "@type": "WebSite",
+        "name": SITE, "url": BASE, "description": DESC["index"],
+        "author": {"@type": "Person", "name": AUTHOR},
+    }
+    return json.dumps(data, ensure_ascii=False)
+
+
+def page(title: str, body: str, *, desc: str, slug: str,
+         og_image: str = OG_DEFAULT, jsonld: str = "") -> str:
     return f"""<!DOCTYPE html>
 <html lang="en-GB">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(title)}</title>
-<link rel="stylesheet" href="style.css">
+{head(title, desc, slug, og_image, jsonld)}
 <header class="top"><div class="wrap">
 <h1><a href="index.html" style="color:inherit;text-decoration:none">{SITE}</a></h1>
 <p class="mute" style="margin:0">{TAGLINE}</p>
@@ -342,7 +437,12 @@ def detail_page(t: dict, shots: dict) -> str:
     body.append(f"<h2>What it does</h2><ul>{does}</ul>")
     body.append(install_block(t))
     body.append('<p class="small mute"><a href="index.html">&lsaquo; Back to Desktop Manager</a></p>')
-    return page(f"{SITE} — {t['name']}", "\n".join(body))
+    slug = f'{t["key"]}.html'
+    og = shots.get(t["key"], OG_DEFAULT)
+    img_abs = (BASE + shots[t["key"]]) if shots.get(t["key"]) else None
+    return page(f'{t["name"]} · {SITE}', "\n".join(body),
+                desc=DESC.get(t["key"], t["tag"]), slug=slug, og_image=og,
+                jsonld=jsonld_app(t, BASE + slug, img_abs))
 
 
 def card(t: dict, shots: dict) -> str:
@@ -363,6 +463,11 @@ def card(t: dict, shots: dict) -> str:
 def build():
     ASSETS.mkdir(parents=True, exist_ok=True)
     (DOCS / "style.css").write_text(CSS)
+
+    # Favicon + default Open Graph / Twitter share image.
+    shutil.copy2(ROOT / "icon.svg", ASSETS / "icon.svg")
+    place("icon.png", "icon.png", maxw=256)
+    place("assets/social-preview.png", "og-default.png", maxw=1200)
 
     # Copy screenshots, record the asset paths actually written.
     shots: dict[str, str] = {}
@@ -422,12 +527,29 @@ cd ~/system-replica
 ./scripts/install.sh             # packages + files + sddm + services
 ./scripts/install-launcher.sh    # add "Desktop Manager" to your app menu</code></pre>
 """
-    (DOCS / "index.html").write_text(page(SITE, body))
+    (DOCS / "index.html").write_text(page(
+        f"{SITE} — save, restore & re-theme your Linux desktop", body,
+        desc=DESC["index"], slug="index.html",
+        og_image=shots.get("desktop-manager", OG_DEFAULT), jsonld=jsonld_site()))
 
+    # sitemap.xml + robots.txt
     pages = sorted(p.name for p in DOCS.glob("*.html"))
+    urls = "".join(
+        f"  <url><loc>{BASE}{'' if p == 'index.html' else p}</loc>"
+        f"<lastmod>{TODAY}</lastmod>"
+        f"<priority>{'1.0' if p == 'index.html' else '0.7'}</priority></url>\n"
+        for p in pages)
+    (DOCS / "sitemap.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{urls}</urlset>\n")
+    (DOCS / "robots.txt").write_text(
+        f"User-agent: *\nAllow: /\nSitemap: {BASE}sitemap.xml\n")
+
     print(f"docs/ built with Pillow={HAVE_PIL}:")
     for p in pages:
         print("  ", p)
+    print("  +", "sitemap.xml, robots.txt")
     print("  assets:", ", ".join(sorted(f.name for f in ASSETS.iterdir())))
 
 

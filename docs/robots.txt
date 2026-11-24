@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://janszafranski.github.io/desktop-manager/sitemap.xml
