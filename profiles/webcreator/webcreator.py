@@ -10,12 +10,12 @@ import subprocess, shutil
 try:
     from PySide6.QtCore import (Qt, QRectF, QPointF, QSizeF, QTimer, QSettings, QUrl,
                                 QByteArray, QBuffer, QIODevice, QSize, QLineF, QEvent,
-                                Signal, QMimeData, QPoint)
+                                Signal, QMimeData, QPoint, QFileSystemWatcher)
     from PySide6.QtGui import (QAction, QActionGroup, QIcon, QPixmap, QImage, QPainter, QColor, QDrag,
                                QPen, QBrush, QFont, QFontMetrics, QPainterPath, QPalette, QTransform,
                                QTextDocument, QTextOption, QTextCursor, QTextCharFormat, QTextFormat,
                                QTextBlockFormat, QAbstractTextDocumentLayout, QKeySequence,
-                               QDesktopServices, QPolygonF, QCursor, QLinearGradient)
+                               QDesktopServices, QPolygonF, QCursor, QLinearGradient, QRadialGradient)
     from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QGraphicsView, QGraphicsScene,
                                    QGraphicsItem, QGraphicsTextItem, QToolBar, QDockWidget,
                                    QLabel, QComboBox, QFontComboBox, QSpinBox, QDoubleSpinBox,
@@ -38,7 +38,31 @@ except ImportError:
 APP = "just a... WEBcreator"
 ORG = "justawebcreator"
 EXT = ".webc"
-VERSION = "1.11-00"
+VERSION = "1.14-04"
+
+
+def _just_dir(kind):
+    """The shared 'just a...' folder (kind='docs' → Documents, 'pics' → Pictures), created on demand."""
+    base = os.path.expanduser('~/Documents' if kind == 'docs' else '~/Pictures')
+    d = os.path.join(base, 'just a...')
+    try: os.makedirs(d, exist_ok=True)
+    except OSError: pass
+    return d
+
+
+def _justapps_recent(appkey, path):
+    """Append to the shared recents log the CREATORsuite launcher reads."""
+    import json, time
+    try:
+        d = os.path.expanduser('~/.local/share/justapps'); os.makedirs(d, exist_ok=True)
+        f = os.path.join(d, 'recents.json')
+        try:
+            with open(f) as fh: data = json.load(fh)
+        except Exception: data = []
+        data = [e for e in data if isinstance(e, dict) and e.get('path') != path]
+        data.insert(0, {'app': appkey, 'path': path, 't': int(time.time())})
+        with open(f, 'w') as fh: json.dump(data[:50], fh)
+    except Exception: pass
 # Bump when the default docks/toolbars change so a stale saved layout is discarded
 # (restoreState ignores a state saved under a different version) and users see the new panels.
 # v8: discard layouts that had collapsed the Site studio group (file-list + its toolbar) to zero.
@@ -193,6 +217,7 @@ DEF = {
     'shape':    dict(w=200, h=140, shape='rect', fill='#9fc3d6', stroke='#2b3a42', strokeW=0, radius=0, dash='solid'),
     'line':     dict(w=240, h=2, stroke='#2b3a42', strokeW=2, flip=False, dash='solid'),
     'picture':  dict(w=320, h=220, src=None, fit='cover', radius=0, strokeW=0, stroke='#333333', fill=''),
+    'lightbox': dict(w=320, h=220, src=None, full=None, fit='cover', radius=0, strokeW=0, stroke='#333333', fill='', caption=''),
     'nav':      dict(w=420, h=40, style='pills', orient='h', align='left', font='Noto Sans', size=15, bold=False, color='#1f2a30',
                      accent='#2a7d6b', accentInk='#ffffff', fill=''),
     'button':   dict(w=180, h=46, html='<p>Find out more</p>', font='Noto Sans', size=15, bold=True, italic=False, underline=False,
@@ -205,6 +230,11 @@ DEF = {
     'form':     dict(w=360, h=300, font='Noto Sans', size=14, color='#2b2b2b', accent='#2a7d6b', fields=['Name', 'Email', 'Message'], submit='Send'),
     'search':   dict(w=360, h=46, font='Noto Sans', size=14, color='#2b2b2b', accent='#2a7d6b', placeholder='Search this site…', submit='Search', provider='google', scope='site'),
     'youtube':  dict(w=560, h=315, font='Noto Sans', size=13, video='', title='', radius=0),
+    'audio':    dict(w=320, h=54, font='Noto Sans', size=13, src='', url='', title='', fill='#eef1f4', color='#2b2b2b', accent='#2a7d6b', radius=8),
+    'map':      dict(w=480, h=320, font='Noto Sans', size=13, place='', zoom=14, marker='', radius=0),
+    'vimeo':    dict(w=560, h=315, font='Noto Sans', size=13, video='', title='', radius=0),
+    'newsfeed': dict(w=480, h=560, source=None, accent='#2a7d6b', cardbg='#ffffff', ink='#1f2a30',
+                     font='Noto Sans', size=15, max=0, showdate=True, showimg=True, fill='', stroke='#333333', strokeW=0, radius=0),
 }
 SHARE_NETS = [  # id, label, button colour, share address ({u} = page address, {t} = page title)
     ('facebook', 'Facebook', '#1877f2', 'https://www.facebook.com/sharer/sharer.php?u={u}'),
@@ -219,7 +249,7 @@ SHARE_NETS = [  # id, label, button colour, share address ({u} = page address, {
 NET = {n[0]: n for n in SHARE_NETS}
 
 TYPE_NAMES = dict(text='Text frame', artistic='Artistic text', shape='QuickShape', line='Line', picture='Picture',
-                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery', share='Share buttons', search='Search box', youtube='YouTube video')
+                  nav='Navigation bar', button='Button', table='Table', html='HTML fragment', form='Form', gallery='Photo gallery', share='Share buttons', search='Search box', youtube='YouTube video', map='Google Map', audio='Audio', vimeo='Vimeo video', lightbox='Lightbox image')
 
 def mk(t, x, y, w=None, h=None, **p):
     o = dict(id=uid(), type=t, x=x, y=y, rot=0, opacity=1.0, hidden=False, locked=False, link=None)
@@ -516,6 +546,10 @@ TEMPLATES = [('Harbour', 'Small business', tpl_harbour), ('Meadow', 'Community g
 # colours, and then it is yours.
 
 SERIF_CATALOGUE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'serif-templates.json')
+_HERE = os.path.dirname(os.path.abspath(__file__))
+QUICKSTART_GUIDE = next((p for p in (os.path.join(_HERE,'quickstart.pdf'), os.path.join(_HERE,'quickstart.html')) if os.path.isfile(p)), os.path.join(_HERE,'quickstart.pdf'))
+MANUAL_GUIDE = next((p for p in (os.path.join(_HERE,'manual.pdf'), os.path.join(_HERE,'manual.html')) if os.path.isfile(p)), os.path.join(_HERE,'manual.pdf'))
+BANNER_IMG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'banner.png')
 _SERIF = None
 
 def serif_catalogue():
@@ -913,6 +947,42 @@ def pixmap_for(site, key):
         _PIX[key] = pm
     return _PIX[key]
 
+
+# ---- in-app picture adjustments (PhotoPlus-style, via Pillow) ----
+try:
+    from PIL import Image as _PILImage, ImageEnhance as _PILEnh, ImageOps as _PILOps, ImageFilter as _PILFilt
+    _HAS_PIL = True
+except Exception:
+    _HAS_PIL = False
+
+def _q2pil(img):
+    im = img.convertToFormat(QImage.Format_RGBA8888)
+    return _PILImage.frombytes('RGBA', (im.width(), im.height()), im.constBits().tobytes())
+
+def _pil2q(pil):
+    if pil.mode != 'RGBA': pil = pil.convert('RGBA')
+    d = pil.tobytes('raw', 'RGBA')
+    return QImage(d, pil.width, pil.height, QImage.Format_RGBA8888).convertToFormat(QImage.Format_ARGB32).copy()
+
+def _pil_keepA(src, rgb):
+    return _PILImage.merge('RGBA', rgb.convert('RGB').split() + (src.split()[3],))
+
+PIC_ADJUST = [
+    ('Auto Contrast', lambda p: _pil_keepA(p, _PILOps.autocontrast(p.convert('RGB'), cutoff=1))),
+    ('Greyscale', lambda p: _pil_keepA(p, _PILOps.grayscale(p).convert('RGB'))),
+    ('Sepia', lambda p: _pil_keepA(p, _PILOps.colorize(_PILOps.grayscale(p), black=(30, 16, 8), white=(255, 240, 200), mid=(150, 110, 70)))),
+    ('Invert (Negative)', lambda p: _pil_keepA(p, _PILOps.invert(p.convert('RGB')))),
+    (None, None),
+    ('Brighter', lambda p: _pil_keepA(p, _PILEnh.Brightness(p.convert('RGB')).enhance(1.2))),
+    ('Darker', lambda p: _pil_keepA(p, _PILEnh.Brightness(p.convert('RGB')).enhance(0.83))),
+    ('More Contrast', lambda p: _pil_keepA(p, _PILEnh.Contrast(p.convert('RGB')).enhance(1.3))),
+    ('More Saturation', lambda p: _pil_keepA(p, _PILEnh.Color(p.convert('RGB')).enhance(1.3))),
+    ('Less Saturation', lambda p: _pil_keepA(p, _PILEnh.Color(p.convert('RGB')).enhance(0.7))),
+    (None, None),
+    ('Sharpen', lambda p: p.filter(_PILFilt.SHARPEN)),
+    ('Blur', lambda p: p.filter(_PILFilt.GaussianBlur(2))),
+]
+
 ALIGN = {'left': Qt.AlignLeft, 'center': Qt.AlignHCenter, 'right': Qt.AlignRight, 'justify': Qt.AlignJustify}
 DASH = {'solid': Qt.SolidLine, 'dashed': Qt.DashLine, 'dotted': Qt.DotLine}
 
@@ -921,12 +991,156 @@ def qfont(o):
     f.setBold(bool(o.get('bold'))); f.setItalic(bool(o.get('italic'))); f.setUnderline(bool(o.get('underline')))
     return f
 
+# ---------------------------------------------------------------- Drop cap
+def _first_letter_pos(html_src):
+    """Index of the first visible text character of an HTML fragment (outside tags)."""
+    i = 0; intag = False
+    while i < len(html_src):
+        c = html_src[i]
+        if c == '<': intag = True
+        elif c == '>': intag = False
+        elif not intag and not c.isspace():
+            return i
+        i += 1
+    return -1
+
+def _lh_mult(o):
+    lh = o.get('lh', 1.4)
+    return 1.4 if lh == 'normal' else float(lh)
+
+def _dropcap_image(o, lines=3):
+    """(QImage of the first letter sized to ~`lines` lines, html with that letter
+    replaced by a left-floated <img> placeholder). (None, original html) on failure."""
+    html_src = o.get('html', '')
+    pos = _first_letter_pos(html_src)
+    if pos < 0 or html_src[pos] in '&<': return None, html_src
+    letter = html_src[pos]
+    try:
+        base = o.get('size', 16) * _lh_mult(o); cap = max(12, int(base * lines))
+        f = qfont(o); f.setBold(True); f.setPixelSize(cap)
+        fm = QFontMetrics(f); gw = fm.horizontalAdvance(letter)
+        img = QImage(gw + 8, int(base * lines) + 2, QImage.Format_ARGB32); img.fill(Qt.transparent)
+        q = QPainter(img); q.setRenderHint(QPainter.Antialiasing | QPainter.TextAntialiasing)
+        q.setFont(f); q.setPen(QColor(o.get('color', '#222222')))
+        q.drawText(QPointF(2, fm.capHeight()), letter)   # cap-top aligned to the frame top
+        q.end()
+    except Exception:
+        return None, html_src
+    new = html_src[:pos] + '<img src="dropcap://cap" align="left">' + html_src[pos + 1:]
+    return img, new
+
+def _dropcap_web(inner, o):
+    """Wrap the first letter of a published text fragment in a floated drop-cap span."""
+    pos = _first_letter_pos(inner)
+    if pos < 0 or inner[pos] in '&<': return inner
+    size = round(o.get('size', 16) * _lh_mult(o) * 2.6)
+    style = f"float:left;font-size:{size}px;line-height:.72;padding:4px 7px 0 0;font-weight:700"
+    return inner[:pos] + f'<span style="{style}">{inner[pos]}</span>' + inner[pos + 1:]
+
+# ---------------------------------------------------------------- Spell check
+# A dictionary-backed checker. The word list is cached once in a shared folder
+# (downloaded on first use if absent); a personal list sits beside it. If no
+# dictionary can be loaded, ok() returns True for everything (never a false flag).
+SPELL_DIR = os.path.expanduser('~/.local/share/justapps-spell')
+SPELL_URL = 'https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt'
+_SPELL = None
+
+class SpellChecker:
+    COMMON = set(('dont cant wont isnt arent wasnt werent didnt doesnt dont hasnt havent '
+                  'wouldnt couldnt shouldnt im ive id ill youre youve youll hes shes theyre '
+                  'theyve theyll weve wed lets thats whats heres theres its oclock').split())
+    EXTRA = set(('analytics api apis app apps asperger aspergers aspie aspies autism autistic '
+                 'autoplay backend blog blogs bluetooth chatbot chatbots checkbox checkboxes checkout '
+                 'config cpu css dashboard dashboards dataset datasets dropdown dropdowns ecommerce '
+                 'email emails emoji emojis faq faqs favicon frontend fullstack gif gonna gotta gpu '
+                 'homepage html hyperlink hyperlinks internet intranet jpeg jpg json livestream '
+                 'livestreams login logout metadata multimedia neurodivergent neurodiverse neurodiversity '
+                 'neurotypical newsletter newsletters offline okay onboarding online password passwords '
+                 'pdf plugin plugins png podcast podcasts ram realtime scalable sidebar sidebars signin '
+                 'signout signup smartphone smartphones startup startups stim stimming stims svg thumbnail '
+                 'thumbnails toolbar toolbars tooltip tooltips uri url urls username usernames vlog vlogs '
+                 'wanna webpage webpages website websites wifi wireframe wordpress workflow workflows '
+                 'wysiwyg xml').split())
+    def __init__(self):
+        self.words = set(); self.personal = set(); self.ready = False; self._load()
+    def _load(self):
+        for p in (os.path.join(SPELL_DIR, 'words.txt'), '/usr/share/dict/words',
+                  '/usr/share/dict/british-english', '/usr/share/dict/american-english'):
+            if os.path.isfile(p):
+                try:
+                    with open(p, encoding='utf-8', errors='ignore') as fh:
+                        self.words = {l.strip().lower() for l in fh if l.strip()}
+                    if self.words: self.ready = True; break
+                except Exception: pass
+        if self.ready: self.words |= self.EXTRA
+        pf = os.path.join(SPELL_DIR, 'personal.txt')
+        if os.path.isfile(pf):
+            try:
+                with open(pf, encoding='utf-8', errors='ignore') as fh:
+                    self.personal = {l.strip().lower() for l in fh if l.strip()}
+            except Exception: pass
+    def try_download(self):
+        try:
+            import urllib.request
+            os.makedirs(SPELL_DIR, exist_ok=True)
+            data = urllib.request.urlopen(SPELL_URL, timeout=25).read()
+            with open(os.path.join(SPELL_DIR, 'words.txt'), 'wb') as fh: fh.write(data)
+            self.words = set(); self.ready = False; self._load(); return self.ready
+        except Exception: return False
+    def ok(self, w):
+        if not self.ready: return True
+        if len(w) <= 1 or any(c.isdigit() for c in w): return True
+        lw = w.lower().replace('’', "'")
+        if lw in self.personal: return True
+        if lw.replace("'", '') in self.COMMON: return True
+        if lw.endswith("'s"): lw = lw[:-2]
+        lw = lw.replace("'", '')
+        return (not lw) or (lw in self.words)
+    def add_personal(self, w):
+        w = w.lower(); self.personal.add(w)
+        try:
+            os.makedirs(SPELL_DIR, exist_ok=True)
+            with open(os.path.join(SPELL_DIR, 'personal.txt'), 'a', encoding='utf-8') as fh: fh.write(w + '\n')
+        except Exception: pass
+    def suggest(self, w, limit=8):
+        if not self.ready: return []
+        w = w.lower(); letters = 'abcdefghijklmnopqrstuvwxyz'; e1 = set()
+        splits = [(w[:i], w[i:]) for i in range(len(w) + 1)]
+        for a, b in splits:
+            if b: e1.add(a + b[1:])
+            if len(b) > 1: e1.add(a + b[1] + b[0] + b[2:])
+            for c in letters:
+                if b: e1.add(a + c + b[1:])
+                e1.add(a + c + b)
+        cand = {x for x in e1 if x in self.words}
+        return sorted(cand, key=lambda x: (x[0] != w[0], abs(len(x) - len(w)), x))[:limit]
+
+def spell():
+    global _SPELL
+    if _SPELL is None: _SPELL = SpellChecker()
+    return _SPELL
+
+def _replace_word_in_html(html_src, old, new):
+    """Replace whole-word `old` with `new` only in text (never inside tags)."""
+    out = []
+    for seg in re.split(r'(<[^>]+>)', html_src):
+        out.append(seg if seg.startswith('<') else re.sub(r'\b' + re.escape(old) + r'\b', new, seg))
+    return ''.join(out)
+
 def make_doc(o):
     doc = QTextDocument(); doc.setDocumentMargin(0); doc.setDefaultFont(qfont(o))
     opt = QTextOption(); opt.setAlignment(ALIGN.get(o.get('align', 'left'), Qt.AlignLeft))
     if o['type'] == 'artistic': opt.setWrapMode(QTextOption.NoWrap)
     doc.setDefaultTextOption(opt)
-    doc.setHtml(o.get('html', ''))
+    if o.get('dropcap') and o['type'] == 'text':
+        cap_img, dhtml = _dropcap_image(o)
+        if cap_img is not None:
+            doc.addResource(QTextDocument.ImageResource, QUrl('dropcap://cap'), cap_img)
+            doc.setHtml(dhtml)
+        else:
+            doc.setHtml(o.get('html', ''))
+    else:
+        doc.setHtml(o.get('html', ''))
     cur = QTextCursor(doc); blk = doc.begin(); gap = round(o.get('size', 16) * o.get('pgap', .6))
     while blk.isValid():
         cur.setPosition(blk.position())
@@ -1021,6 +1235,18 @@ def obj_pen(o):
     return QPen(Qt.NoPen)
 
 def obj_brush(o):
+    g = o.get('grad')
+    if g:
+        w, h = o['w'], o['h']
+        if g.get('type') == 'radial':
+            rg = QRadialGradient(w / 2, h / 2, max(w, h) / 2)
+            rg.setColorAt(0, QColor(g.get('c1', '#ffffff'))); rg.setColorAt(1, QColor(g.get('c2', '#000000')))
+            return QBrush(rg)
+        ang = math.radians(g.get('angle', 90))
+        cx, cy, dx, dy = w / 2, h / 2, math.cos(ang), math.sin(ang)
+        lg = QLinearGradient(cx - dx * w / 2, cy - dy * h / 2, cx + dx * w / 2, cy + dy * h / 2)
+        lg.setColorAt(0, QColor(g.get('c1', '#ffffff'))); lg.setColorAt(1, QColor(g.get('c2', '#000000')))
+        return QBrush(lg)
     return QBrush(QColor(o['fill'])) if o.get('fill') else QBrush(Qt.NoBrush)
 
 def nav_items(site, o=None):
@@ -1040,10 +1266,220 @@ def nav_label(o, q):
     """Text shown for a nav item — a per-item custom label if the bar defines one, else the page title."""
     return ((o or {}).get('labels') or {}).get(q['id']) or q['title']
 
+# ---------------------------------------------------------------- QuickShapes
+# A gallery of preset shapes (PagePlus-style). A 'shape' object carries
+# o['shape'] = one of QS_KEYS; 'rect'/'ellipse' keep their fast native paths,
+# everything else is drawn from quickshape_path() on the canvas / in PDF, and
+# published as an inline SVG <path> (so curves and gradients survive).
+QUICKSHAPES = [
+    ('rect', 'Rectangle'), ('ellipse', 'Ellipse'),
+    ('triangle', 'Triangle'), ('rtriangle', 'Right triangle'),
+    ('diamond', 'Diamond'), ('pentagon', 'Pentagon'),
+    ('hexagon', 'Hexagon'), ('octagon', 'Octagon'),
+    ('star5', 'Star (5-point)'), ('star6', 'Star (6-point)'),
+    ('arrow', 'Arrow'), ('darrow', 'Double arrow'),
+    ('chevron', 'Chevron'), ('plus', 'Cross'),
+    ('parallelogram', 'Parallelogram'), ('trapezoid', 'Trapezoid'),
+    ('heart', 'Heart'), ('lightning', 'Lightning bolt'),
+    ('speech', 'Speech bubble'), ('cloud', 'Cloud'),
+]
+QS_KEYS = [k for k, _ in QUICKSHAPES]
+
+def _qs_poly(pts):
+    pp = QPainterPath(); pp.addPolygon(QPolygonF([QPointF(x, y) for x, y in pts])); pp.closeSubpath(); return pp
+
+def quickshape_path(name, w, h):
+    """A QPainterPath for a QuickShape filling the rect (0,0,w,h)."""
+    cx, cy = w / 2, h / 2
+    if name == 'ellipse':
+        pp = QPainterPath(); pp.addEllipse(QRectF(0, 0, w, h)); return pp
+    if name == 'triangle':  return _qs_poly([(cx, 0), (w, h), (0, h)])
+    if name == 'rtriangle': return _qs_poly([(0, 0), (0, h), (w, h)])
+    if name == 'diamond':   return _qs_poly([(cx, 0), (w, cy), (cx, h), (0, cy)])
+    if name in ('pentagon', 'hexagon', 'octagon'):
+        n = {'pentagon': 5, 'hexagon': 6, 'octagon': 8}[name]; off = -math.pi / 2
+        return _qs_poly([(cx + cx * math.cos(off + i * 2 * math.pi / n),
+                          cy + cy * math.sin(off + i * 2 * math.pi / n)) for i in range(n)])
+    if name in ('star5', 'star6'):
+        n = 5 if name == 'star5' else 6; off = -math.pi / 2; inner = 0.42 if n == 5 else 0.5
+        pts = []
+        for i in range(n * 2):
+            k = 1.0 if i % 2 == 0 else inner; a = off + i * math.pi / n
+            pts.append((cx + cx * k * math.cos(a), cy + cy * k * math.sin(a)))
+        return _qs_poly(pts)
+    if name == 'arrow':
+        return _qs_poly([(0, h * .3), (w * .6, h * .3), (w * .6, 0), (w, cy),
+                         (w * .6, h), (w * .6, h * .7), (0, h * .7)])
+    if name == 'darrow':
+        return _qs_poly([(0, cy), (w * .25, 0), (w * .25, h * .3), (w * .75, h * .3), (w * .75, 0),
+                         (w, cy), (w * .75, h), (w * .75, h * .7), (w * .25, h * .7), (w * .25, h)])
+    if name == 'chevron':
+        return _qs_poly([(0, 0), (w * .6, 0), (w, cy), (w * .6, h), (0, h), (w * .4, cy)])
+    if name == 'plus':
+        t = 1 / 3
+        return _qs_poly([(w * t, 0), (w * (1 - t), 0), (w * (1 - t), h * t), (w, h * t), (w, h * (1 - t)),
+                         (w * (1 - t), h * (1 - t)), (w * (1 - t), h), (w * t, h), (w * t, h * (1 - t)),
+                         (0, h * (1 - t)), (0, h * t), (w * t, h * t)])
+    if name == 'parallelogram': return _qs_poly([(w * .25, 0), (w, 0), (w * .75, h), (0, h)])
+    if name == 'trapezoid':     return _qs_poly([(w * .25, 0), (w * .75, 0), (w, h), (0, h)])
+    if name == 'lightning':
+        return _qs_poly([(w * .55, 0), (w * .1, h * .55), (w * .45, h * .55), (w * .3, h),
+                         (w * .9, h * .4), (w * .52, h * .4)])
+    if name == 'heart':
+        pp = QPainterPath(); pp.moveTo(w * .5, h * .25)
+        pp.cubicTo(w * .5, h * .1, w * .1, h * .1, w * .1, h * .35)
+        pp.cubicTo(w * .1, h * .55, w * .35, h * .7, w * .5, h * .9)
+        pp.cubicTo(w * .65, h * .7, w * .9, h * .55, w * .9, h * .35)
+        pp.cubicTo(w * .9, h * .1, w * .5, h * .1, w * .5, h * .25); pp.closeSubpath(); return pp
+    if name == 'speech':
+        bh = h * .78; rad = min(w, bh) * .18
+        pp = QPainterPath(); pp.addRoundedRect(QRectF(0, 0, w, bh), rad, rad)
+        tail = QPainterPath(); tail.moveTo(w * .28, bh - 1); tail.lineTo(w * .2, h); tail.lineTo(w * .5, bh - 1)
+        tail.closeSubpath(); return pp.united(tail)
+    if name == 'cloud':
+        def _ell(x, y, ww, hh):
+            q = QPainterPath(); q.addEllipse(QRectF(x, y, ww, hh)); return q
+        pp = _ell(w * .04, h * .45, w * .44, h * .48)
+        for rc in [(w * .18, h * .12, w * .42, h * .62),
+                   (w * .44, h * .22, w * .40, h * .54),
+                   (w * .52, h * .45, w * .44, h * .48)]:
+            pp = pp.united(_ell(*rc))
+        return pp.simplified()
+    pp = QPainterPath(); pp.addRect(QRectF(0, 0, w, h)); return pp
+
+def qpath_to_svg_d(path):
+    """Serialise a QPainterPath to an SVG path 'd' string."""
+    d = []; i = 0; n = path.elementCount()
+    while i < n:
+        e = path.elementAt(i)
+        if e.type == QPainterPath.MoveToElement: d.append(f'M{e.x:.2f} {e.y:.2f}'); i += 1
+        elif e.type == QPainterPath.LineToElement: d.append(f'L{e.x:.2f} {e.y:.2f}'); i += 1
+        elif e.type == QPainterPath.CurveToElement:
+            c2 = path.elementAt(i + 1); ep = path.elementAt(i + 2)
+            d.append(f'C{e.x:.2f} {e.y:.2f} {c2.x:.2f} {c2.y:.2f} {ep.x:.2f} {ep.y:.2f}'); i += 3
+        else: i += 1
+    return ' '.join(d) + ' Z'
+
+def shape_svg(o):
+    """Inline SVG for a QuickShape (anything other than a plain rect/ellipse)."""
+    w, h = o['w'], o['h']; sw = o.get('strokeW', 0) if o.get('stroke') else 0
+    ins = sw / 2
+    path = quickshape_path(o.get('shape', 'rect'), max(1, w - sw), max(1, h - sw))
+    d = qpath_to_svg_d(path)
+    g = o.get('grad'); defs = ''; fill = 'none'
+    if g:
+        gid = 'qsg_' + re.sub(r'[^A-Za-z0-9]', '', str(o.get('id', 'x')))
+        if g.get('type') == 'radial':
+            defs = (f'<radialGradient id="{gid}" cx="50%" cy="50%" r="50%">'
+                    f'<stop offset="0%" stop-color="{g.get("c1", "#fff")}"/>'
+                    f'<stop offset="100%" stop-color="{g.get("c2", "#000")}"/></radialGradient>')
+        else:
+            rad = math.radians(g.get('angle', 90))
+            x1, y1 = 50 - 50 * math.cos(rad), 50 - 50 * math.sin(rad)
+            x2, y2 = 50 + 50 * math.cos(rad), 50 + 50 * math.sin(rad)
+            defs = (f'<linearGradient id="{gid}" x1="{x1:.1f}%" y1="{y1:.1f}%" x2="{x2:.1f}%" y2="{y2:.1f}%">'
+                    f'<stop offset="0%" stop-color="{g.get("c1", "#fff")}"/>'
+                    f'<stop offset="100%" stop-color="{g.get("c2", "#000")}"/></linearGradient>')
+        fill = f'url(#{gid})'
+    elif o.get('fill'):
+        fill = o['fill']
+    stroke = ''
+    if sw:
+        da = {'dashed': f' stroke-dasharray="{sw * 4} {sw * 2}"', 'dotted': f' stroke-dasharray="{sw} {sw}"'}.get(o.get('dash'), '')
+        stroke = f' stroke="{o.get("stroke")}" stroke-width="{sw}" stroke-linejoin="miter"{da}'
+    return (f'<svg width="{w:g}" height="{h:g}" viewBox="0 0 {w:g} {h:g}" style="display:block;overflow:visible">'
+            f'{("<defs>" + defs + "</defs>") if defs else ""}'
+            f'<path d="{d}" transform="translate({ins:g},{ins:g})" fill="{fill}"{stroke}/></svg>')
+
+# ---------------------------------------------------------------- Object effects
+# Drop shadow / outer glow (PagePlus Filter Effects). o['shadow'] / o['glow'] =
+# {dx,dy,blur,color,opacity}. Drawn as a blurred colour stamp behind the object
+# (canvas + PDF, via draw_object_fx) and as a CSS filter at publish (fx_css).
+def _rgba(hexcol, opacity):
+    c = QColor(hexcol); return f"rgba({c.red()},{c.green()},{c.blue()},{opacity / 100.0:g})"
+
+def obj_silhouette_path(o):
+    """The filled outline of an object in local (0,0,w,h) coords — for effects."""
+    t = o['type']; w, h = o['w'], o['h']; rad = o.get('radius', 0)
+    pp = QPainterPath()
+    if t == 'shape':
+        sh = o.get('shape', 'rect')
+        if sh == 'ellipse': pp.addEllipse(QRectF(0, 0, w, h))
+        elif sh != 'rect' and sh in QS_KEYS: return quickshape_path(sh, w, h)
+        elif rad: pp.addRoundedRect(QRectF(0, 0, w, h), rad, rad)
+        else: pp.addRect(QRectF(0, 0, w, h))
+        return pp
+    if t == 'line': return None
+    if rad: pp.addRoundedRect(QRectF(0, 0, w, h), rad, rad)
+    else: pp.addRect(QRectF(0, 0, w, h))
+    return pp
+
+def _fx_image(path, w, h, color, blur, pad):
+    """A blurred, solid-colour stamp of `path` (QImage) with `pad` margin all round.
+    Blur is a downscale→smooth-upscale (a cheap Gaussian) — no QApplication needed."""
+    W, H = int(w + 2 * pad), int(h + 2 * pad)
+    base = QImage(W, H, QImage.Format_ARGB32_Premultiplied); base.fill(Qt.transparent)
+    q = QPainter(base); q.setRenderHint(QPainter.Antialiasing)
+    q.translate(pad, pad); q.setPen(Qt.NoPen); q.setBrush(QColor(color)); q.drawPath(path); q.end()
+    if blur <= 0: return base
+    f = max(2, int(round(blur / 1.5)))
+    sw, sh = max(1, W // f), max(1, H // f)
+    small = base.scaled(sw, sh, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+    return small.scaled(W, H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+
+def draw_object_fx(p, o):
+    """Draw outer glow and/or drop shadow behind an object (canvas + PDF)."""
+    sh = o.get('shadow'); gl = o.get('glow')
+    if not sh and not gl: return
+    sil = obj_silhouette_path(o)
+    if sil is None: return
+    w, h = o['w'], o['h']
+    if gl:
+        blur = max(1, gl.get('blur', 12)); pad = blur + 6
+        img = _fx_image(sil, w, h, gl.get('color', '#ffe08a'), blur, pad)
+        p.save(); p.setOpacity(p.opacity() * gl.get('opacity', 70) / 100.0)
+        p.drawImage(QPointF(-pad, -pad), img); p.drawImage(QPointF(-pad, -pad), img); p.restore()
+    if sh:
+        blur = max(0, sh.get('blur', 8)); pad = blur + 6
+        img = _fx_image(sil, w, h, sh.get('color', '#000000'), blur, pad)
+        p.save(); p.setOpacity(p.opacity() * sh.get('opacity', 45) / 100.0)
+        p.drawImage(QPointF(sh.get('dx', 6) - pad, sh.get('dy', 6) - pad), img); p.restore()
+
+def fx_css(o):
+    """CSS `filter` implementing an object's drop-shadow/glow at publish."""
+    parts = []; sh = o.get('shadow'); gl = o.get('glow')
+    if sh:
+        parts.append(f"drop-shadow({sh.get('dx', 6):g}px {sh.get('dy', 6):g}px "
+                     f"{max(0, sh.get('blur', 8)):g}px {_rgba(sh.get('color', '#000'), sh.get('opacity', 45))})")
+    if gl:
+        c = _rgba(gl.get('color', '#ffe08a'), gl.get('opacity', 70)); b = max(1, gl.get('blur', 12))
+        parts.append(f"drop-shadow(0 0 {b:g}px {c}) drop-shadow(0 0 {b:g}px {c})")
+    return ('filter:' + ' '.join(parts) + ';') if parts else ''
+
+# ---------------------------------------------------------------- Lines & arrowheads
+def _line_ends(o):
+    """The two endpoints (x1,y1,x2,y2) of a line object within its box."""
+    pw = max(1, o.get('strokeW', 2)); w, h = o['w'], o['h']
+    if h <= pw + 2: return (0, h / 2, w, h / 2)
+    if w <= pw + 2: return (w / 2, 0, w / 2, h)
+    if o.get('flip'): return (0, h, w, 0)
+    return (0, 0, w, h)
+
+def _arrowhead_pts(fx, fy, tx, ty, pw):
+    """Triangle points for an arrowhead at (tx,ty) pointing away from (fx,fy)."""
+    ang = math.atan2(ty - fy, tx - fx); size = 7 + pw * 2.2
+    a1, a2 = ang + math.radians(152), ang - math.radians(152)
+    return [(tx, ty), (tx + size * math.cos(a1), ty + size * math.sin(a1)),
+            (tx + size * math.cos(a2), ty + size * math.sin(a2))]
+
+def _svg_poly(pts, color):
+    return f'<polygon points="{" ".join(f"{a:g},{b:g}" for a, b in pts)}" fill="{color}"/>'
+
 def paint_obj(p, o, site, page, hide_text=False, edit=True):
     t, w, h = o['type'], o['w'], o['h']
     r = QRectF(0, 0, w, h)
     rad = o.get('radius', 0)
+    draw_object_fx(p, o)
     def box():
         sw = o.get('strokeW', 0) if o.get('stroke') else 0
         rr = r.adjusted(sw / 2, sw / 2, -sw / 2, -sw / 2)
@@ -1053,16 +1489,27 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
     if t == 'shape':
         sw = o.get('strokeW', 0); rr = r.adjusted(sw / 2, sw / 2, -sw / 2, -sw / 2)
         p.setPen(obj_pen(o)); p.setBrush(obj_brush(o))
-        if o.get('shape') == 'ellipse': p.drawEllipse(rr)
-        else: p.drawRoundedRect(rr, rad, rad) if rad else p.drawRect(rr)
+        sh = o.get('shape', 'rect')
+        if sh == 'ellipse': p.drawEllipse(rr)
+        elif sh == 'rect' or sh not in QS_KEYS:
+            p.drawRoundedRect(rr, rad, rad) if rad else p.drawRect(rr)
+        else:
+            p.save(); p.translate(rr.x(), rr.y())
+            p.drawPath(quickshape_path(sh, rr.width(), rr.height())); p.restore()
     elif t == 'line':
         pw = max(1, o.get('strokeW', 2))
         pn = QPen(QColor(o.get('stroke', '#000')), pw); pn.setStyle(DASH.get(o.get('dash', 'solid'))); pn.setCapStyle(Qt.FlatCap)
         p.setPen(pn)
-        if h <= pw + 2: p.drawLine(QPointF(0, h / 2), QPointF(w, h / 2))
-        elif w <= pw + 2: p.drawLine(QPointF(w / 2, 0), QPointF(w / 2, h))
-        elif o.get('flip'): p.drawLine(QPointF(0, h), QPointF(w, 0))
-        else: p.drawLine(QPointF(0, 0), QPointF(w, h))
+        x1, y1, x2, y2 = _line_ends(o)
+        p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+        arr = o.get('arrow', 'none')
+        if arr != 'none':
+            p.save(); p.setPen(Qt.NoPen); p.setBrush(QColor(o.get('stroke', '#000')))
+            if arr in ('end', 'both'):
+                p.drawPolygon(QPolygonF([QPointF(a, b) for a, b in _arrowhead_pts(x1, y1, x2, y2, pw)]))
+            if arr in ('start', 'both'):
+                p.drawPolygon(QPolygonF([QPointF(a, b) for a, b in _arrowhead_pts(x2, y2, x1, y1, pw)]))
+            p.restore()
     elif t == 'picture':
         path = QPainterPath(); path.addRoundedRect(r, rad, rad)
         p.save(); p.setClipPath(path)
@@ -1086,6 +1533,40 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
                 lbl = QRectF(0, h / 2 - 14, w, 28); p.fillRect(lbl.adjusted(w * .15, 0, -w * .15, 0), QColor('#dde2e5'))
                 p.drawText(lbl, Qt.AlignCenter, 'Double-click to add a picture')
         p.restore()
+        if o.get('strokeW', 0) > 0:
+            p.setPen(obj_pen(o)); p.setBrush(Qt.NoBrush); p.drawRoundedRect(r, rad, rad)
+    elif t == 'lightbox':
+        # Same frame as a picture, plus a magnifier badge so it reads as "click to enlarge".
+        path = QPainterPath(); path.addRoundedRect(r, rad, rad)
+        p.save(); p.setClipPath(path)
+        pm = pixmap_for(site, o.get('src')) if o.get('src') else None
+        if pm and not pm.isNull():
+            pw_, ph_ = pm.width(), pm.height(); fit = o.get('fit', 'cover')
+            if fit == 'stretch':
+                p.drawPixmap(r, pm, QRectF(0, 0, pw_, ph_))
+            elif fit == 'contain':
+                sc = min(w / pw_, h / ph_); tw, th = pw_ * sc, ph_ * sc
+                if o.get('fill'): p.fillRect(r, QColor(o['fill']))
+                p.drawPixmap(QRectF((w - tw) / 2, (h - th) / 2, tw, th), pm, QRectF(0, 0, pw_, ph_))
+            else:
+                sc = max(w / pw_, h / ph_); sw_, sh_ = w / sc, h / sc
+                p.drawPixmap(r, pm, QRectF((pw_ - sw_) / 2, (ph_ - sh_) / 2, sw_, sh_))
+        else:
+            p.fillRect(r, QColor('#dde2e5')); p.setPen(QPen(QColor('#b5bdc2'), 1))
+            p.drawLine(r.topLeft(), r.bottomRight()); p.drawLine(r.topRight(), r.bottomLeft())
+            if edit:
+                f = QFont(); f.setPixelSize(13); p.setFont(f); p.setPen(QColor('#4b555b'))
+                lbl = QRectF(0, h / 2 - 14, w, 28); p.fillRect(lbl.adjusted(w * .15, 0, -w * .15, 0), QColor('#dde2e5'))
+                p.drawText(lbl, Qt.AlignCenter, 'Double-click to add a picture')
+        p.restore()
+        # magnifier badge, bottom-right
+        bs = max(18, min(w, h) * 0.18); bx, by = w - bs - 8, h - bs - 8
+        p.setPen(Qt.NoPen); p.setBrush(QColor(0, 0, 0, 120))
+        p.drawRoundedRect(QRectF(bx, by, bs, bs), bs * 0.22, bs * 0.22)
+        p.setPen(QPen(QColor('#ffffff'), max(1.5, bs * 0.09))); p.setBrush(Qt.NoBrush)
+        rr = bs * 0.26; cx2, cy2 = bx + bs * 0.42, by + bs * 0.42
+        p.drawEllipse(QPointF(cx2, cy2), rr, rr)
+        p.drawLine(QPointF(cx2 + rr * 0.7, cy2 + rr * 0.7), QPointF(bx + bs * 0.82, by + bs * 0.82))
         if o.get('strokeW', 0) > 0:
             p.setPen(obj_pen(o)); p.setBrush(Qt.NoBrush); p.drawRoundedRect(r, rad, rad)
     elif t == 'gallery':
@@ -1209,6 +1690,19 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
         p.setPen(Qt.NoPen); p.setBrush(QColor(o.get('accent', '#2a7d6b')))
         br = QRectF(w - bw, 0, bw, h); p.drawRoundedRect(br, 6, 6)
         p.setFont(fb); p.setPen(QColor('#ffffff')); p.drawText(br, Qt.AlignCenter, lbl)
+    elif t == 'audio':
+        p.setPen(Qt.NoPen); p.setBrush(QColor(o.get('fill', '#eef1f4')))
+        rr = o.get('radius', 8); p.drawRoundedRect(QRectF(0, 0, w, h), rr, rr)
+        cr = min(h * 0.34, 15); cx, cy = cr + 12, h / 2
+        p.setBrush(QColor(o.get('accent', '#2a7d6b'))); p.drawEllipse(QPointF(cx, cy), cr, cr)
+        p.setBrush(QColor('#ffffff'))
+        p.drawPolygon(QPolygonF([QPointF(cx - cr * 0.3, cy - cr * 0.45), QPointF(cx - cr * 0.3, cy + cr * 0.45), QPointF(cx + cr * 0.5, cy)]))
+        lx = cx + cr + 12
+        p.save(); p.setPen(QPen(QColor(o.get('color', '#2b2b2b')), 2)); p.setOpacity(0.2)
+        p.drawLine(QPointF(lx, cy), QPointF(w - 12, cy)); p.restore()
+        p.setPen(QColor(o.get('color', '#2b2b2b'))); p.setFont(qfont(o))
+        cap = o.get('title') or ('Audio' if (o.get('src') or o.get('url')) else 'Audio — double-click to add a file or link')
+        p.drawText(QRectF(lx, 2, w - lx - 10, h - 4), Qt.AlignLeft | Qt.AlignVCenter, cap)
     elif t == 'youtube':
         vid = re.sub(r'[^A-Za-z0-9_-]', '', o.get('video', ''))[:11]
         pm = _YT_THUMBS.get(vid) if vid else None
@@ -1228,6 +1722,35 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
             cap = ('YouTube · ' + o['video']) if o.get('video') else 'YouTube video — double-click to add a link'
             p.setFont(qfont(o)); p.setPen(QColor('#aaaaaa'))
             p.drawText(QRectF(6, h - 24, w - 12, 20), Qt.AlignHCenter | Qt.AlignVCenter, cap)
+    elif t == 'vimeo':
+        # Editor placeholder — the embedded player appears on preview/publish.
+        p.fillRect(QRectF(0, 0, w, h), QColor('#0f0f0f'))
+        bw2 = max(16, min(w, h) * 0.16); cx, cy = w / 2, h / 2
+        p.setPen(Qt.NoPen); p.setBrush(QColor(0x1a, 0xb7, 0xea, 235))   # Vimeo blue
+        p.drawRoundedRect(QRectF(cx - bw2, cy - bw2 * 0.7, bw2 * 2, bw2 * 1.4), bw2 * 0.35, bw2 * 0.35)
+        p.setBrush(QColor('#ffffff'))
+        p.drawPolygon(QPolygonF([QPointF(cx - bw2 * 0.28, cy - bw2 * 0.45), QPointF(cx - bw2 * 0.28, cy + bw2 * 0.45), QPointF(cx + bw2 * 0.5, cy)]))
+        cap = ('Vimeo · ' + o['video']) if o.get('video') else 'Vimeo video — double-click to add a link'
+        p.setFont(qfont(o)); p.setPen(QColor('#aaaaaa'))
+        p.drawText(QRectF(6, h - 24, w - 12, 20), Qt.AlignHCenter | Qt.AlignVCenter, cap)
+    elif t == 'map':
+        # Editor placeholder — the real interactive map only appears on preview/publish.
+        p.fillRect(QRectF(0, 0, w, h), QColor('#e8eaed'))
+        # faint "road" lines so it reads as a map
+        p.setPen(QPen(QColor('#cfd4da'), 2))
+        for gy in range(int(h / 48) + 1):
+            p.drawLine(QPointF(0, gy * 48 + 24), QPointF(w, gy * 48 + 24))
+        for gx in range(int(w / 48) + 1):
+            p.drawLine(QPointF(gx * 48 + 24, 0), QPointF(gx * 48 + 24, h))
+        # a map pin in the centre
+        cx, cy = w / 2, h / 2 - 6; pin = max(14, min(w, h) * 0.12)
+        p.setPen(Qt.NoPen); p.setBrush(QColor('#d93025'))
+        p.drawEllipse(QPointF(cx, cy), pin, pin)
+        p.drawPolygon(QPolygonF([QPointF(cx - pin * 0.7, cy + pin * 0.4), QPointF(cx + pin * 0.7, cy + pin * 0.4), QPointF(cx, cy + pin * 1.8)]))
+        p.setBrush(QColor('#ffffff')); p.drawEllipse(QPointF(cx, cy), pin * 0.42, pin * 0.42)
+        p.setFont(qfont(o)); p.setPen(QColor('#5f6368'))
+        cap = ('Map · ' + o['place']) if o.get('place') else 'Google Map — double-click to set a location'
+        p.drawText(QRectF(6, h - 26, w - 12, 20), Qt.AlignHCenter | Qt.AlignVCenter, cap)
     elif t == 'share':
         f = qfont(dict(o, bold=True)); p.setFont(f); fm = QFontMetrics(f)
         x, bh, gap = 0, fm.height() + 18, o.get('gap', 8)
@@ -1246,6 +1769,34 @@ def paint_obj(p, o, site, page, hide_text=False, edit=True):
         f = QFont('monospace'); f.setPixelSize(12); p.setFont(f); p.setPen(QColor('#3b454b'))
         first = (o.get('code', '').strip().splitlines() or [''])[0]
         p.drawText(r.adjusted(10, 8, -10, -8), Qt.AlignLeft | Qt.AlignTop, '</> HTML fragment (shows when you preview or publish)\n' + first)
+    elif t == 'newsfeed':
+        hub = page
+        if o.get('source'):
+            hub = next((q for q in site['pages'] if q['id'] == o['source']), page)
+        items = news_items_for(site, hub, with_date=False) if page else []   # fast: no byline scan on repaint
+        acc = QColor(o.get('accent', '#2a7d6b'))
+        p.setPen(QPen(QColor('#d4dade'), 1)); p.setBrush(QColor('#f3f6f8'))
+        p.drawRoundedRect(r.adjusted(.5, .5, -.5, -.5), 8, 8)
+        f = qfont(o); fb = QFont(f); fb.setBold(True)
+        if not items:
+            p.setFont(f); p.setPen(QColor('#8a949a'))
+            p.drawText(r, Qt.AlignCenter, '📰 News Feed\nAdd news pages under this page, then they appear here.')
+        else:
+            y, cardh, gap, pad = 8.0, 66.0, 10.0, 8.0
+            for it in items:
+                if y + cardh > h - 2: break
+                cr = QRectF(pad, y, w - 2 * pad, cardh)
+                p.setPen(QPen(QColor('#dfe5e9'), 1)); p.setBrush(QColor('#ffffff')); p.drawRoundedRect(cr, 6, 6)
+                tb = QRectF(cr.x() + 6, cr.y() + 6, cardh - 12, cardh - 12)
+                p.setPen(Qt.NoPen); p.setBrush(QColor('#e7edf0')); p.drawRoundedRect(tb, 4, 4)
+                tx = tb.right() + 10; tw = cr.right() - tx - 8
+                p.setFont(fb); p.setPen(acc)
+                p.drawText(QRectF(tx, cr.y() + 8, tw, 20), Qt.AlignVCenter | Qt.AlignLeft,
+                           QFontMetrics(fb).elidedText(it['title'], Qt.ElideRight, int(tw)))
+                p.setFont(f); p.setPen(QColor('#6b7378'))
+                p.drawText(QRectF(tx, cr.y() + 30, tw, cardh - 36), Qt.TextWordWrap,
+                           QFontMetrics(f).elidedText(it['excerpt'] or '', Qt.ElideRight, int(tw) * 2))
+                y += cardh + gap
 
 def placed(o, site, page_h):
     """A master object set to stay at the bottom of the page keeps its distance from the bottom edge."""
@@ -1289,7 +1840,9 @@ def css_font(f):
     return f"'{f}', {fb}"
 
 PUBLISH_CSS = """*{box-sizing:border-box}
+html{color-scheme:only light}
 body{margin:0;padding:0}
+.obj-row{display:contents}
 .pf-page{position:relative;margin:0 auto;overflow:hidden;font-family:Arial,sans-serif;color:#222;font-size:16px}
 .obj{position:absolute;margin:0;display:block}
 a.obj{color:inherit;text-decoration:none}
@@ -1313,7 +1866,26 @@ a.obj{color:inherit;text-decoration:none}
 .nav-underline a.on{box-shadow:inset 0 -2px 0 var(--na)}
 .nav-tabs>.nv>a{background:rgba(0,0,0,.06);border-radius:6px}
 .nav-tabs>.nv>a.on{background:var(--na);color:var(--nai)}
+/* Hamburger scaffolding — inert on desktop: the items lay out via display:contents
+   exactly as before, and the burger/checkbox/backdrop are hidden. The @media block
+   in a responsive publish switches this into a slide-in sidebar. */
+.obj-nav .nav-toggle{display:none}
+.obj-nav .nav-links{display:contents}
+.obj-nav .nav-burger{display:none;flex-direction:column;justify-content:center;gap:5px;width:44px;height:44px;padding:9px;cursor:pointer;box-sizing:border-box}
+.obj-nav .nav-burger .b{display:block;width:100%;height:3px;border-radius:2px;background:currentColor}
+.obj-nav .nav-backdrop{display:none}
 .nav-plain a.on{color:var(--na)}
+/* News Feed — a scrollable list of story cards, rendered inline at publish */
+.obj-newsfeed{overflow:hidden}
+.nf-scroll{display:flex;flex-direction:column;gap:12px;height:100%;overflow-y:auto;overflow-x:hidden;padding:2px;-webkit-overflow-scrolling:touch}
+.nf-card{display:flex;flex:0 0 auto;align-items:stretch;background:var(--nfbg,#fff);border:1px solid rgba(0,0,0,.1);border-radius:10px;overflow:hidden;text-decoration:none;color:var(--nfink,#1f2a30);box-shadow:0 1px 3px rgba(0,0,0,.08);transition:box-shadow .15s ease,transform .15s ease}
+.nf-card:hover{box-shadow:0 5px 16px rgba(0,0,0,.17);transform:translateY(-1px)}
+.nf-thumb{flex:0 0 104px;align-self:stretch;min-height:88px;background-size:cover;background-position:center;background-color:#e7edf0}
+.nf-body{display:block;padding:12px 15px;min-width:0}
+.nf-title{display:block;font-weight:700;font-size:1.03em;line-height:1.25;color:var(--nfacc,#2a7d6b);margin-bottom:3px}
+.nf-date{display:block;font-size:.78em;opacity:.6;margin-bottom:6px}
+.nf-excerpt{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:.9em;line-height:1.42;opacity:.92}
+.nf-empty{display:block;padding:22px;text-align:center;opacity:.6}
 .obj-table table{width:100%;height:100%;border-collapse:collapse;table-layout:fixed}
 .obj-table td{border:1px solid var(--tb);padding:0 10px}
 .obj-table tr:first-child td{background:var(--th);font-weight:700}
@@ -1327,6 +1899,18 @@ a.obj{color:inherit;text-decoration:none}
 .obj-search button{flex:none;font:inherit;font-weight:700;padding:10px 20px;border:0;border-radius:6px;background:var(--na);color:#fff;cursor:pointer}
 .obj-youtube{overflow:hidden;background:#000}
 .obj-youtube iframe{display:block;width:100%;height:100%;border:0}
+.obj-vimeo{overflow:hidden;background:#000}
+.obj-vimeo iframe{display:block;width:100%;height:100%;border:0}
+.obj-map{overflow:hidden;background:#e8eaed}
+.obj-map iframe{display:block;width:100%;height:100%;border:0}
+.obj-lightbox{overflow:hidden;cursor:zoom-in}
+.obj-lightbox img{width:100%;height:100%;display:block}
+#lb-overlay{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.88);cursor:zoom-out}
+#lb-overlay.on{display:flex}
+#lb-overlay img{max-width:92vw;max-height:88vh;box-shadow:0 10px 40px rgba(0,0,0,.5);border-radius:2px}
+#lb-overlay figcaption{position:absolute;bottom:18px;left:0;right:0;text-align:center;color:#fff;font:15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:0 20px}
+#lb-close{position:absolute;top:14px;right:20px;color:#fff;font-size:34px;line-height:1;cursor:pointer;opacity:.85;user-select:none}
+#lb-close:hover{opacity:1}
 """
 
 def esc(s): return H.escape(str(s), quote=True)
@@ -1339,7 +1923,12 @@ def text_css(o):
 
 def box_css(o):
     s = ''
-    if o.get('fill'): s += f"background:{o['fill']};"
+    g = o.get('grad')
+    if g and g.get('type') == 'radial':
+        s += f"background:radial-gradient(circle, {g.get('c1', '#fff')}, {g.get('c2', '#000')});"
+    elif g:
+        s += f"background:linear-gradient({90 - g.get('angle', 90)}deg, {g.get('c1', '#fff')}, {g.get('c2', '#000')});"
+    elif o.get('fill'): s += f"background:{o['fill']};"
     if o.get('strokeW', 0) > 0 and o.get('stroke'): s += f"border:{o['strokeW']}px {o.get('dash', 'solid')} {o['stroke']};"
     if o.get('radius'): s += f"border-radius:{o['radius']}px;"
     return s
@@ -1358,11 +1947,198 @@ def clean_html(fragment, site=None, asset=None):
     fragment = re.sub(r'\s*style="\s*"', '', fragment)
     return fragment.strip()
 
+# ---------------------------------------------------------------- News feed
+# A News Feed object lists the sub-pages of the page it sits on (the two-level
+# nav model: a level>0 page belongs to the preceding level-0 page). The cards
+# are rendered inline at publish (NOT fetched) so they work offline / over
+# file:// / in the in-app preview, and so search engines see the links.
+_MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+_MONIX = {m: i + 1 for i, m in enumerate(_MON)}
+
+def page_children(site, hub):
+    """Pages that belong under `hub` in the flat two-level model (the run of
+    level>0 pages that follows a level-0 page, up to the next level-0 page)."""
+    pages = site['pages']
+    try:
+        i = pages.index(hub)
+    except ValueError:
+        return []
+    if hub.get('level'):
+        return []                      # only a top-level page has children here
+    out = []
+    for p in pages[i + 1:]:
+        if not p.get('level'):
+            break
+        out.append(p)
+    return out
+
+def _to_iso(s):
+    """Parse 'YYYY-MM-DD', '15 Nov 2013', 'Nov 15, 2013' → 'YYYY-MM-DD' ('' if unparseable)."""
+    s = (s or '').strip()
+    m = re.match(r'(\d{4})-(\d{2})-(\d{2})$', s)
+    if m:
+        return s
+    m = re.match(r'(\d{1,2})\s+([A-Za-z]{3,9})\.?\s+(\d{4})$', s)
+    if m:
+        mo = _MONIX.get(m.group(2)[:3].lower())
+        if mo:
+            return f'{int(m.group(3)):04d}-{mo:02d}-{int(m.group(1)):02d}'
+    m = re.match(r'([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$', s)
+    if m:
+        mo = _MONIX.get(m.group(1)[:3].lower())
+        if mo:
+            return f'{int(m.group(3)):04d}-{mo:02d}-{int(m.group(2)):02d}'
+    return ''
+
+def _date_label(iso):
+    """'2013-11-15' → '15 Nov 2013' for display (passes anything else through)."""
+    m = re.match(r'(\d{4})-(\d{2})-(\d{2})', iso or '')
+    if not m:
+        return iso or ''
+    y, mo, da = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return f'{da} {_MON[mo - 1].title()} {y}' if 1 <= mo <= 12 else iso
+
+def news_date(page):
+    """A page's published date as ISO: the explicit page['date'] if set, else a
+    date lifted from a 'posted <date> by …' byline in the page text (the Google
+    Sites imports carry these), else ''."""
+    d = (page.get('date') or '').strip()
+    if d:
+        return _to_iso(d)
+    txt = _page_text(page)
+    m = re.search(r'posted\s+(?:on\s+)?(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4}|[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})', txt, re.I)
+    if not m:
+        m = re.search(r'\b(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4})\b', txt)
+    return _to_iso(m.group(1)) if m else ''
+
+def _news_image_key(page, site):
+    """Asset key for a card thumbnail: the page's first real picture, else its OG image."""
+    for o in page.get('objects', []):
+        if o.get('type') == 'picture' and o.get('src') and o['src'] in site.get('assets', {}):
+            return o['src']
+    og = (page.get('seo') or {}).get('og_image')
+    return og if og in site.get('assets', {}) else None
+
+def news_items_for(site, hub, with_date=True):
+    """Ordered list of news-card dicts for the children of `hub`: newest-dated
+    first, then undated pages in authored order. Set with_date=False to skip the
+    (byline-scanning) date work — used for the fast editor-canvas preview."""
+    items = []
+    for p in page_children(site, hub):
+        seo = p.get('seo') or {}
+        excerpt = (seo.get('description') or '').strip()
+        if not excerpt:
+            excerpt = _seo_strip_meta(_page_text(p))[:160].rstrip(' ,;:-')
+        items.append({'title': p.get('title', ''), 'file': p['file'],
+                      'date': news_date(p) if with_date else '',
+                      'excerpt': excerpt, 'image': _news_image_key(p, site)})
+    if with_date:
+        dated = [it for it in items if it['date']]
+        undated = [it for it in items if not it['date']]
+        dated.sort(key=lambda it: it['date'], reverse=True)
+        return dated + undated
+    return items
+
+# -------------------------------------------- Add News from a Link (Phase 2)
+# Given the raw bytes of an article URL, pull out the pieces a news story page
+# needs: title, published date, a lead paragraph, a hero-image URL and the body
+# as clean <p>/<h3> paragraphs. Deliberately regex-based (no external HTML
+# parser) to keep WEBcreator one self-contained file; extraction is best-effort
+# and the author reviews the resulting page like any other. The new page is made
+# a sub-page of a chosen hub, so Phase 1's News Feed lists it automatically.
+def _decode_html_bytes(raw):
+    """Bytes → str, honouring a <meta charset> near the top when present."""
+    if isinstance(raw, str):
+        return raw
+    enc = 'utf-8'
+    m = re.search(rb'charset=["\']?\s*([a-zA-Z0-9_\-]+)', raw[:4096])
+    if m:
+        try: enc = m.group(1).decode('ascii').lower()
+        except Exception: enc = 'utf-8'
+    try:
+        return raw.decode(enc, 'replace')
+    except LookupError:
+        return raw.decode('utf-8', 'replace')
+
+def _meta_content(html, keys):
+    """First <meta> content whose property/name/itemprop matches any of `keys`
+    (handles content before or after the key attribute)."""
+    for key in keys:
+        k = re.escape(key)
+        m = re.search(r'<meta[^>]+(?:property|name|itemprop)\s*=\s*["\']' + k
+                      + r'["\'][^>]*?content\s*=\s*["\']([^"\']*)["\']', html, re.I)
+        if not m:
+            m = re.search(r'<meta[^>]+content\s*=\s*["\']([^"\']*)["\'][^>]*?(?:property|name|itemprop)\s*=\s*["\']'
+                          + k + r'["\']', html, re.I)
+        if m and m.group(1).strip():
+            return H.unescape(m.group(1).strip())
+    return ''
+
+def _strip_tags(s):
+    return re.sub(r'\s+', ' ', H.unescape(re.sub(r'<[^>]+>', ' ', s or ''))).strip()
+
+def parse_article(raw, url=''):
+    """Extract {title, date, excerpt, image, body_html, n_paras} from article HTML."""
+    html = _decode_html_bytes(raw)
+    title = _meta_content(html, ['og:title', 'twitter:title'])
+    if not title:
+        m = re.search(r'<title[^>]*>(.*?)</title>', html, re.I | re.S)
+        if m: title = _strip_tags(m.group(1))
+    if not title:
+        m = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.I | re.S)
+        if m: title = _strip_tags(m.group(1))
+    # Drop a trailing " | Site Name" / " - Publisher" suffix that titles often carry.
+    title = re.sub(r'\s*[\|–—\-]\s*[^|\-–—]{1,40}$', '', title).strip() or title
+    raw_date = _meta_content(html, ['article:published_time', 'og:article:published_time', 'datePublished',
+                                    'publishdate', 'publish-date', 'date', 'dc.date', 'parsely-pub-date'])
+    if not raw_date:
+        m = re.search(r'<time[^>]+datetime\s*=\s*["\']([^"\']+)["\']', html, re.I)
+        if m: raw_date = m.group(1)
+    date_iso = _to_iso((raw_date or '')[:10]) or _to_iso(_strip_tags(raw_date))
+    excerpt = _meta_content(html, ['og:description', 'twitter:description', 'description'])
+    image = _meta_content(html, ['og:image', 'og:image:url', 'og:image:secure_url', 'twitter:image', 'twitter:image:src'])
+    # Body: prefer <article>/<main>, else <body>; then strip non-content blocks.
+    scope = html
+    for tag in ('article', 'main'):
+        m = re.search(r'<' + tag + r'\b[^>]*>(.*?)</' + tag + r'>', html, re.I | re.S)
+        if m and len(m.group(1)) > 200:
+            scope = m.group(1); break
+    else:
+        m = re.search(r'<body\b[^>]*>(.*?)</body>', html, re.I | re.S)
+        if m: scope = m.group(1)
+    for tag in ('script', 'style', 'noscript', 'nav', 'header', 'footer', 'aside', 'form', 'figure', 'figcaption'):
+        scope = re.sub(r'<' + tag + r'\b[^>]*>.*?</' + tag + r'>', ' ', scope, flags=re.I | re.S)
+    paras = []
+    for m in re.finditer(r'<(h2|h3|h4|p|li)\b[^>]*>(.*?)</\1>', scope, re.I | re.S):
+        tag, txt = m.group(1).lower(), _strip_tags(m.group(2))
+        if len(txt) < 2: continue
+        if tag in ('h2', 'h3', 'h4'):
+            if len(txt) < 80: paras.append(('h', txt))
+        elif tag == 'li':
+            paras.append(('li', txt))
+        elif len(txt) >= 25:                       # drop one-line boilerplate paragraphs
+            paras.append(('p', txt))
+    body, nchars = [], 0
+    for kind, txt in paras:
+        if body and body[-1][1] == txt: continue   # de-dup consecutive repeats
+        body.append((kind, txt)); nchars += len(txt)
+        if nchars > 9000 or len(body) > 60: break
+    if not excerpt:
+        excerpt = next((t for k, t in body if k == 'p'), '')[:200]
+    parts = []
+    for kind, txt in body:
+        if kind == 'h': parts.append(f'<h3>{H.escape(txt)}</h3>')
+        elif kind == 'li': parts.append(f'<p>• {H.escape(txt)}</p>')
+        else: parts.append(f'<p>{H.escape(txt)}</p>')
+    return {'title': title or 'Untitled', 'date': date_iso, 'excerpt': excerpt.strip(),
+            'image': image, 'body_html': '\n'.join(parts), 'n_paras': len(body)}
+
 def obj_html(o, site, page, img):
     t = o['type']
     st = f"left:{o['x']:g}px;top:{o['y']:g}px;width:{o['w']:g}px;height:{o['h']:g}px;"
     if o.get('rot'): st += f"transform:rotate({o['rot']:g}deg);"
     if o.get('opacity', 1) < 1: st += f"opacity:{o['opacity']:g};"
+    st += fx_css(o)
     tag, attrs = 'div', ''
     L = o.get('link')
     if L and t not in ('nav', 'form'):
@@ -1378,23 +2154,42 @@ def obj_html(o, site, page, img):
         st += text_css(o) + box_css(o)
         if t == 'text': st += f"padding:{o.get('pad', 8)}px;--pg:{o.get('pgap', .6)};"
         inner = clean_html(o.get('html', ''), site, img)
+        if o.get('dropcap') and t == 'text': inner = _dropcap_web(inner, o)
     elif t == 'shape':
-        st += box_css(o)
-        if o.get('shape') == 'ellipse': st += 'border-radius:50%;'
+        sh = o.get('shape', 'rect')
+        if sh in ('rect', 'ellipse'):
+            st += box_css(o)
+            if sh == 'ellipse': st += 'border-radius:50%;'
+        else:
+            inner = shape_svg(o)
     elif t == 'line':
-        pw = max(1, o.get('strokeW', 2)); w, h = o['w'], o['h']
-        if h <= pw + 2: x1, y1, x2, y2 = 0, h / 2, w, h / 2
-        elif w <= pw + 2: x1, y1, x2, y2 = w / 2, 0, w / 2, h
-        elif o.get('flip'): x1, y1, x2, y2 = 0, h, w, 0
-        else: x1, y1, x2, y2 = 0, 0, w, h
+        pw = max(1, o.get('strokeW', 2)); w, h = o['w'], o['h']; col = o.get('stroke')
+        x1, y1, x2, y2 = _line_ends(o)
         da = {'dashed': f' stroke-dasharray="{pw * 4} {pw * 2}"', 'dotted': f' stroke-dasharray="{pw} {pw}"'}.get(o.get('dash'), '')
-        inner = (f'<svg width="{w:g}" height="{h:g}" style="overflow:visible;display:block"><line x1="{x1:g}" y1="{y1:g}" x2="{x2:g}" y2="{y2:g}" '
-                 f'stroke="{o.get("stroke")}" stroke-width="{pw}"{da}/></svg>')
+        arr = o.get('arrow', 'none'); heads = ''
+        if arr in ('end', 'both'): heads += _svg_poly(_arrowhead_pts(x1, y1, x2, y2, pw), col)
+        if arr in ('start', 'both'): heads += _svg_poly(_arrowhead_pts(x2, y2, x1, y1, pw), col)
+        inner = (f'<svg width="{w:g}" height="{h:g}" style="overflow:visible;display:block">'
+                 f'<line x1="{x1:g}" y1="{y1:g}" x2="{x2:g}" y2="{y2:g}" stroke="{col}" stroke-width="{pw}"{da}/>'
+                 f'{heads}</svg>')
     elif t == 'picture':
         st += box_css(o) + 'overflow:hidden;'
         fit = {'cover': 'cover', 'contain': 'contain', 'stretch': 'fill'}[o.get('fit', 'cover')]
         if o.get('src'): inner = f'<img src="{img(o["src"])}" alt="" style="object-fit:{fit}">'
         else: st += 'background:#dde2e5;'
+    elif t == 'lightbox':
+        # Thumbnail that opens the full image in an overlay on click. The full image is
+        # o['full'] if set, otherwise the thumbnail itself. The shared overlay markup,
+        # CSS and JS are added once per page (see page_html / PUBLISH_CSS).
+        st += box_css(o) + 'overflow:hidden;cursor:zoom-in;'
+        fit = {'cover': 'cover', 'contain': 'contain', 'stretch': 'fill'}[o.get('fit', 'cover')]
+        full_key = o.get('full') or o.get('src')
+        cap = esc(o.get('caption') or '')
+        if o.get('src'):
+            thumb = f'<img src="{img(o["src"])}" alt="{cap}" style="object-fit:{fit}">'
+            return (f'<a class="obj obj-lightbox" style="{st}" href="{img(full_key)}" '
+                    f'data-lightbox="1"' + (f' data-caption="{cap}"' if cap else '') + f'>{thumb}</a>')
+        st += 'background:#dde2e5;'
     elif t == 'nav':
         st += text_css(o) + f"--na:{o.get('accent')};--nai:{o.get('accentInk', '#fff')};"
         # Editable item spacing: gap between items, and horizontal padding inside each item.
@@ -1413,7 +2208,18 @@ def obj_html(o, site, page, img):
             # and every following item to the right edge (the "pin first N items left" grouping).
             push = ' style="margin-left:auto"' if split and idx == split else ''
             parts.append(f'<div class="nv"{push}><a href="{esc(q["file"])}"{on}>{esc(nav_label(o, q))}</a>{sub}</div>')
-        return f'<nav class="obj obj-nav{cls}" style="{st}">' + ''.join(parts) + '</nav>'
+        # A hamburger toggle + off-canvas panel: inert on desktop (the burger and the
+        # checkbox are display:none, and .nav-links is display:contents so the items lay
+        # out exactly as before), but on narrow screens the media query shows the burger
+        # and slides the items in as a vertical sidebar. Pure CSS — the checkbox holds the
+        # open/closed state; tapping a link navigates away and resets it on page load.
+        tog = 'nvt-' + (o.get('id') or uid())
+        return (f'<nav class="obj obj-nav{cls}" style="{st}">'
+                f'<input type="checkbox" class="nav-toggle" id="{tog}" hidden>'
+                f'<label class="nav-burger" for="{tog}" aria-label="Menu">'
+                f'<span class="b"></span><span class="b"></span><span class="b"></span></label>'
+                f'<div class="nav-links">' + ''.join(parts) + '</div>'
+                f'<label class="nav-backdrop" for="{tog}" aria-hidden="true"></label></nav>')
     elif t == 'table':
         st += text_css(o) + f"--tb:{o.get('stroke')};--th:{o.get('head')};background:{o.get('fill') or '#fff'};"
         rows = ''.join('<tr>' + ''.join(f'<td>{c}</td>' for c in row) + '</tr>' for row in o.get('cells', []))
@@ -1441,6 +2247,17 @@ def obj_html(o, site, page, img):
         return (f'<form class="obj obj-search" style="{st}" method="get" action="{action}" target="_blank" rel="noopener"{onsub}>'
                 f'<input type="text" name="q" placeholder="{esc(o.get("placeholder", "Search…"))}" aria-label="Search">'
                 f'<button type="submit">{esc(o.get("submit", "Search"))}</button></form>')
+    elif t == 'audio':
+        src = img(o['src']) if (o.get('src') and o['src'] in site.get('assets', {})) else (o.get('url') or '')
+        st += (f"border-radius:{o.get('radius', 8):g}px;background:{o.get('fill', '#eef1f4')};"
+               "display:flex;flex-direction:column;justify-content:center;gap:4px;padding:6px 12px;box-sizing:border-box;")
+        ttl = ''
+        if o.get('title'):
+            cf = css_font(o.get('font', 'Noto Sans')); col = o.get('color', '#2b2b2b')
+            ttl = f'<div style="font:600 13px {cf};color:{col}">{esc(o["title"])}</div>'
+        body = (f'<audio controls preload="none" style="width:100%" src="{esc(src)}"></audio>' if src
+                else '<span style="color:#888;font:13px sans-serif">No audio set</span>')
+        return f'<div class="obj obj-audio" style="{st}">{ttl}{body}</div>'
     elif t == 'youtube':
         vid = re.sub(r'[^A-Za-z0-9_-]', '', o.get('video', ''))[:11]
         st += f"border-radius:{o.get('radius', 0):g}px;overflow:hidden;background:#000;"
@@ -1450,6 +2267,28 @@ def obj_html(o, site, page, img):
                     f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" '
                     f'allowfullscreen loading="lazy"></iframe></div>')
         return f'<div class="obj obj-youtube" style="{st}"></div>'
+    elif t == 'vimeo':
+        vid = re.sub(r'[^0-9]', '', o.get('video', ''))
+        st += f"border-radius:{o.get('radius', 0):g}px;overflow:hidden;background:#000;"
+        if vid:
+            return (f'<div class="obj obj-vimeo" style="{st}">'
+                    f'<iframe src="https://player.vimeo.com/video/{vid}" title="{esc(o.get("title") or "Vimeo video")}" '
+                    f'allow="autoplay; fullscreen; picture-in-picture" '
+                    f'allowfullscreen loading="lazy"></iframe></div>')
+        return f'<div class="obj obj-vimeo" style="{st}"></div>'
+    elif t == 'map':
+        # Embedded Google Map via the keyless maps "q=" embed (no API key needed).
+        place = (o.get('place') or '').strip()
+        st += f"border-radius:{o.get('radius', 0):g}px;overflow:hidden;"
+        if place:
+            import urllib.parse as _up
+            q = _up.quote_plus(o.get('marker') or place)
+            z = int(o.get('zoom', 14) or 14)
+            src = f'https://www.google.com/maps?q={q}&z={z}&output=embed'
+            return (f'<div class="obj obj-map" style="{st}">'
+                    f'<iframe src="{esc(src)}" title="{esc(place)}" loading="lazy" '
+                    f'referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe></div>')
+        return f'<div class="obj obj-map" style="{st}"></div>'
     elif t == 'html':
         inner = o.get('code', '')
     elif t == 'share':
@@ -1475,6 +2314,27 @@ def obj_html(o, site, page, img):
         if len(keys) > 1:
             inner += ('<script>(function(g){var s=g.querySelectorAll("img"),i=0;setInterval(function(){s[i].style.opacity=0;'
                       f'i=(i+1)%s.length;s[i].style.opacity=1}},{int(o.get("interval", 5) * 1000)})}})(document.currentScript.parentNode)</script>')
+    elif t == 'newsfeed':
+        hub = page
+        if o.get('source'):
+            hub = next((q for q in site['pages'] if q['id'] == o['source']), page)
+        items = news_items_for(site, hub)
+        if o.get('max'):
+            items = items[:int(o['max'])]
+        st += text_css(o) + box_css(o) + 'overflow:hidden;'
+        st += f"--nfacc:{o.get('accent', '#2a7d6b')};--nfbg:{o.get('cardbg', '#ffffff')};--nfink:{o.get('ink', '#1f2a30')};"
+        cards = []
+        for it in items:
+            thumb = (f'<span class="nf-thumb" style="background-image:url({img(it["image"])})"></span>'
+                     if o.get('showimg', True) and it['image'] else '')
+            dt = (f'<span class="nf-date">{esc(_date_label(it["date"]))}</span>'
+                  if o.get('showdate', True) and it['date'] else '')
+            cards.append(f'<a class="nf-card" href="{esc(it["file"])}">{thumb}'
+                         f'<span class="nf-body"><span class="nf-title">{esc(it["title"])}</span>'
+                         f'{dt}<span class="nf-excerpt">{esc(it["excerpt"])}</span></span></a>')
+        empty = '<span class="nf-empty">No stories yet — add news pages under this one, then publish.</span>'
+        inner = '<span class="nf-scroll">' + (''.join(cards) or empty) + '</span>'
+        return f'<div class="obj obj-newsfeed" style="{st}">{inner}</div>'
     return f'<{tag} class="obj obj-{t}" style="{st}"{attrs}>{inner}</{tag}>'
 
 def _page_text(page):
@@ -1635,7 +2495,59 @@ def page_html(site, page, img):
         flink = f'<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel="stylesheet" href="https://fonts.googleapis.com/css2?{q}&display=swap">\n'
     bg = page.get('bg') or m.get('bg') or site.get('bg') or '#fff'
     Hh = page.get('height') or site['height']
-    body = '\n'.join(obj_html(o, site, page, img) for o in objs)
+    # A run of 2+ small icon/button objects that sit side-by-side on one horizontal
+    # band (e.g. a row of Facebook/X/LinkedIn icons) gets wrapped in <div class="obj-row">.
+    # On desktop that wrapper is display:contents (zero effect — absolute positioning is
+    # unchanged); on a phone the reflow lays the wrapper's children out as ONE shrinking
+    # row instead of stacking them vertically. Only CONTIGUOUS objects are grouped, so the
+    # 1:1 #oN ↔ objs mapping the mobile CSS relies on is preserved.
+    def _rowable(o):
+        return o.get('type') in ('picture', 'button') and o.get('w', 0) <= 220 and o.get('h', 0) <= 140
+    # Same (y,x) ranking the mobile reflow uses for flex `order`; a row wrapper is given the
+    # min rank of its members so the whole row sits where the icons were, not at the top.
+    rank_of = {idx: rank for rank, idx in enumerate(sorted(range(len(objs)), key=lambda i: (objs[i]['y'], objs[i]['x'])))}
+    inrun = {}
+    i = 0
+    while i < len(objs):
+        j = i
+        while j + 1 < len(objs):
+            a, b = objs[j], objs[j + 1]
+            same_band = abs((a['y'] + a.get('h', 0) / 2) - (b['y'] + b.get('h', 0) / 2)) <= max(28, 0.6 * max(a.get('h', 1), b.get('h', 1)))
+            side_by_side = b['x'] >= a['x'] + a.get('w', 0) - 10          # b starts at/after a's right edge
+            if _rowable(a) and _rowable(b) and same_band and side_by_side:
+                j += 1
+            else:
+                break
+        if j > i:
+            for k in range(i, j + 1): inrun[k] = (i, j)
+            i = j + 1
+        else:
+            i += 1
+    pieces = []
+    for k, o in enumerate(objs):
+        r = inrun.get(k)
+        if r and k == r[0]:
+            ordr = min(rank_of[t] for t in range(r[0], r[1] + 1))
+            pieces.append(f'<div class="obj-row" style="order:{ordr}">')
+        pieces.append(obj_html(o, site, page, img))
+        if r and k == r[1]: pieces.append('</div>')
+    body = '\n'.join(pieces)
+    # Lightbox overlay + script, added once per page, only if a lightbox image is present.
+    lightbox = ''
+    if any(o.get('type') == 'lightbox' and o.get('src') for o in objs):
+        lightbox = (
+            '<div id="lb-overlay" role="dialog" aria-modal="true">'
+            '<span id="lb-close" aria-label="Close">&times;</span>'
+            '<figure style="margin:0"><img id="lb-img" src="" alt=""><figcaption id="lb-cap"></figcaption></figure>'
+            '</div>'
+            '<script>(function(){var ov=document.getElementById("lb-overlay"),im=document.getElementById("lb-img"),'
+            'cp=document.getElementById("lb-cap");function open(a){im.src=a.getAttribute("href");'
+            'var c=a.getAttribute("data-caption")||"";cp.textContent=c;cp.style.display=c?"block":"none";'
+            'ov.classList.add("on")}function close(){ov.classList.remove("on");im.src=""}'
+            'document.querySelectorAll("a[data-lightbox]").forEach(function(a){a.addEventListener("click",'
+            'function(e){e.preventDefault();open(a)})});ov.addEventListener("click",function(e){'
+            'if(e.target!==im)close()});document.addEventListener("keydown",function(e){'
+            'if(e.key==="Escape")close()});})();</script>')
     # tidy: move each object's styling into the page's style block, keep the markup plain
     rules, n = [], [0]
     def lift(mm):
@@ -1650,6 +2562,23 @@ def page_html(site, page, img):
     # so an unconfigured site publishes the same meta description as before.
     seo_title, seo = seo_head(site, page, img)
     bgpic = f' url({img(site["bgimage"])}) top left repeat' if site.get('bgimage') in site.get('assets', {}) else ''
+    # Feed auto-discovery: one <link rel="alternate"> per News Feed hub so browsers
+    # and readers find the RSS without hunting for the icon. Emitted on every page,
+    # and only when an absolute base URL is set (same condition as the feed files).
+    feedlinks = ''
+    fbase = ((site.get('seo') or {}).get('base_url') or '').strip().rstrip('/')
+    if fbase:
+        seen, tags = set(), []
+        for q in site['pages']:
+            fobjs = page_objects(site, q)
+            if not any(o.get('type') == 'newsfeed' for o in fobjs): continue
+            fsrc = next((o.get('source') for o in fobjs if o.get('type') == 'newsfeed' and o.get('source')), None)
+            fhub = next((r for r in site['pages'] if r['id'] == fsrc), q) if fsrc else q
+            if fhub['file'] in seen: continue
+            seen.add(fhub['file'])
+            fstem = os.path.splitext(fhub['file'])[0]
+            tags.append(f'<link rel="alternate" type="application/rss+xml" title="{esc(fhub.get("title") or site.get("name", ""))}" href="{esc(fbase + "/" + fstem + "-feed.xml")}">')
+        if tags: feedlinks = '\n'.join(tags) + '\n'
     # --- Responsive publish (opt-in via site['responsive']) ---------------
     # The design stays a fixed-width, absolutely-positioned page; responsive
     # mode makes that whole page SCALE to fit any screen (so phones show the
@@ -1663,27 +2592,115 @@ def page_html(site, page, img):
         # to MX (150%), after which it stays that size and is centred (so it never gets
         # absurdly large on big monitors). Centring is done by setting left, since the
         # scale transforms from the top-left corner.
+        #
+        # Below BRK the scale-to-fit model breaks down (a phone would shrink the whole
+        # 970px design to thumbnail size), so instead the fixed canvas REFLOWS into a
+        # single vertical column: .pf-page becomes a flexbox, every object goes full
+        # width + auto height, and objects are re-sequenced top-to-bottom by their design
+        # y-position via flex `order` (so the DOM is left untouched). The scale JS bails
+        # out under BRK and clears its inline transform so the media query can take over.
+        BRK = 760
+
+        def _lum(c):
+            """Relative luminance 0..1 of a #rgb/#rrggbb colour (0 if unparseable)."""
+            mm = re.fullmatch(r'#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})', (c or '').strip())
+            if not mm: return 0.0
+            h = mm.group(1)
+            if len(h) == 3: h = ''.join(ch * 2 for ch in h)
+            r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+        # #oN maps 1:1 to objs in order (lift() numbers them in emission order), so we can
+        # emit per-object mobile overrides keyed by the same ids.
+        mob = []
+        for rank, idx in enumerate(sorted(range(len(objs)), key=lambda i: (objs[i]['y'], objs[i]['x']))):
+            o = objs[idx]; N = idx + 1; t = o['type']
+            # Cap each object at its design width so narrow text and small icons don't
+            # balloon to full screen; wide objects still fill the viewport.
+            r = f'order:{rank};max-width:{o["w"]:g}px;'
+            if t == 'shape':
+                r += 'display:none;'                                   # decorative framing — drop on mobile
+            elif t == 'gallery':
+                r += f'aspect-ratio:{o["w"]:g}/{o["h"]:g};'            # keep a box for the absolute-positioned slides
+            elif t == 'youtube':
+                r += 'aspect-ratio:16/9;'
+            elif t in ('text', 'artistic', 'button') and not o.get('fill') and _lum(o.get('color', '#222')) > 0.62:
+                # Light text that relied on a now-hidden backing shape for contrast —
+                # give it its own dark chip so it stays legible.
+                r += 'background:rgba(0,0,0,.55);padding:12px;border-radius:6px;'
+            mob.append(f'#o{N}{{{r}}}')
+        # The slide-in sidebar is tinted with the site's own background colour (so it reads
+        # as part of the site, not a white slab); text/divider colours flip with its luminance.
+        side_bg = site.get('bg') or bg or '#ffffff'
+        dark_side = _lum(side_bg) <= 0.62
+        side_fg = '#ffffff' if dark_side else '#1a1a1a'
+        side_sub = 'rgba(255,255,255,.75)' if dark_side else '#555'
+        side_line = 'rgba(255,255,255,.18)' if dark_side else 'rgba(0,0,0,.08)'
+        mobile_css = (
+            f'\n@media (max-width:{BRK}px){{'
+            f'.pf-wrap{{overflow-x:visible}}'
+            f'.pf-page{{position:static!important;left:auto!important;top:auto!important;width:100%!important;'
+            f'height:auto!important;transform:none!important;overflow:visible!important;'
+            f'display:flex;flex-direction:column;align-items:center}}'
+            f'.obj{{position:relative!important;left:auto!important;top:auto!important;width:100%!important;'
+            f'height:auto!important;margin:0 auto 14px!important;transform:none!important}}'
+            f'.obj-picture img,.obj-line svg{{width:100%!important;height:auto!important}}'
+            # Nav → hamburger sidebar on narrow screens.
+            f'.obj-nav{{justify-content:flex-start!important;flex-wrap:nowrap!important;overflow:visible!important}}'
+            f'.obj-nav .nav-burger{{display:inline-flex}}'
+            f'.obj-nav .nav-links{{position:fixed;top:0;left:0;bottom:0;width:78%;max-width:320px;z-index:1000;'
+            f'display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:0;'
+            f'background:{side_bg};color:{side_fg};box-shadow:2px 0 22px rgba(0,0,0,.35);padding:56px 0 24px;'
+            f'overflow-y:auto;transform:translateX(-100%);transition:transform .25s ease}}'
+            f'.obj-nav .nav-toggle:checked ~ .nav-links{{transform:none}}'
+            f'.obj-nav .nav-links .nv{{position:static!important;width:100%}}'
+            f'.obj-nav .nav-links .nv>a{{display:block;text-align:left;border-radius:0!important;color:{side_fg}!important;'
+            f'box-shadow:none!important;background:transparent!important;padding:14px 22px;'
+            f'border-bottom:1px solid {side_line}}}'
+            f'.obj-nav .nav-links .nv>a.on{{background:var(--na)!important;color:var(--nai)!important}}'
+            f'.obj-nav .nav-links .sub{{display:block;position:static;box-shadow:none;background:transparent;'
+            f'padding:0;min-width:0}}'
+            f'.obj-nav .nav-links .sub a{{padding:11px 22px 11px 40px;color:{side_sub};border-bottom:1px solid {side_line}}}'
+            f'.obj-nav .nav-backdrop{{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:999}}'
+            f'.obj-nav .nav-toggle:checked ~ .nav-backdrop{{display:block}}'
+            # A detected icon/button row stays on ONE shrinking line instead of stacking.
+            f'.obj-row{{display:flex!important;flex-flow:row nowrap;justify-content:center;align-items:center;'
+            f'gap:12px;width:100%!important;margin:0 auto 14px!important}}'
+            # width:auto drops the blanket 100%; the per-object #oN max-width (its design
+            # width) still caps each icon, and flex-shrink lets them narrow only if the row
+            # would otherwise overflow — so they always stay on one line.
+            f'.obj-row>.obj{{position:relative!important;left:auto!important;top:auto!important;'
+            f'width:auto!important;height:auto!important;margin:0!important;'
+            f'flex:0 1 auto;min-width:0;transform:none!important}}'
+            f'.obj-row>.obj img{{width:100%!important;height:auto!important}}'
+            # News feed stays a bounded, self-scrolling box on phones (not a 60-card dump).
+            f'.obj-newsfeed{{height:72vh!important;max-height:640px}}'
+            + ''.join(mob) + '}')
+
         css = (f'html,body{{margin:0}}\nbody{{background:{site.get("bg") or bg}{bgpic}}}\n'
                f'.pf-wrap{{position:relative;width:100%;overflow-x:hidden}}\n'
                f'.pf-page{{position:absolute;top:0;left:0;width:{site["width"]}px;height:{Hh}px;background:{bg};'
                f'transform-origin:top left}}\n'
-               + '\n'.join(rules))
-        scale_js = (f'<script>(function(){{var W={site["width"]},MX=1.5,p=document.querySelector(".pf-page"),'
-                    f'w=document.querySelector(".pf-wrap");function fit(){{var vw=w.clientWidth,'
-                    f's=Math.min(vw/W,MX);p.style.transform="scale("+s+")";'
+               + '\n'.join(rules) + mobile_css)
+        scale_js = (f'<script>(function(){{var W={site["width"]},MX=1.5,BRK={BRK},p=document.querySelector(".pf-page"),'
+                    f'w=document.querySelector(".pf-wrap");function fit(){{var vw=w.clientWidth;'
+                    f'if(vw<=BRK){{p.style.transform="";p.style.left="";w.style.height="";return}}'
+                    f'var s=Math.min(vw/W,MX);p.style.transform="scale("+s+")";'
                     f'p.style.left=Math.max(0,(vw-W*s)/2)+"px";w.style.height=(p.offsetHeight*s)+"px"}}'
                     f'window.addEventListener("resize",fit);fit();}})();</script>')
         return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="{viewport}">\n'
-                f'<title>{esc(seo_title)}</title>\n{seo}<meta name="generator" content="{APP} {VERSION}">\n'
+                f'<meta name="color-scheme" content="light">\n'
+                f'<title>{esc(seo_title)}</title>\n{seo}{feedlinks}<meta name="generator" content="{APP} {VERSION}">\n'
                 f'{flink}<link rel="stylesheet" href="style.css">\n<style>\n{css}\n</style>\n</head>\n<body>\n'
-                f'<div class="pf-wrap">\n<div class="pf-page">\n{body}\n</div>\n</div>\n{scale_js}\n</body>\n</html>\n')
+                f'<div class="pf-wrap">\n<div class="pf-page">\n{body}\n</div>\n</div>\n{lightbox}\n{scale_js}\n</body>\n</html>\n')
     # --- Static publish (default, fixed width) ----------------------------
     css = (f'body{{background:{site.get("bg") or bg}{bgpic}}}\n.pf-page{{width:{site["width"]}px;height:{Hh}px;background:{bg}}}\n'
            + '\n'.join(rules))
     return (f'<!doctype html>\n<html lang="en-GB">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width={site["width"]}">\n'
+            f'<meta name="color-scheme" content="light">\n'
             f'<title>{esc(seo_title)}</title>\n{seo}<meta name="generator" content="{APP} {VERSION}">\n'
             f'{flink}<link rel="stylesheet" href="style.css">\n<style>\n{css}\n</style>\n</head>\n<body>\n'
-            f'<div class="pf-page">\n{body}\n</div>\n</body>\n</html>\n')
+            f'<div class="pf-page">\n{body}\n</div>\n{lightbox}\n</body>\n</html>\n')
 
 WEBSAFE_FONTS = {'arial', 'helvetica', 'helvetica neue', 'times new roman', 'times', 'georgia',
                  'courier new', 'courier', 'verdana', 'tahoma', 'trebuchet ms', 'segoe ui',
@@ -1789,6 +2806,8 @@ def publish_site(site, folder):
     faces = font_faces(site, folder, write_if_changed, written)
     css_path = os.path.join(folder, 'style.css')
     full_css = (faces + '\n' + PUBLISH_CSS) if faces else PUBLISH_CSS
+    custom = (site.get('css') or '').strip()
+    if custom: full_css += '\n\n/* ---- Custom CSS (Tools ▸ Custom CSS) ---- */\n' + custom + '\n'
     if write_if_changed(css_path, full_css): changed_files.append('style.css')
     written.append('style.css')
     pages_total = len(site['pages']); pages_changed = 0
@@ -1808,6 +2827,64 @@ def publish_site(site, folder):
     robots = 'User-agent: *\nAllow: /\n' + (f'Sitemap: {base}/sitemap.xml\n' if base else '')
     if write_if_changed(os.path.join(folder, 'robots.txt'), robots): changed_files.append('robots.txt')
     written.append('robots.txt')
+    # --- news.json: a machine-readable "database" of every news story, one entry
+    # per hub page that carries a News Feed. Written whenever a feed exists; this
+    # is the file Phase 2 ("Add News from a Link") and any external tool can read.
+    hubs = []
+    for p in site['pages']:
+        if any(o.get('type') == 'newsfeed' for o in page_objects(site, p)):
+            src = next((o.get('source') for o in page_objects(site, p) if o.get('type') == 'newsfeed' and o.get('source')), None)
+            hub = next((q for q in site['pages'] if q['id'] == src), p) if src else p
+            if hub['file'] not in [h['file'] for h in hubs]:
+                hubs.append(hub)
+    if hubs:
+        feeds = {}
+        for hub in hubs:
+            feeds[hub['file']] = [
+                {'title': it['title'], 'url': it['file'], 'date': it['date'],
+                 'excerpt': it['excerpt'], 'image': (img(it['image']) if it['image'] else None)}
+                for it in news_items_for(site, hub)]
+        news = json.dumps({'feeds': feeds}, ensure_ascii=True, indent=1)
+        if write_if_changed(os.path.join(folder, 'news.json'), news): changed_files.append('news.json')
+        written.append('news.json')
+        # --- RSS feed: one <hub-stem>-feed.xml per News Feed hub, so visitors can
+        # subscribe in a reader. RSS needs absolute URLs, so only when a base URL is set.
+        if base:
+            import datetime as _dt
+            _WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+            _RMO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            def _rfc822(iso):
+                m = re.match(r'(\d{4})-(\d{2})-(\d{2})$', iso or '')
+                if not m: return ''
+                y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                try: wd = _dt.date(y, mo, d).weekday()
+                except ValueError: return ''
+                return f'{_WD[wd]}, {d:02d} {_RMO[mo - 1]} {y} 00:00:00 +0000'
+            chan_desc = esc((site.get('seo') or {}).get('description') or f'Latest news from {site.get("name", "")}')
+            for hub in hubs:
+                stem = os.path.splitext(hub['file'])[0]
+                feed_url = f'{base}/{stem}-feed.xml'
+                rows = []
+                for it in news_items_for(site, hub):
+                    link = f'{base}/{it["file"]}'
+                    pd = _rfc822(it['date'])
+                    rows.append('  <item>\n'
+                                f'    <title>{esc(it["title"])}</title>\n'
+                                f'    <link>{esc(link)}</link>\n'
+                                f'    <guid isPermaLink="true">{esc(link)}</guid>\n'
+                                + (f'    <pubDate>{pd}</pubDate>\n' if pd else '')
+                                + f'    <description>{esc(it["excerpt"])}</description>\n'
+                                '  </item>')
+                rss = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                       '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n<channel>\n'
+                       f'  <title>{esc(hub.get("title") or site.get("name", ""))}</title>\n'
+                       f'  <link>{esc(base + "/" + hub["file"])}</link>\n'
+                       f'  <description>{chan_desc}</description>\n'
+                       f'  <atom:link href="{esc(feed_url)}" rel="self" type="application/rss+xml"/>\n'
+                       + '\n'.join(rows) + '\n</channel>\n</rss>\n')
+                fn = f'{stem}-feed.xml'
+                if write_if_changed(os.path.join(folder, fn), rss): changed_files.append(fn)
+                written.append(fn)
     publish_site.last_stats = {'pages_total': pages_total, 'pages_changed': pages_changed,
                                'changed_files': changed_files}
     return written
@@ -3021,6 +4098,39 @@ def ticon(names, glyph='?'):
     p.drawText(pm.rect(), Qt.AlignCenter, glyph); p.end()
     return QIcon(pm)
 
+def letter_icon(ch, italic=False, serif=True, size=23):
+    """A single letter drawn in a serif face — used for the text tools so Artistic
+    Text shows a fancy italic 'A' and Frame Text a plain serif 'T'."""
+    pm = QPixmap(32, 32); pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QApplication.palette().color(QPalette.WindowText))
+    f = QFont('Georgia' if serif else 'Sans Serif')
+    f.setStyleHint(QFont.Serif if serif else QFont.SansSerif)
+    f.setPixelSize(size); f.setBold(True); f.setItalic(italic)
+    p.setFont(f); p.drawText(pm.rect(), Qt.AlignCenter, ch); p.end()
+    return QIcon(pm)
+
+def list_icon():
+    """A clear bulleted-list glyph (three dots + lines) — drawn so it never falls back
+    to a blank/odd theme icon."""
+    pm = QPixmap(32, 32); pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
+    col = QApplication.palette().color(QPalette.WindowText)
+    for y in (8, 16, 24):
+        p.setPen(Qt.NoPen); p.setBrush(col); p.drawEllipse(QRectF(5, y - 2, 4.4, 4.4))
+        p.setPen(QPen(col, 2.2)); p.drawLine(14, y, 27, y)
+    p.end(); return QIcon(pm)
+
+def add_button_icon():
+    """A button outline with a '+' — distinct from the drag-to-size Button tool so the
+    two no longer look like duplicates."""
+    pm = QPixmap(32, 32); pm.fill(Qt.transparent)
+    p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
+    col = QApplication.palette().color(QPalette.WindowText)
+    p.setPen(QPen(col, 2)); p.setBrush(Qt.NoBrush); p.drawRoundedRect(QRectF(4, 10, 24, 12), 3, 3)
+    p.setPen(QPen(col, 2.4)); p.drawLine(16, 13, 16, 19); p.drawLine(13, 16, 19, 16)
+    p.end(); return QIcon(pm)
+
 def swatch_icon(col, size=16):
     pm = QPixmap(size, size); pm.fill(Qt.transparent); p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
     pal = QApplication.palette()
@@ -3063,6 +4173,59 @@ class SpectrumBar(QWidget):
         if e.buttons(): self._emit(e)
     def mouseReleaseEvent(self, e):
         if self.on_release: self.on_release()
+
+
+class CropWidget(QWidget):
+    """Shows a picture scaled to fit and lets the user drag out a rectangle to keep.
+    `changed` (if set) fires whenever the selection changes so a dialog can enable OK."""
+    def __init__(self, img, parent=None):
+        super().__init__(parent)
+        self.img = img; self.sel = None; self._drag = None; self.changed = None
+        self.setMinimumSize(360, 280); self.setCursor(Qt.CrossCursor)
+
+    def _fit(self):
+        w, h = self.width(), self.height()
+        iw, ih = max(1, self.img.width()), max(1, self.img.height())
+        s = min(w / iw, h / ih)
+        dw, dh = iw * s, ih * s
+        return QRectF((w - dw) / 2, (h - dh) / 2, dw, dh), s
+
+    def paintEvent(self, e):
+        p = QPainter(self); p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.fillRect(self.rect(), self.palette().color(QPalette.Window).darker(130))
+        disp, _ = self._fit()
+        p.drawImage(disp, self.img)
+        if self.sel:
+            r = self.sel.intersected(disp)
+            dim = QColor(0, 0, 0, 120); p.setPen(Qt.NoPen); p.setBrush(dim)
+            # dim everything outside the selection
+            p.drawRect(QRectF(disp.left(), disp.top(), disp.width(), r.top() - disp.top()))
+            p.drawRect(QRectF(disp.left(), r.bottom(), disp.width(), disp.bottom() - r.bottom()))
+            p.drawRect(QRectF(disp.left(), r.top(), r.left() - disp.left(), r.height()))
+            p.drawRect(QRectF(r.right(), r.top(), disp.right() - r.right(), r.height()))
+            pen = QPen(QColor('#ffffff'), 1.5, Qt.DashLine); p.setPen(pen); p.setBrush(Qt.NoBrush); p.drawRect(r)
+        p.end()
+
+    def mousePressEvent(self, e):
+        self._drag = e.position(); self.sel = QRectF(e.position(), e.position()); self.update()
+
+    def mouseMoveEvent(self, e):
+        if self._drag is not None:
+            self.sel = QRectF(self._drag, e.position()).normalized(); self.update()
+            if self.changed: self.changed()
+
+    def mouseReleaseEvent(self, e):
+        self._drag = None
+        if self.changed: self.changed()
+
+    def crop_rect_img(self):
+        """The selection mapped to image pixel coords, or None if too small."""
+        disp, s = self._fit()
+        if not self.sel: return None
+        r = self.sel.intersected(disp)
+        if r.width() < 5 or r.height() < 5: return None
+        return QRect(int((r.x() - disp.x()) / s), int((r.y() - disp.y()) / s),
+                     max(1, int(r.width() / s)), max(1, int(r.height() / s)))
 
 
 class ThumbGrid(QListWidget):
@@ -3216,6 +4379,7 @@ TOOLS = [
     ('table', 'Table', ['insert-table', 'table'], '▦', 'Drag to place a table. Double-click a table to edit its cells.'),
     (None,),
     ('picture', 'Picture', ['insert-image', 'image-x-generic'], '▣', 'Drag to place a picture frame and choose a picture.'),
+    ('lightbox', 'Lightbox Image', ['insert-image', 'zoom-in', 'image-x-generic'], '🔍', 'Drag to place a thumbnail that opens the full picture in an overlay when a visitor clicks it.'),
     ('gallery', 'Photo Gallery', ['view-presentation', 'folder-pictures', 'view-preview'], '▤', 'Drag to place a photo gallery, then choose the photos it shows in turn.'),
     ('rect', 'Rectangle', ['draw-rectangle'], '□', 'Drag to draw a rectangle. Hold Shift for a square.'),
     ('ellipse', 'Ellipse', ['draw-ellipse'], '○', 'Drag to draw an ellipse. Hold Shift for a circle.'),
@@ -3228,6 +4392,10 @@ TOOLS = [
     ('share', 'Share Buttons', ['document-share', 'emblem-shared-symbolic', 'mail-forward'], '⇪', 'Drag to place a row of buttons that let visitors share the page on social media.'),
     ('html', 'HTML Code', ['text-html', 'code-context'], '</>', 'Drag to place an HTML fragment.'),
     ('youtube', 'YouTube Video', ['youtube', 'applications-multimedia', 'media-playback-start'], '▶', 'Drag to place a YouTube video that plays embedded in the page. Paste its link.'),
+    ('vimeo', 'Vimeo Video', ['vimeo', 'applications-multimedia', 'media-playback-start'], '▶', 'Drag to place a Vimeo video that plays embedded in the page. Paste its link.'),
+    ('audio', 'Audio', ['audio-x-generic', 'media-playback-start', 'audio-volume-high'], '♪', 'Drag to place an audio player. Choose a sound file or paste a link; it plays with the browser audio controls.'),
+    ('map', 'Google Map', ['map', 'applications-geography', 'mark-location', 'find-location'], '📍', 'Drag to place an interactive Google Map, then type an address — no API key needed. Shows a pin where you are based.'),
+    ('newsfeed', 'News Feed', ['application-rss+xml', 'view-list-details', 'rss'], '📰', 'Drag to place a scrolling News feed. It lists the sub-pages of the page it sits on automatically — every news story, newest first, each a card linking to its page.'),
 ]
 
 class LinelessTree(QTreeWidget):
@@ -3271,6 +4439,11 @@ class ObjItem(QGraphicsItem):
     def boundingRect(self):
         pad = self.o.get('strokeW', 0) / 2 + 2
         if self.o['type'] == 'nav': pad += 40
+        sh = self.o.get('shadow'); gl = self.o.get('glow')
+        if sh: pad = max(pad, abs(sh.get('dx', 6)) + sh.get('blur', 8) + 8, abs(sh.get('dy', 6)) + sh.get('blur', 8) + 8)
+        if gl: pad = max(pad, gl.get('blur', 12) + 8)
+        if self.o['type'] == 'line' and self.o.get('arrow', 'none') != 'none':
+            pad = max(pad, 10 + self.o.get('strokeW', 2) * 2.5)
         return QRectF(-pad, -pad, self.o['w'] + 2 * pad, self.o['h'] + 2 * pad)
 
     def shape(self):
@@ -3295,6 +4468,35 @@ class TextEditor(QGraphicsTextItem):
             self.win.finish_edit(); return
         super().keyPressEvent(e)
 
+    def contextMenuEvent(self, e):
+        """Right-click inside text: the usual Cut/Copy/Paste plus a Hyperlink entry
+        that turns the highlighted words into a link."""
+        from PySide6.QtWidgets import QMenu
+        c = self.textCursor(); cb = QApplication.clipboard()
+        hassel = c.hasSelection()
+        m = QMenu()
+        a_cut = m.addAction('Cut'); a_cut.setEnabled(hassel)
+        a_copy = m.addAction('Copy'); a_copy.setEnabled(hassel)
+        a_paste = m.addAction('Paste'); a_paste.setEnabled(bool(cb.text()))
+        m.addSeparator()
+        onlink = c.charFormat().isAnchor()
+        a_link = m.addAction('Remove Link' if onlink and not hassel else 'Hyperlink…')
+        a_link.setEnabled(hassel or onlink)
+        m.addSeparator()
+        a_all = m.addAction('Select All')
+        chosen = m.exec(e.screenPos())
+        if chosen is None: return
+        if chosen is a_cut:
+            cb.setText(c.selectedText()); c.removeSelectedText()
+        elif chosen is a_copy:
+            cb.setText(c.selectedText())
+        elif chosen is a_paste:
+            c.insertText(cb.text())
+        elif chosen is a_all:
+            c.select(QTextCursor.Document); self.setTextCursor(c)
+        elif chosen is a_link:
+            self.win.text_link_dialog()
+
 
 class Canvas(QGraphicsView):
     HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
@@ -3314,6 +4516,7 @@ class Canvas(QGraphicsView):
         self.drag = None
         self.marq = None
         self.ghost = None
+        self._cross = None
         self.horizontalScrollBar().valueChanged.connect(lambda *_: win.update_rulers())
         self.verticalScrollBar().valueChanged.connect(lambda *_: win.update_rulers())
         self.setAcceptDrops(True); self.viewport().setAcceptDrops(True)   # drop assets or picture files onto the page
@@ -3393,6 +4596,11 @@ class Canvas(QGraphicsView):
 
     def drawForeground(self, p, rect):
         win = self.win
+        if win.crosshair and self._cross is not None:
+            cp = QPen(QColor(110, 110, 120, 150), 0); cp.setCosmetic(True); p.setPen(cp)
+            x, y = self._cross.x(), self._cross.y()
+            p.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            p.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
         hi = self.palette().color(QPalette.Highlight)
         cos = QPen(hi, 0); cos.setCosmetic(True)
         sel = win.sel_items()
@@ -3459,6 +4667,15 @@ class Canvas(QGraphicsView):
             else:
                 win.cancel_eyedropper()
             e.accept(); return
+        if getattr(win, '_link_pick', False):
+            win._link_pick = False; self.viewport().setCursor(Qt.ArrowCursor)
+            if e.button() == Qt.LeftButton:
+                it = self.obj_at(vpos)
+                if it and not it.master and it.o['type'] not in ('nav', 'form', 'share'):
+                    win.select([it.o['id']]); win.hyperlink_dialog()
+                else:
+                    win.hint('No linkable object there — click directly on a picture, text, button or box.')
+            e.accept(); return
         if win.editor:
             if win.editor.sceneBoundingRect().contains(sp) and win.editor.isVisible():
                 super().mousePressEvent(e); return
@@ -3479,6 +4696,25 @@ class Canvas(QGraphicsView):
             if L: win.follow_link(L); return
         if win.tool == 'zoom':
             self.set_zoom(self.zoom / 1.25 if e.modifiers() & (Qt.ShiftModifier | Qt.AltModifier) else self.zoom * 1.25, vpos); return
+        if win.tool == 'rotate':
+            it = self.obj_at(vpos)
+            if it and it.master:
+                win.hint('That object is on the master page — edit the master to turn it.'); return
+            if it and not it.o.get('locked'):
+                win.select([it.o['id']])
+                self.drag = dict(mode='rot', dir='rot', item=it, start=dict(it.o), pt=sp, snap=win.snapshot(), moved=False)
+            else:
+                win.hint('Click an object, then drag to turn it.')
+            return
+        if win.tool == 'crop':
+            it = self.obj_at(vpos)
+            if it and it.o['type'] == 'picture' and not it.o.get('locked') and it.o.get('src'):
+                win.select([it.o['id']]); win.crop_picture(it.o)
+            elif it and it.o['type'] == 'picture':
+                win.hint('That picture frame has no image yet — double-click it to choose one first.')
+            else:
+                win.hint('Click a picture to crop it.')
+            return
         hk = self.handle_at(vpos)
         if hk and win.tool == 'pointer':
             it = win.sel_items()[0]
@@ -3508,6 +4744,8 @@ class Canvas(QGraphicsView):
     def mouseMoveEvent(self, e):
         win = self.win; vpos = e.position().toPoint(); sp = self.mapToScene(vpos)
         win.set_pos_label(sp)
+        if win.crosshair:
+            self._cross = sp; self.viewport().update()
         d = self.drag
         if not d:
             if win.editor: super().mouseMoveEvent(e); return
@@ -3642,7 +4880,7 @@ class Canvas(QGraphicsView):
         k = e.key()
         if k in (Qt.Key_Delete, Qt.Key_Backspace): win.delete_sel(); return
         if k == Qt.Key_Escape:
-            win.set_tool('pointer'); win.select([]); return
+            win.cancel_link_pick(); win.set_tool('pointer'); win.select([]); return
         if k in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down) and win.sel:
             step = 10 if e.modifiers() & Qt.ShiftModifier else 1
             dx = {Qt.Key_Left: -step, Qt.Key_Right: step}.get(k, 0); dy = {Qt.Key_Up: -step, Qt.Key_Down: step}.get(k, 0)
@@ -3656,6 +4894,33 @@ class Canvas(QGraphicsView):
 
     def resizeEvent(self, e):
         super().resizeEvent(e); self.win.update_rulers()
+
+
+class CornerToggle(QWidget):
+    """The ruler-intersection square: click to switch between the mouse pointer and
+    the crosshair guide. Draws a NW-pointing arrow (mouse) or a crosshair (on)."""
+    def __init__(self, win):
+        super().__init__()
+        self.win = win; self.setFixedSize(20, 20); self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Switch between the mouse pointer and the crosshair")
+
+    def paintEvent(self, e):
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        pal = self.palette(); p.fillRect(self.rect(), pal.color(QPalette.Window).darker(112))
+        ink = pal.color(QPalette.WindowText)
+        if getattr(self.win, "crosshair", False):
+            p.setPen(QPen(ink, 1.4))
+            p.drawLine(10, 3, 10, 7); p.drawLine(10, 13, 10, 17)
+            p.drawLine(3, 10, 7, 10); p.drawLine(13, 10, 17, 10)
+            p.setPen(Qt.NoPen); p.setBrush(ink); p.drawEllipse(QPointF(10, 10), 1.2, 1.2)
+        else:
+            p.setPen(QPen(ink, 1.2)); p.setBrush(ink)
+            p.drawPolygon(QPolygonF([QPointF(5, 4), QPointF(5, 15), QPointF(8, 12),
+                                     QPointF(10.5, 17), QPointF(12, 16), QPointF(9.5, 11), QPointF(13, 11)]))
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.win.toggle_crosshair(); self.update()
 
 
 class Ruler(QWidget):
@@ -3808,9 +5073,18 @@ class StartupAssistant(QDialog):
     def __init__(self, win):
         super().__init__(win)
         self.win = win; self.result_site = None; self.result_path = None; self.result_import = False; self.result_update = False
-        self.result_webplus = None
+        self.result_webplus = None; self.result_url = None
         self.setWindowTitle(f'{APP} — Startup Assistant'); self.resize(1040, 660)
-        root = QVBoxLayout(self)
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        # App banner across the very top of the welcome screen.
+        if os.path.isfile(BANNER_IMG):
+            _pm = QPixmap(BANNER_IMG)
+            if not _pm.isNull():
+                self.banner = QLabel(); self.banner.setAlignment(Qt.AlignCenter)
+                self.banner.setPixmap(_pm.scaledToWidth(1040, Qt.SmoothTransformation))
+                self.banner.setScaledContents(False); root.addWidget(self.banner)
+        _body = QWidget(); root.addWidget(_body, 1)
+        root = QVBoxLayout(_body); root.setContentsMargins(9, 9, 9, 9)
         self.upd = QFrame(); self.upd.setAutoFillBackground(True)
         pal = self.upd.palette(); pal.setColor(QPalette.Window, pal.color(QPalette.Highlight))
         pal.setColor(QPalette.WindowText, pal.color(QPalette.HighlightedText)); self.upd.setPalette(pal)
@@ -3903,13 +5177,21 @@ class StartupAssistant(QDialog):
         self.rlist.itemDoubleClicked.connect(self.open_recent)
         bh = QHBoxLayout(); ol.addLayout(bh)
         b2 = QPushButton(ticon(['document-open-folder', 'folder-open'], ''), 'Browse…'); b2.clicked.connect(self.browse); bh.addWidget(b2)
-        b3 = QPushButton(ticon(['document-import'], ''), 'Import Website Folder…'); b3.clicked.connect(self.import_site); bh.addWidget(b3)
-        b4 = QPushButton(ticon(['document-open', 'document-import'], ''), 'Open WebPlus Site…')
-        b4.setToolTip('Open a WebPlus .wpp publication as an editable site'); b4.clicked.connect(self.open_wpp)
-        bh.addWidget(b4); bh.addStretch()
+        from PySide6.QtWidgets import QToolButton as _ITB, QMenu as _IM
+        imp = _ITB(); imp.setText('Import…'); imp.setIcon(ticon(['document-import'], ''))
+        imp.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); imp.setPopupMode(_ITB.InstantPopup)
+        imp.setToolTip('Import a Serif WebPlus site, a website folder, or a web page from its URL')
+        _im = _IM(imp)
+        _im.addAction('WebPlus publication (.wpp)…', self.open_wpp)
+        _im.addAction('Website folder…', self.import_site)
+        _im.addAction('Web page from a URL…', self.import_url)
+        imp.setMenu(_im); bh.addWidget(imp); bh.addStretch()
         self.stack.addWidget(op)
 
         bottom = QHBoxLayout(); root.addLayout(bottom)
+        guide = QPushButton(ticon(['help-contents', 'system-help', 'help-browser'], '📖'), 'Quick Start Guide')
+        guide.setToolTip('New here? A short guide to building and publishing a site with WEBcreator')
+        guide.clicked.connect(win.open_quickstart); bottom.addWidget(guide)
         self.show_cb = QCheckBox('Show the Startup Assistant when the app opens')
         self.show_cb.setChecked(win.settings.value('showStartup', True, type=bool)); bottom.addWidget(self.show_cb); bottom.addStretch()
         openb = QPushButton(ticon(['document-open'], ''), 'Open')
@@ -4116,6 +5398,12 @@ class StartupAssistant(QDialog):
     def import_site(self):
         self.result_import = True; self.accept()
 
+    def import_url(self):
+        from PySide6.QtWidgets import QInputDialog
+        url, ok = QInputDialog.getText(self, 'Import web page', 'Web page address (URL):')
+        if ok and url.strip():
+            self.result_url = url.strip(); self.accept()
+
     def open_wpp(self):
         root = self.win.webplus_root()
         if not root: return
@@ -4127,8 +5415,104 @@ class StartupAssistant(QDialog):
         self.result_webplus = (path, root); self.accept()
 
     def browse(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'Open Site', os.path.expanduser('~'), f'WEBcreator sites (*{EXT});;All files (*)')
+        path, _ = QFileDialog.getOpenFileName(self, 'Open Site', _just_dir('docs'), f'WEBcreator sites (*{EXT});;All files (*)')
         if path: self.result_path = path; self.accept()
+
+
+# A single in-app preview window that shows the built site in a real web engine
+# and lets you flip between Website (full desktop), Tablet and Phone widths —
+# the embedded page is given exactly that CSS viewport, so a responsive site
+# reflows for real (it hits the same @media breakpoints a real device would).
+DEVICES = [
+    ('website', 'Website', 'Full desktop browser width',   0,   0,   ['internet-web-browser', 'applications-internet']),
+    ('tablet',  'Tablet',  'Tablet portrait (768×1024)',  768, 1024, ['computer', 'tablet', 'pda']),
+    ('phone',   'Phone',   'Phone portrait (390×844)',    390,  844, ['phone', 'smartphone', 'pda']),
+]
+
+
+class DevicePreviewDialog(QDialog):
+    def __init__(self, win, start_url, title_file):
+        super().__init__(win)
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        from PySide6.QtWidgets import QScrollArea, QToolButton
+        self.win = win; self.start_url = start_url
+        self.setWindowTitle(f'Preview — {title_file}')
+        self.setWindowFlag(Qt.Window, True)
+        self.resize(1180, 820)
+
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+
+        bar = QHBoxLayout(); bar.setContentsMargins(10, 8, 10, 8); bar.setSpacing(8)
+        bar.addWidget(QLabel('Preview as:'))
+        self.devgroup = QActionGroup(self); self.devgroup.setExclusive(True)
+        self.devbtns = {}
+        for mode, label, tip, _w, _h, icons in DEVICES:
+            b = QToolButton(); b.setText(label); b.setIcon(ticon(icons, ''))
+            b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            b.setCheckable(True); b.setAutoRaise(True); b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, m=mode: self.set_device(m))
+            bar.addWidget(b); self.devbtns[mode] = b
+        bar.addSpacing(16)
+        self.rotate = QToolButton(); self.rotate.setText('Rotate'); self.rotate.setIcon(ticon(['object-rotate-right', 'view-refresh'], '⟳'))
+        self.rotate.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); self.rotate.setAutoRaise(True)
+        self.rotate.setToolTip('Swap width and height (portrait ↔ landscape)')
+        self.rotate.clicked.connect(self.toggle_rotate); bar.addWidget(self.rotate)
+        bar.addStretch()
+        self.sizelbl = QLabel(''); self.sizelbl.setStyleSheet('color:#888'); bar.addWidget(self.sizelbl)
+        obtn = QPushButton(ticon(['internet-web-browser'], ''), 'Open in Browser')
+        obtn.setToolTip('Open this preview in your default web browser instead')
+        obtn.clicked.connect(self.open_in_browser); bar.addWidget(obtn)
+        barw = QWidget(); barw.setLayout(bar); barw.setStyleSheet('background:#f2f2f2;color:#222;border-bottom:1px solid #d0d0d0')
+        root.addWidget(barw)
+
+        # Light stage the "device" sits centred on.
+        self.stage = QScrollArea(); self.stage.setWidgetResizable(True)
+        self.stage.setStyleSheet('QScrollArea{background:#e9e9e9;border:none}')
+        holder = QWidget(); holder.setStyleSheet('background:#e9e9e9')
+        hl = QVBoxLayout(holder); hl.setAlignment(Qt.AlignCenter)
+        self.frame = QFrame()
+        self.frame.setStyleSheet('QFrame{background:#fff;border:1px solid #111}')
+        fl = QVBoxLayout(self.frame); fl.setContentsMargins(0, 0, 0, 0)
+        self.view = QWebEngineView(); fl.addWidget(self.view)
+        # Paint the web view white so a dark desktop palette never shows through any
+        # uncovered area (matches a real browser, which defaults to a white canvas).
+        self.view.page().setBackgroundColor(QColor('#ffffff'))
+        hl.addWidget(self.frame)
+        self.stage.setWidget(holder)
+        root.addWidget(self.stage, 1)
+
+        self.rotated = False
+        self.view.load(QUrl.fromLocalFile(start_url))
+        self.set_device('website')
+
+    def _spec(self, mode):
+        return next(d for d in DEVICES if d[0] == mode)
+
+    def set_device(self, mode):
+        self.mode = mode
+        for m, b in self.devbtns.items(): b.setChecked(m == mode)
+        _, _, _, w, h, _ = self._spec(mode)
+        self.rotate.setEnabled(mode != 'website')
+        if mode == 'website':
+            # Fill the stage; no device frame, scroll inside the view like a browser.
+            self.frame.setMaximumSize(16777215, 16777215)
+            self.frame.setMinimumSize(0, 0)
+            self.view.setMinimumSize(0, 0)
+            self.frame.setStyleSheet('QFrame{background:#fff;border:none}')
+            self.sizelbl.setText('Full width')
+        else:
+            if self.rotated: w, h = h, w
+            self.frame.setStyleSheet('QFrame{background:#fff;border:1px solid #111}')
+            self.frame.setFixedSize(w, h)
+            self.view.setFixedSize(w, h)
+            self.sizelbl.setText(f'{w} × {h} px')
+
+    def toggle_rotate(self):
+        self.rotated = not self.rotated
+        if self.mode != 'website': self.set_device(self.mode)
+
+    def open_in_browser(self):
+        open_external(self.start_url, is_file=True)
 
 # ----------------------------------------------------------------------------
 # Main window
@@ -4151,6 +5535,7 @@ class MainWindow(QMainWindow):
         self.tool = 'pointer'
         self.show_grid = self.settings.value('grid', False, type=bool)
         self.snap_grid = self.settings.value('snap', True, type=bool)
+        self.crosshair = False
         self.editor = None; self.edit_id = None; self.edit_snap = None
         self._eyedrop = False
         self.clip = []
@@ -4160,7 +5545,7 @@ class MainWindow(QMainWindow):
         self.preview_dir = tempfile.mkdtemp(prefix='webcreator-preview-')
         self.startup_dlg = None
 
-        self.setWindowIcon(ticon(['applications-development-web', 'text-html', 'applications-internet'], 'W'))
+        self.setWindowIcon(ticon(['webcreator', 'applications-development-web', 'text-html'], 'W'))
         self.resize(1360, 860)
         self.build_canvas_area()
         self.build_actions()
@@ -4254,7 +5639,7 @@ class MainWindow(QMainWindow):
     def build_canvas_area(self):
         self.view = Canvas(self)
         self.rx, self.ry = Ruler(self.view, True), Ruler(self.view, False)
-        corner = QWidget(); corner.setFixedSize(20, 20)
+        corner = CornerToggle(self); self.corner_toggle = corner
         self.banner = QFrame(); bl = QHBoxLayout(self.banner); bl.setContentsMargins(10, 6, 10, 6)
         self.banner.setAutoFillBackground(True)
         pal = self.banner.palette(); pal.setColor(QPalette.Window, pal.color(QPalette.Highlight)); pal.setColor(QPalette.WindowText, pal.color(QPalette.HighlightedText))
@@ -4320,6 +5705,7 @@ class MainWindow(QMainWindow):
             checklinks=A('Check &Links…', self.check_links, None, ['tools-check-spelling', 'insert-link', 'link']),
             prevpage=A('Preview &Page in Browser', self.preview_page, 'F12', ['document-preview', 'view-preview']),
             prevsite=A('Preview &Site in Browser', self.preview_site, 'Shift+F12', ['internet-web-browser', 'applications-internet']),
+            prevwin=A('Preview in &Window (Website / Phone / Tablet)…', lambda: self.preview_device('current'), 'F11', ['document-preview', 'video-display', 'computer']),
             publish=A('&Publish…', self.publish_disk, None, ['document-export', 'folder-publicshare']),
             quit=A('&Quit', self.close, QKeySequence.Quit, 'application-exit'),
             undo=A('&Undo', self.do_undo, QKeySequence.Undo, 'edit-undo'),
@@ -4333,13 +5719,16 @@ class MainWindow(QMainWindow):
             rulers=A('&Rulers', self.toggle_rulers, None, None, True),
             grid=A('&Grid', self.toggle_grid, None, 'view-grid', True),
             snap=A('&Snap to Grid', self.toggle_snap, None, 'snap-to-grid', True),
+            crosshair=A('Cross&hair', self.toggle_crosshair, None, ['crosshairs', 'tool-pointer', 'cursor-crosshair'], True),
             zin=A('Zoom &In', lambda: self.view.set_zoom(self.view.zoom * 1.25), QKeySequence.ZoomIn, 'zoom-in'),
             zout=A('Zoom &Out', lambda: self.view.set_zoom(self.view.zoom / 1.25), QKeySequence.ZoomOut, 'zoom-out'),
             z100=A('&Actual Size', lambda: self.view.set_zoom(1.0), 'Ctrl+1', 'zoom-original'),
             zfit=A('&Fit Page Width', self.view.fit_width, 'Ctrl+0', 'zoom-fit-width'),
             newpage=A('&Page…', self.insert_page_dialog, 'Ctrl+Shift+N', 'document-new'),
             index_page=A('&Index Page', self.insert_index_page, None, ['view-list-tree', 'view-list-text', 'format-list-unordered']),
-            link=A('&Hyperlink…', self.hyperlink_dialog, 'Ctrl+K', ['insert-link', 'link']),
+            embed=A('&Embed (comments, forms…)…', self.embed_dialog, None, ['insert-object', 'text-html', 'applications-internet']),
+            newsfromlink=A('News from a &Link…', self.news_from_link_dialog, None, ['application-rss+xml', 'download', 'insert-link']),
+            link=A('&Hyperlink…', self.link_action, 'Ctrl+K', ['insert-link', 'link']),
             pageprops=A('Page P&roperties…', lambda: self.page_props(self.page()), None, 'document-properties'),
             bold=A('&Bold', lambda: self.text_style('bold'), QKeySequence.Bold, 'format-text-bold', True),
             italic=A('&Italic', lambda: self.text_style('italic'), QKeySequence.Italic, 'format-text-italic', True),
@@ -4365,6 +5754,8 @@ class MainWindow(QMainWindow):
         )
         self.a['delete'].setIconText('Delete')
         self.a['import'] = self.act('&Import Website Folder…', self.import_folder, 'Ctrl+Shift+I', ['document-import', 'folder-download'])
+        self.a['importtext'] = self.act('Import &Text…', self.import_text, None, ['document-import', 'insert-text', 'text-x-generic'],
+                                        tip='Read a .txt, .html or Markdown file and drop its text onto the page as a text box')
         self.a['openwpp'] = self.act('Open &WebPlus Site…', self.open_webplus, 'Ctrl+Shift+O',
                                      ['document-open', 'document-import'],
                                      tip='Open a WebPlus .wpp publication as an editable site')
@@ -4376,6 +5767,10 @@ class MainWindow(QMainWindow):
 
     def build_menus(self):
         mb = self.menuBar(); a = self.a
+        # Custom CSS action — created here (menus build before toolbars) so it can appear
+        # both in the Insert menu and on the left tool rail.
+        a['css'] = QAction(ticon(['text-css', 'text-x-css'], '{ }'), 'Custom &CSS…', self)
+        a['css'].setStatusTip('Add your own CSS style rules to the whole site'); a['css'].triggered.connect(self.css_dialog)
         def menu(title, items):
             m = mb.addMenu(title)
             for it in items:
@@ -4384,22 +5779,27 @@ class MainWindow(QMainWindow):
                 else: m.addAction(it)
             return m
         menu('&File', [a['new'], a['open'], self.recent_menu_action(), a['openwpp'], a['import'], None, a['save'], a['saveas'], None, a['checklinks'], None,
-                       a['prevpage'], a['prevsite'], a['publish'], None, a['quit']])
+                       a['prevwin'], a['prevpage'], a['prevsite'], a['publish'], None, a['quit']])
         menu('&Edit', [a['undo'], a['redo'], None, a['cut'], a['copy'], a['paste'], a['dup'], a['delete'], None, a['selall']])
-        self.view_menu = menu('&View', [a['rulers'], a['grid'], a['snap'], None, a['zin'], a['zout'], a['z100'], a['zfit'], None])
+        self.view_menu = menu('&View', [a['rulers'], a['grid'], a['snap'], a['crosshair'], None, a['zin'], a['zout'], a['z100'], a['zfit'], None])
         ins = []
         for tid, label, *_ in [t for t in TOOLS if t[0] and t[0] not in ('pointer', 'hand', 'zoom')]:
             ins.append(self.act(label, lambda _=False, t=tid: self.insert_default(t), None, None))
+            if tid == 'html': ins.append(a['css'])   # Custom CSS sits right after Insert ▸ HTML Code
+        qs_acts = [self.act(lbl, lambda _=False, k=k: self.insert_quickshape(k), None, None) for k, lbl in QUICKSHAPES[2:]]
+        ins.append(('QuickShapes', qs_acts))   # the preset-shape gallery beyond Rectangle/Ellipse
         # Contact-details submenu: drops a text frame showing a field from Site Properties
         contact_acts = [self.act(lbl, lambda _=False, fk=fld: self.insert_contact(fk), None, None)
                         for fld, lbl in (('name', 'Author / Name'), ('email', 'Email'), ('phone', 'Phone'),
                                          ('address', 'Address'), ('website', 'Website'), ('all', 'All contact details'))]
-        menu('&Insert', [a['newpage'], a['index_page'], None] + ins + [None, ('Contact details', contact_acts), None, a['link']])
+        menu('&Insert', [a['newpage'], a['index_page'], a['newsfromlink'], None] + ins + [a['embed'], None, ('Contact details', contact_acts), None, a['importtext'], a['link']])
         list_sub = [a['list_disc'], a['list_circle'], a['list_square'], None,
                     a['list_decimal'], a['list_loweralpha'], a['list_upperalpha'],
                     a['list_lowerroman'], a['list_upperroman'], None, a['list_none']]
         menu('F&ormat', [a['bold'], a['italic'], a['underline'], None, a['aleft'], a['acenter'], a['aright'], a['ajust'],
-                         None, ('Lists / Bullets', list_sub), None, a['pageprops']])
+                         None, ('Lists / Bullets', list_sub), None,
+                         self.act('Chec&k Spelling…', lambda: self.spell_dialog(), 'F7', ['tools-check-spelling', 'gtk-spell-check']),
+                         a['pageprops']])
         al = [self.act(n, lambda _=False, k=k: self.align(k), None, ic) for k, n, ic in (
             ('left', 'Align Left Edges', 'align-horizontal-left'), ('hcenter', 'Align Centres Horizontally', 'align-horizontal-center'),
             ('right', 'Align Right Edges', 'align-horizontal-right'), ('top', 'Align Top Edges', 'align-vertical-top'),
@@ -4409,8 +5809,13 @@ class MainWindow(QMainWindow):
         self.a['tomaster'] = self.act('Move Repeated Objects to &Master Page…', self.move_common_to_master, None, ['document-multiple', 'edit-copy'])
         menu('&Arrange', [a['front'], a['fwd'], a['back1'], a['back'], None, ('Align', al), None, self.a['lock'], None, self.a['tomaster']])
         # Preview and Publish sit on the menu bar as clickable items (text only, no icon,
-        # so the words show), with SEO and Help after them.
-        mb.addAction(self.act('Preview', self.preview_site))
+        # so the words show), with SEO and Help after them. Preview is a small drop-down:
+        # the in-app Website/Phone/Tablet window, plus the classic open-in-browser options.
+        prev_menu = mb.addMenu('Preview')
+        pw = self.act('Preview as Website / Phone / Tablet…', lambda: self.preview_device('current'))
+        pw.setToolTip('Open an in-app preview window and switch between desktop, tablet and phone widths')
+        prev_menu.addAction(pw); prev_menu.addSeparator()
+        prev_menu.addAction(a['prevpage']); prev_menu.addAction(a['prevsite'])
         mb.addAction(self.act('Publish', self.publish_disk))
         self.a['seo_page'] = self.act('&This Page’s SEO…', self.seo_dialog, None, ['text-html', 'find', 'edit-find'])
         self.a['seo_page'].setToolTip('Search-engine title, description, focus keyword and social preview for this page')
@@ -4424,11 +5829,13 @@ class MainWindow(QMainWindow):
         self.a['update'] = self.act('Update Available', self.install_update, None, ['system-software-update', 'update-none', 'download'])
         self.a['update'].setVisible(False)
         self.a['checkupdate'] = self.act('Check for &Updates…', lambda: self.check_updates(quiet=False), None, ['system-software-update', 'view-refresh'])
+        self.a['quickstart'] = self.act('&Quick Start Guide', self.open_quickstart, None, ['help-contents', 'system-help', 'help-browser'])
+        self.a['userguide'] = self.act('&User Guide', self.open_manual, None, ['help-contents', 'help-browser', 'x-office-document'])
         self.a['updatesettings'] = self.act('&Settings…', self.update_settings, None, ['configure', 'preferences-system'])
         self.a['donate'] = self.act('&Buy Me a Coffee  ☕', lambda: open_external('https://buymeacoffee.com/janszafranski'),
                                     None, ['help-donate', 'emblem-favorite', 'face-smile-big'])
         self.a['donate'].setToolTip('Enjoying WEBcreator? Buy its maker a coffee — opens buymeacoffee.com in your browser')
-        menu('&Help', [self.a['update'], self.a['checkupdate'], self.a['updatesettings'], None, a['about'], None, self.a['donate']])
+        menu('&Help', [self.a['userguide'], self.a['quickstart'], None, self.a['update'], self.a['checkupdate'], self.a['updatesettings'], None, a['about'], None, self.a['donate']])
 
     def recent_menu_action(self):
         self.recent_menu = QMenu('Open &Recent', self)
@@ -4469,6 +5876,20 @@ class MainWindow(QMainWindow):
         cw = ins.widgetForAction(coffee)
         if cw: cw.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.TopToolBarArea, ins)
+        # Companion "just a…" apps: edit images in PAINT, make documents/PDFs in PAGEdesigner.
+        from PySide6.QtWidgets import QToolButton as _QTB, QMenu as _QM
+        apps = QToolBar('Apps'); apps.setObjectName('apps'); apps.setIconSize(QSize(20, 20))
+        paint_a = QAction(ticon(['draw-brush', 'krita', 'applications-graphics'], '🖌'), 'Edit in PAINTcanvas', self)
+        paint_a.setToolTip('Edit the selected picture in just a… PAINTcanvas — save there and it updates here')
+        paint_a.triggered.connect(lambda: self.edit_in_paint())
+        apps.addAction(paint_a); apps.widgetForAction(paint_a).setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        docs_btn = _QTB(); docs_btn.setText('Documents'); docs_btn.setIcon(ticon(['x-office-document', 'application-pdf'], '📄'))
+        docs_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon); docs_btn.setPopupMode(_QTB.InstantPopup)
+        docs_btn.setToolTip('just a… PAGEdesigner — make print documents and PDFs')
+        _dm = _QM(docs_btn)
+        _dm.addAction('Open PAGEdesigner (documents / PDF)', lambda: self.launch_app('pagecreator', 'PAGEdesigner'))
+        docs_btn.setMenu(_dm); apps.addWidget(docs_btn)
+        self.addToolBar(Qt.TopToolBarArea, apps)
         # Context toolbar — same row; all top toolbars wrap onto more rows only when
         # the window is too narrow to hold them.
         self.ctx = QToolBar('Context'); self.ctx.setObjectName('context'); self.ctx.setIconSize(QSize(18, 18))
@@ -4479,32 +5900,59 @@ class MainWindow(QMainWindow):
         for t in TOOLS:
             if t[0] is None: tt.addSeparator(); continue
             tid, label, names, glyph, tip = t
-            a = QAction(ticon(names, glyph), label, self); a.setCheckable(True); a.setToolTip(f'{label}\n{tip}')
+            if tid == 'artistic':  icon = letter_icon('A', italic=True, serif=True, size=26)   # fancy A
+            elif tid == 'text':    icon = letter_icon('T', italic=False, serif=True, size=23)   # serif T
+            else:                  icon = ticon(names, glyph)
+            a = QAction(icon, label, self); a.setCheckable(True); a.setToolTip(f'{label}\n{tip}')
             a.triggered.connect(lambda _=False, tid=tid: self.set_tool(tid))
             self.tool_group.addAction(a); tt.addAction(a); self.tool_actions[tid] = a
+            if tid == 'html':
+                self.a['css'].setToolTip('Custom CSS\nAdd your own CSS style rules to the whole site')
+                tt.addAction(self.a['css'])
         self.tool_actions['pointer'].setChecked(True)
         self.addToolBar(Qt.LeftToolBarArea, tt)
-        # Serif-suite toolbar — separate Serif programs (PhotoPlus / PhotoLab /
-        # Cutout Studio) with no Linux equivalent, so the buttons explain they're unavailable.
+        # Photo-tools toolbar — the Serif suite's PhotoPlus / PhotoLab / Cutout Studio
+        # are replaced here by just a… PAINTcanvas, which opens the selected picture.
         photo = QToolBar('Photo tools'); photo.setObjectName('phototools'); photo.setIconSize(QSize(20, 20))
         for name, icons, glyph in (
             ('Edit Properties', ['document-properties', 'document-edit'], '≡'),
-            ('PhotoLab', ['darktable', 'applications-graphics'], '◉'),
-            ('Cutout Studio', ['edit-cut', 'gimp-tool-scissors'], '✂'),
+            ('PhotoLab (PAINTcanvas)', ['darktable', 'applications-graphics'], '◉'),
+            ('Cutout (PAINTcanvas)', ['edit-cut', 'gimp-tool-scissors'], '✂'),
             ('Position Image', ['transform-move', 'object-align-horizontal-center'], '✥')):
-            pa = QAction(ticon(icons, glyph), name, self); pa.setToolTip(f'{name} — part of the Serif suite, not available in this clone')
-            pa.triggered.connect(lambda _=False, n=name: self.serif_stub(n)); photo.addAction(pa)
+            is_photo = 'PAINTcanvas' in name
+            pa = QAction(ticon(icons, glyph), name, self)
+            pa.setToolTip(('Edit the selected picture in just a… PAINTcanvas' if is_photo
+                           else f'{name} — part of the Serif suite, not available in this clone'))
+            pa.triggered.connect((lambda _=False: self.edit_in_paint()) if is_photo
+                                 else (lambda _=False, n=name: self.serif_stub(n)))
+            photo.addAction(pa)
             w = photo.widgetForAction(pa)
             if w: w.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.TopToolBarArea, photo)
-        # Placeholder tools in the left rail, mirroring WebPlus's fuller tool set.
+        # Graphic tools for a clicked object: Rotate and Crop are live; the rest mirror
+        # WebPlus's fuller tool set but aren't built yet.
         tt.addSeparator()
-        for name, glyph in (('Rotate', '⟳'), ('Node Edit', '✎'), ('Crop', '⌗'), ('Pen / Curve', '✐'), ('Hotspot', '⬚'), ('Rollover', '◳')):
+        for tid, label, names, glyph, tip in (
+            ('rotate', 'Rotate', ['object-rotate-right', 'transform-rotate'], '⟳',
+             'Click an object and drag to turn it. (Hold Shift to snap to 15°. You can also drag the round handle above any selected object.)'),
+            ('crop', 'Crop Picture', ['transform-crop', 'image-crop'], '⌗',
+             'Click a picture, then drag out the part you want to keep.')):
+            a = QAction(ticon(names, glyph), label, self); a.setCheckable(True); a.setToolTip(f'{label}\n{tip}')
+            a.triggered.connect(lambda _=False, tid=tid: self.set_tool(tid))
+            self.tool_group.addAction(a); tt.addAction(a); self.tool_actions[tid] = a
+        for name, glyph in (('Node Edit', '✎'), ('Pen / Curve', '✐'), ('Hotspot', '⬚'), ('Rollover', '◳')):
             pt = QAction(ticon([], glyph), name, self); pt.setToolTip(f'{name} — not available in this clone yet')
             pt.triggered.connect(lambda _=False, n=name: self.hint(f'The {n} tool isn’t available in this clone yet.')); tt.addAction(pt)
         # The Insert-menu entries that aren't drawing tools, as icons at the foot of the rail.
         tt.addSeparator()
-        tt.addAction(self.a['newpage']); tt.addAction(self.a['index_page'])
+        blist = QAction(list_icon(), 'Bulleted List', self)
+        blist.setToolTip('Bulleted List\nAdd a bulleted list to the page'); blist.triggered.connect(self.insert_bullet_list)
+        tt.addAction(blist); self.a['blist'] = blist
+        addbtn = QAction(add_button_icon(), 'Add Button', self)
+        addbtn.setToolTip('Add Button\nDrop a ready-made button at the centre of the page'); addbtn.triggered.connect(self.insert_blank_button)
+        tt.addAction(addbtn); self.a['addbtn'] = addbtn
+        tt.addSeparator()
+        tt.addAction(self.a['newpage']); tt.addAction(self.a['index_page']); tt.addAction(self.a['newsfromlink'])
         from PySide6.QtWidgets import QToolButton, QMenu
         cmenu = QMenu(self)
         for fld, lbl in (('name', 'Author / Name'), ('email', 'Email'), ('phone', 'Phone'),
@@ -4883,9 +6331,9 @@ class MainWindow(QMainWindow):
         browse = QPushButton(ticon(['folder-open', 'document-open'], ''), 'Browse…'); browse.setToolTip('Add every picture from a folder'); browse.clicked.connect(self.asset_browse_folder)
         add_file = QPushButton(ticon(['document-open'], ''), 'Open…'); add_file.clicked.connect(self.asset_add_file)
         add_ai = QPushButton(ticon(['applications-graphics'], ''), 'AI image…'); add_ai.clicked.connect(self.asset_add_ai)
-        paint = QPushButton(ticon(['draw-brush', 'krita', 'applications-graphics'], '🖌'), 'IMAGEpainter')
-        paint.setToolTip('Open IMAGEpainter (set in Settings) to paint or edit an image')
-        paint.clicked.connect(self.launch_imagepainter)
+        paint = QPushButton(ticon(['draw-brush', 'krita', 'applications-graphics'], '🖌'), 'Edit in PAINTcanvas')
+        paint.setToolTip('Open the selected picture in just a… PAINTcanvas (or right-click an asset)')
+        paint.clicked.connect(lambda: self.edit_in_paint())
         for b in (browse, add_file, add_ai, paint): b.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         # full words, no truncation — scroll the row with the < > arrows when it overflows
         al.addWidget(self._hscroll_row([browse, add_file, add_ai, paint]))
@@ -5047,7 +6495,8 @@ class MainWindow(QMainWindow):
                         ' Double-click to edit the cells.' if o['type'] == 'table' else \
                         ' Double-click to choose its photos and timing.' if o['type'] == 'gallery' else \
                         ' Each button shares whichever page it is on. Double-click to choose the sites.' if o['type'] == 'share' else \
-                        ' It updates automatically when you add or rename pages.' if o['type'] == 'nav' else ''
+                        ' It updates automatically when you add or rename pages.' if o['type'] == 'nav' else \
+                        ' Double-click to choose which page’s stories it lists. New stories appear automatically.' if o['type'] == 'newsfeed' else ''
                 self.hint(f'{TYPE_NAMES[o["type"]]} selected.{extra}' + (' (Locked)' if o.get('locked') else ''))
             else:
                 self.hint(f'{len(os_)} objects selected. Drag to move them together.')
@@ -5093,19 +6542,43 @@ class MainWindow(QMainWindow):
             tb.addSeparator()
         if types & {'shape', 'text', 'artistic', 'button', 'picture'}:
             label('Fill'); add(ColorButton(o.get('fill'), lambda c: self.set_prop('fill', c), 'Fill colour', allow_none=True))
+            from PySide6.QtWidgets import QToolButton as _FTB, QMenu as _FM
+            fb = _FTB(); fb.setIcon(ticon(['fill-color', 'color-fill', 'format-fill-color'], '▣'))
+            fb.setToolTip('Fill type — solid, gradient or none'); fb.setPopupMode(_FTB.InstantPopup)
+            fm = _FM(fb)
+            fm.addAction('Solid colour…', self.fill_solid)
+            fm.addAction('Linear gradient…', lambda: self.gradient_dialog('linear'))
+            fm.addAction('Radial (circular) gradient…', lambda: self.gradient_dialog('radial'))
+            fm.addSeparator(); fm.addAction('No fill', self.fill_none)
+            fb.setMenu(fm); add(fb)
         if types & {'shape', 'text', 'button', 'picture', 'line'}:
             label('Line'); add(ColorButton(o.get('stroke'), lambda c: self.set_prop('stroke', c), 'Line colour'))
             lw = QSpinBox(); lw.setRange(0, 60); lw.setValue(int(o.get('strokeW', 0))); lw.setSuffix(' px'); lw.setToolTip('Line width')
             lw.editingFinished.connect(lambda: self.set_prop('strokeW', lw.value())); add(lw)
+            dcb = QComboBox(); dcb.addItems(['Solid', 'Dashed', 'Dotted']); _dashes = ['solid', 'dashed', 'dotted']
+            cur_d = o.get('dash', 'solid'); dcb.setCurrentIndex(_dashes.index(cur_d) if cur_d in _dashes else 0)
+            dcb.setToolTip('Line / border style'); dcb.activated.connect(lambda i: self.set_prop('dash', _dashes[i])); add(dcb)
+            tb.addSeparator()
+        if types & set(self.FX_OBJ):
+            btn(['tools-wizard', 'adjustlevels', 'image-adjust'], 'Effects — drop shadow & glow…', self.effects_dialog, glyph='✦')
+            tb.addSeparator()
+        if objs:
+            btn(['transform-move', 'transform-scale', 'object-rotate-right'], 'Transform — exact position, size & rotation…', self.transform_dialog, glyph='⤢')
             tb.addSeparator()
         if len(objs) == 1:
             t = o['type']
             if t == 'shape':
-                cb = QComboBox(); cb.addItems(['Rectangle', 'Ellipse']); cb.setCurrentIndex(1 if o.get('shape') == 'ellipse' else 0)
-                cb.activated.connect(lambda i: self.set_prop('shape', 'ellipse' if i else 'rect')); add(cb)
+                cb = QComboBox()
+                for k, lbl in QUICKSHAPES: cb.addItem(lbl, k)
+                cur = o.get('shape', 'rect'); cb.setCurrentIndex(QS_KEYS.index(cur) if cur in QS_KEYS else 0)
+                cb.setToolTip('QuickShape — morph this shape')
+                cb.activated.connect(lambda i, cb=cb: self.set_prop('shape', cb.itemData(i))); add(cb)
             if t in ('shape', 'button', 'picture', 'text'):
                 rd = QSpinBox(); rd.setRange(0, 400); rd.setValue(int(o.get('radius', 0))); rd.setPrefix('Corners '); rd.setSuffix(' px')
                 rd.editingFinished.connect(lambda: self.set_prop('radius', rd.value())); add(rd)
+            if t == 'text':
+                btn(['format-text-dropcap', 'format-text-direction-ltr'], 'Drop cap — large first letter',
+                    lambda: self.set_prop('dropcap', not o.get('dropcap')), checked=bool(o.get('dropcap')), glyph='¶')
             if t == 'picture':
                 btn(['insert-image', 'document-open'], 'Replace Picture…', lambda: self.pick_picture(o))
                 cb = QComboBox(); cb.addItems(['Fill frame (crop)', 'Fit inside frame', 'Stretch'])
@@ -5113,6 +6586,10 @@ class MainWindow(QMainWindow):
                 cb.activated.connect(lambda i: self.set_prop('fit', ['cover', 'contain', 'stretch'][i])); add(cb)
             if t == 'line':
                 btn(['object-flip-vertical'], 'Flip line', lambda: self.set_prop('flip', not o.get('flip')), glyph='⇅')
+                acb = QComboBox(); acb.addItems(['No arrows', 'Arrow at end', 'Arrow at start', 'Arrows both ends'])
+                _arrows = ['none', 'end', 'start', 'both']; cur_a = o.get('arrow', 'none')
+                acb.setCurrentIndex(_arrows.index(cur_a) if cur_a in _arrows else 0)
+                acb.setToolTip('Arrowheads'); acb.activated.connect(lambda i: self.set_prop('arrow', _arrows[i])); add(acb)
             if t == 'nav':
                 cb = QComboBox(); cb.addItems(['Pills', 'Underline', 'Tabs', 'Plain']); styles = ['pills', 'underline', 'tabs', 'plain']
                 cb.setCurrentIndex(styles.index(o.get('style', 'pills'))); cb.activated.connect(lambda i: self.set_prop('style', styles[i])); add(cb)
@@ -5135,6 +6612,10 @@ class MainWindow(QMainWindow):
                 label('Button'); add(ColorButton(o.get('accent'), lambda c: self.set_prop('accent', c), 'Button colour'))
             if t == 'youtube':
                 btn(['document-edit'], 'Edit Video…', lambda: self.edit_object(o))
+            if t == 'vimeo':
+                btn(['document-edit'], 'Edit Video…', lambda: self.edit_object(o))
+            if t == 'map':
+                btn(['mark-location', 'document-edit'], 'Edit Location…', lambda: self.edit_object(o))
             if t == 'html':
                 btn(['document-edit'], 'Edit HTML…', lambda: self.edit_object(o))
             if t == 'share':
@@ -5170,25 +6651,103 @@ class MainWindow(QMainWindow):
                                'is here for parity with WebPlus but does not do anything.')
 
     def launch_imagepainter(self):
-        """Open the image editor set in Settings (defaults to 'IMAGEpainter'). If it isn't on the
-        system yet, offer to install it."""
-        cmd = (self.settings.value('imagePainterCmd', '') or 'IMAGEpainter').strip()
-        exe = shutil.which(cmd) or shutil.which(cmd.lower()) or shutil.which('imagepainter')
-        if exe:
-            try:
-                subprocess.Popen([exe])
-                self.hint(f'Opening {cmd}…')
-            except Exception as e:
-                QMessageBox.warning(self, cmd, f'Could not start {cmd}:\n{e}')
+        self.edit_in_paint()
+
+    def adjust_picture(self, key, func):
+        """Apply a PhotoPlus-style adjustment to a picture's asset image, in place."""
+        if not _HAS_PIL:
+            QMessageBox.information(self, APP, 'In-app picture adjustments need the Pillow library '
+                                   '(e.g. sudo pacman -S python-pillow). Or use Edit in PAINTcanvas.')
             return
-        r = QMessageBox.question(
-            self, 'Install IMAGEpainter',
-            f'“{cmd}” isn’t installed on this system yet.\n\n'
-            'IMAGEpainter is the companion image editor — paint and edit pictures, then drop them '
-            'straight into your site. Would you like to install it?',
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-        if r == QMessageBox.Yes:
-            open_external('https://janszafranski.github.io/just-a-collection-of-apps/')
+        src = self.site.get('assets', {}).get(key)
+        if not src or not src.startswith('data:image'): return
+        try:
+            qi = QImage(); qi.loadFromData(QByteArray.fromBase64(src.split(',', 1)[1].encode()))
+            if qi.isNull(): return
+            out = _pil2q(func(_q2pil(qi)))
+            ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly)
+            out.save(buf, 'PNG'); buf.close()
+            self.commit()
+            self.site['assets'][key] = 'data:image/png;base64,' + bytes(ba.toBase64()).decode()
+            _PIX.pop(key, None); self.dirty = True; self.refresh(); self.hint('Picture adjusted.')
+        except Exception as ex:
+            QMessageBox.warning(self, APP, f'Could not adjust the picture:\n{ex}')
+
+    def _pic_adjust_menu(self, menu, key):
+        sub = menu.addMenu(ticon(['adjustlevels', 'image-adjust'], '◐'), 'Adjust Picture')
+        for name, fn in PIC_ADJUST:
+            if name is None: sub.addSeparator(); continue
+            sub.addAction(name, lambda _=False, f=fn: self.adjust_picture(key, f))
+
+    def _paint_exe(self):
+        import shutil
+        cmd = (self.settings.value('imagePainterCmd', '') or '').strip()
+        if cmd and cmd.lower() != 'imagepainter':          # a custom editor set in Settings
+            e = shutil.which(cmd) or (cmd if os.path.isabs(cmd) and os.path.exists(cmd) else None)
+            if e: return e
+        return shutil.which('paint') or os.path.expanduser('~/.local/bin/paint')
+
+    def edit_in_paint(self, key=None):
+        """Open an image in just a… PAINTcanvas. If `key` (or a selected picture) names a
+        site asset, its picture is opened and re-imported when you save it there."""
+        exe = self._paint_exe()
+        if not os.path.exists(exe):
+            if QMessageBox.question(self, 'Install PAINTcanvas',
+                    'just a… PAINTcanvas isn’t installed yet.\n\nInstall it from the '
+                    '“just a… CREATORsuite” launcher. Open the download page now?',
+                    QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+                open_external('https://janszafranski.github.io/just-a-collection-of-apps/')
+            return
+        if key is None:
+            o = next((o for o in self.sel_objs() if o.get('type') == 'picture' and o.get('src')), None)
+            key = o['src'] if o else None
+        if not key or key not in self.site.get('assets', {}):
+            subprocess.Popen([exe], start_new_session=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.hint('Opened PAINTcanvas. Select a picture first to edit it directly.')
+            return
+        src = self.site['assets'][key]
+        m = re.match(r'data:image/([a-z0-9+]+);base64,', src)
+        ext = {'jpeg': 'jpg', 'svg+xml': 'svg'}.get(m.group(1), m.group(1)) if m else 'png'
+        if ext not in ('png', 'jpg', 'jpeg'): ext = 'png'
+        nm = self.site.get('assetnames', {}).get(key) or key
+        base = re.sub(r'[^A-Za-z0-9._-]+', '-', os.path.splitext(nm)[0]).strip('-') or key[:8]
+        path = os.path.join(_just_dir('pics'), f'{base}.{ext}')
+        try:
+            with open(path, 'wb') as fh: fh.write(base64.b64decode(src.split(',', 1)[1]))
+        except Exception as ex:
+            QMessageBox.warning(self, APP, f'Could not export the picture:\n{ex}'); return
+        subprocess.Popen([exe, path], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.hint(f'Editing “{base}” in PAINTcanvas — save there (Ctrl+S) and it updates here.')
+        self._watch_paint_edit(key, path)
+
+    def _watch_paint_edit(self, key, path):
+        if not hasattr(self, '_paint_watcher'):
+            self._paint_watcher = QFileSystemWatcher(self); self._paint_watch = {}
+            self._paint_watcher.fileChanged.connect(self._on_paint_saved)
+        self._paint_watch[path] = key
+        if path not in self._paint_watcher.files():
+            self._paint_watcher.addPath(path)
+
+    def _on_paint_saved(self, path):
+        # editors replace the file on save, which drops the watch — re-arm, then re-import
+        QTimer.singleShot(400, lambda: self._reimport_paint(path))
+
+    def _reimport_paint(self, path):
+        key = getattr(self, '_paint_watch', {}).get(path)
+        if not key or not os.path.exists(path): return
+        if path not in self._paint_watcher.files():
+            self._paint_watcher.addPath(path)
+        try:
+            with open(path, 'rb') as fh: data = fh.read()
+        except OSError:
+            return
+        ext = os.path.splitext(path)[1].lstrip('.').lower()
+        mime = 'jpeg' if ext in ('jpg', 'jpeg') else (ext or 'png')
+        self.site['assets'][key] = f'data:image/{mime};base64,' + base64.b64encode(data).decode()
+        _PIX.pop(key, None); self.dirty = True
+        self.refresh(); self.hint('Picture updated from PAINTcanvas.')
 
     def refresh_site_tab(self):
         self.site_name_label.setText(f'<b>{H.escape(self.site["name"])}</b> &nbsp;·&nbsp; {self.site["width"]} px wide')
@@ -5310,7 +6869,14 @@ class MainWindow(QMainWindow):
         self.set_tool('pointer')
         if kind in ('text', 'artistic', 'button'): self.start_edit(o, select_all=True)
         elif kind == 'picture': self.pick_picture(o)
+        elif kind == 'lightbox': self.lightbox_dialog(o)
         elif kind == 'gallery': self.gallery_dialog(o)
+
+    def insert_quickshape(self, key):
+        c = self.view.mapToScene(self.view.viewport().rect().center())
+        o = mk('shape', 0, 0); o['shape'] = key
+        o['x'] = self.view.snap(max(0, c.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, c.y() - o['h'] / 2))
+        self.add_object(o); self.set_tool('pointer')
 
     def insert_default(self, tool):
         c = self.view.mapToScene(self.view.viewport().rect().center())
@@ -5320,9 +6886,97 @@ class MainWindow(QMainWindow):
         o['x'] = self.view.snap(max(0, c.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, c.y() - o['h'] / 2))
         self.add_object(o)
         if kind == 'picture': self.pick_picture(o)
+        elif kind == 'lightbox': self.lightbox_dialog(o)
         elif kind == 'gallery': self.gallery_dialog(o)
         elif kind == 'search': self.search_dialog(o)
         elif kind == 'youtube': self.youtube_dialog(o)
+        elif kind == 'vimeo': self.vimeo_dialog(o)
+        elif kind == 'audio': self.audio_dialog(o)
+        elif kind == 'map': self.map_dialog(o)
+
+    def launch_app(self, cmd, label):
+        """Launch a sibling 'just a...' app, or explain how to install it."""
+        import shutil
+        exe = shutil.which(cmd) or os.path.expanduser('~/.local/bin/' + cmd)
+        if os.path.exists(exe):
+            try:
+                subprocess.Popen([exe], start_new_session=True,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except Exception:
+                pass
+        QMessageBox.information(self, APP, f'“just a… {label}” isn’t installed yet.\n\n'
+                               'Install it from the “just a… CREATORsuite” launcher.')
+
+    def open_manual(self):
+        """Open the full User Guide in an in-app window."""
+        _p = MANUAL_GUIDE
+        if os.path.isfile(_p):
+            try:
+                from PySide6.QtWebEngineWidgets import QWebEngineView
+                from PySide6.QtWidgets import QDialog, QVBoxLayout
+                from PySide6.QtCore import QUrl as _U, Qt as _Qt
+                _dlg = QDialog(self); _dlg.setWindowTitle('just a... WEBcreator — User Guide'); _dlg.setWindowFlag(_Qt.Window, True); _dlg.resize(920, 840)
+                _lay = QVBoxLayout(_dlg); _lay.setContentsMargins(0, 0, 0, 0)
+                if _p.lower().endswith(".pdf"):
+                    from PySide6.QtPdf import QPdfDocument
+                    from PySide6.QtPdfWidgets import QPdfView
+                    _pd = QPdfDocument(_dlg); _pd.load(_p)
+                    _v = QPdfView(_dlg); _v.setDocument(_pd)
+                    _v.setPageMode(QPdfView.PageMode.MultiPage); _v.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+                    self._doc_wins = getattr(self, "_doc_wins", []) + [_pd]
+                else:
+                    _v = QWebEngineView(_dlg); _v.load(_U.fromLocalFile(os.path.abspath(_p)))
+                _lay.addWidget(_v)
+                _dlg.show(); self._doc_wins = getattr(self, "_doc_wins", []) + [_dlg]; return
+            except Exception:
+                pass
+        import shutil as _sh, subprocess as _sp
+        _t = _p if os.path.isfile(_p) else "https://janszafranski.github.io/just-a-collection-of-apps/"
+        _op = _sh.which("xdg-open")
+        if _op:
+            try:
+                _sp.Popen([_op, _t], start_new_session=True, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL); return
+            except Exception:
+                pass
+        from PySide6.QtGui import QDesktopServices as _QDS
+        from PySide6.QtCore import QUrl as _U2
+        _QDS.openUrl(_U2.fromLocalFile(_t) if os.path.isfile(_t) else _U2(_t))
+
+    def open_quickstart(self):
+        """Open the Quick Start Guide in an in-app window."""
+        _p = QUICKSTART_GUIDE
+        if os.path.isfile(_p):
+            try:
+                from PySide6.QtWebEngineWidgets import QWebEngineView
+                from PySide6.QtWidgets import QDialog, QVBoxLayout
+                from PySide6.QtCore import QUrl as _U, Qt as _Qt
+                _dlg = QDialog(self); _dlg.setWindowTitle('just a... WEBcreator — Quick Start'); _dlg.setWindowFlag(_Qt.Window, True); _dlg.resize(920, 840)
+                _lay = QVBoxLayout(_dlg); _lay.setContentsMargins(0, 0, 0, 0)
+                if _p.lower().endswith(".pdf"):
+                    from PySide6.QtPdf import QPdfDocument
+                    from PySide6.QtPdfWidgets import QPdfView
+                    _pd = QPdfDocument(_dlg); _pd.load(_p)
+                    _v = QPdfView(_dlg); _v.setDocument(_pd)
+                    _v.setPageMode(QPdfView.PageMode.MultiPage); _v.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+                    self._doc_wins = getattr(self, "_doc_wins", []) + [_pd]
+                else:
+                    _v = QWebEngineView(_dlg); _v.load(_U.fromLocalFile(os.path.abspath(_p)))
+                _lay.addWidget(_v)
+                _dlg.show(); self._doc_wins = getattr(self, "_doc_wins", []) + [_dlg]; return
+            except Exception:
+                pass
+        import shutil as _sh, subprocess as _sp
+        _t = _p if os.path.isfile(_p) else "https://janszafranski.github.io/just-a-collection-of-apps/"
+        _op = _sh.which("xdg-open")
+        if _op:
+            try:
+                _sp.Popen([_op, _t], start_new_session=True, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL); return
+            except Exception:
+                pass
+        from PySide6.QtGui import QDesktopServices as _QDS
+        from PySide6.QtCore import QUrl as _U2
+        _QDS.openUrl(_U2.fromLocalFile(_t) if os.path.isfile(_t) else _U2(_t))
 
     def insert_coffee_button(self):
         """Toolbar one-click: drop a 'Buy me a coffee' button, coloured to match the
@@ -5382,6 +7036,48 @@ class MainWindow(QMainWindow):
         o['x'] = self.view.snap(max(0, cc.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, cc.y() - o['h'] / 2))
         self.add_object(o)
 
+    def insert_bullet_list(self):
+        """Drop a text frame that already contains a bulleted list, ready to type over."""
+        c = self.view.mapToScene(self.view.viewport().rect().center())
+        html = '<ul><li>First item</li><li>Second item</li><li>Third item</li></ul>'
+        o = mk('text', 0, 0, 340, 120, html=html)
+        o['x'] = self.view.snap(max(0, c.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, c.y() - o['h'] / 2))
+        self.add_object(o); self.start_edit(o, select_all=True)
+        self.hint('Bulleted list added — type over the items; press Enter for another bullet.')
+
+    def insert_blank_button(self):
+        """Drop a ready-made button at the centre of the page, then let the user label it."""
+        accent = self.palette_accent()
+        c = self.view.mapToScene(self.view.viewport().rect().center())
+        o = mk('button', 0, 0, w=160, h=44)
+        o.update(html='<p>Button</p>', font='Arial', size=14, bold=True, align='center',
+                 radius=6, fill=accent, color=self.ink_for(accent))
+        o['x'] = self.view.snap(max(0, c.x() - o['w'] / 2)); o['y'] = self.view.snap(max(0, c.y() - o['h'] / 2))
+        self.add_object(o); self.start_edit(o, select_all=True)
+        self.hint('Button added — type its label, then use the Hyperlink tool (or Ctrl+K) to point it somewhere.')
+
+    def css_dialog(self):
+        """Edit site-wide custom CSS. It is written into style.css on preview/publish,
+        so it styles every page. Handy for things the panels don't expose (letter-spacing,
+        hover effects, media queries…)."""
+        dlg = QDialog(self); dlg.setWindowTitle('Custom CSS'); dlg.resize(640, 480)
+        v = QVBoxLayout(dlg)
+        lbl = QLabel('CSS you add here is included on <b>every page</b> when you preview or publish.<br>'
+                     'Target objects with ordinary selectors — e.g. <code>.obj-text { letter-spacing:.3px }</code> '
+                     'or <code>.obj-button:hover { opacity:.85 }</code>.')
+        lbl.setTextFormat(Qt.RichText); lbl.setWordWrap(True); v.addWidget(lbl)
+        ed = QPlainTextEdit(); ed.setPlainText(self.site.get('css', ''))
+        f = ed.font(); f.setFamily('monospace'); f.setStyleHint(QFont.Monospace); ed.setFont(f)
+        ed.setPlaceholderText('/* Your CSS, e.g. */\nbody { scroll-behavior: smooth; }\n.obj-text a:hover { text-decoration: underline; }')
+        v.addWidget(ed, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); v.addWidget(bb)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        if not dlg.exec(): return
+        new = ed.toPlainText()
+        if new != self.site.get('css', ''):
+            self.commit(); self.site['css'] = new; self.dirty = True
+        self.hint('Custom CSS saved — it appears when you preview (F12) or publish.')
+
     def add_object(self, o):
         self.commit(); self.layer().append(o); self.sel = [o['id']]; self.refresh()
 
@@ -5391,14 +7087,19 @@ class MainWindow(QMainWindow):
         t = o['type']
         if t in ('text', 'artistic', 'button'): self.start_edit(o)
         elif t == 'picture': self.pick_picture(o)
+        elif t == 'lightbox': self.lightbox_dialog(o)
         elif t == 'table': self.table_dialog(o)
         elif t == 'html': self.html_dialog(o)
         elif t == 'form': self.form_dialog(o)
         elif t == 'search': self.search_dialog(o)
         elif t == 'youtube': self.youtube_dialog(o)
+        elif t == 'vimeo': self.vimeo_dialog(o)
+        elif t == 'audio': self.audio_dialog(o)
+        elif t == 'map': self.map_dialog(o)
         elif t == 'gallery': self.gallery_dialog(o)
         elif t == 'share': self.share_dialog(o)
         elif t == 'nav': self.nav_dialog(o)
+        elif t == 'newsfeed': self.newsfeed_dialog(o)
 
     def start_edit(self, o, select_all=False):
         it = self.items.get(o['id'])
@@ -5701,12 +7402,88 @@ class MainWindow(QMainWindow):
         uri = f'data:image/{mime};base64,' + base64.b64encode(data).decode()
         self._apply_picture(o, uri)
 
+    def crop_picture(self, o):
+        """Interactive crop: drag out the part of the image to keep. The kept region is
+        saved as a new picture and the frame's height is set to match it (no distortion)."""
+        pm = pixmap_for(self.site, o.get('src'))
+        if not pm or pm.isNull():
+            self.hint('That picture has no image to crop yet.'); return
+        img = pm.toImage()
+        dlg = QDialog(self); dlg.setWindowTitle('Crop Picture'); dlg.resize(600, 500)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel('Drag a rectangle over the part of the picture you want to keep.'))
+        cw = CropWidget(img); v.addWidget(cw, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); v.addWidget(bb)
+        ok = bb.button(QDialogButtonBox.Ok); ok.setEnabled(False)
+        cw.changed = lambda: ok.setEnabled(cw.crop_rect_img() is not None)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        if not dlg.exec(): return
+        cr = cw.crop_rect_img()
+        if not cr: return
+        cropped = img.copy(cr)
+        ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly); cropped.save(buf, 'PNG')
+        uri = 'data:image/png;base64,' + base64.b64encode(bytes(ba)).decode()
+        self.commit()
+        o['src'] = add_asset(self.site, uri)
+        o['h'] = max(8, round(o['w'] * cr.height() / cr.width()))
+        self.set_tool('pointer'); self.refresh()
+        self.hint('Picture cropped. Drag its handles to resize, or the round handle to turn it.')
+
     def _apply_picture(self, o, uri):
         self.commit(); o['src'] = add_asset(self.site, uri)
         pm = pixmap_for(self.site, o['src'])
         if pm and not pm.isNull() and o['w'] == DEF['picture']['w'] and o['h'] == DEF['picture']['h']:
             o['h'] = round(o['w'] * pm.height() / pm.width())
         self.refresh()
+
+    def _load_image_uri(self, title='Choose a picture'):
+        """Pick an image file and return it as a data: URI (or None)."""
+        path, _ = QFileDialog.getOpenFileName(self, title, os.path.expanduser('~/Pictures'),
+                                              'Pictures (*.png *.jpg *.jpeg *.gif *.webp *.svg);;All files (*)')
+        if not path: return None
+        ext = os.path.splitext(path)[1].lower().lstrip('.')
+        mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp', 'svg': 'svg+xml'}.get(ext)
+        with open(path, 'rb') as fh: data = fh.read()
+        if not mime or mime == 'svg+xml':
+            qimg = QImage(path)
+            if qimg.isNull():
+                QMessageBox.warning(self, APP, "That file couldn't be read as a picture."); return None
+            ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly); qimg.save(buf, 'PNG'); data = bytes(ba); mime = 'png'
+        return f'data:image/{mime};base64,' + base64.b64encode(data).decode()
+
+    def lightbox_dialog(self, o):
+        """Set the lightbox's thumbnail (and, optionally, a larger full image + caption).
+        The visitor sees the thumbnail; clicking it opens the full image in an overlay."""
+        has_img = bool(o.get('src'))
+        box = QMessageBox(self); box.setWindowTitle('Lightbox image'); box.setIcon(QMessageBox.Question)
+        box.setText('A lightbox shows a thumbnail that opens the full picture when clicked.\n\n'
+                    'What would you like to do?')
+        b_thumb = box.addButton('Choose thumbnail…', QMessageBox.AcceptRole)
+        b_full = box.addButton('Set full image…', QMessageBox.AcceptRole) if has_img else None
+        b_cap = box.addButton('Caption…', QMessageBox.AcceptRole) if has_img else None
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_thumb:
+            uri = self._load_image_uri('Choose the thumbnail image')
+            if not uri: return
+            self.commit()
+            o['src'] = add_asset(self.site, uri)
+            if not o.get('full'): o['full'] = o['src']   # default: enlarge the same image
+            pm = pixmap_for(self.site, o['src'])
+            if pm and not pm.isNull() and o['w'] == DEF['lightbox']['w'] and o['h'] == DEF['lightbox']['h']:
+                o['h'] = round(o['w'] * pm.height() / pm.width())
+            self.refresh()
+        elif b_full is not None and clicked is b_full:
+            uri = self._load_image_uri('Choose the full-size image shown when clicked')
+            if not uri: return
+            self.commit(); o['full'] = add_asset(self.site, uri); self.refresh()
+            self.hint('Full-size image set — it opens when a visitor clicks the thumbnail.')
+        elif b_cap is not None and clicked is b_cap:
+            cap, ok = QInputDialog.getText(self, 'Caption', 'Caption shown under the enlarged image (optional):',
+                                           text=o.get('caption', ''))
+            if ok:
+                self.commit(); o['caption'] = cap.strip(); self.refresh()
 
     # ------------------------------------------------------------ Assets panel
     def refresh_assets(self):
@@ -5882,6 +7659,7 @@ class MainWindow(QMainWindow):
         name = self.site.get('assetnames', {}).get(key, key)
         m = QMenu(self)
         m.addAction(ticon(['insert-image', 'gtk-add'], ''), 'Insert on page', lambda: self.asset_insert(it))
+        m.addAction(ticon(['draw-brush', 'krita'], '🖌'), 'Edit in PAINTcanvas', lambda: self.edit_in_paint(key))
         m.addSeparator()
         m.addAction(ticon(['edit-delete', 'trash-empty'], ''), 'Delete asset…', lambda: self.delete_asset(key))
         m.exec(self.asset_list.viewport().mapToGlobal(pos))
@@ -5944,6 +7722,44 @@ class MainWindow(QMainWindow):
             return
         uri = f'data:image/{mime};base64,' + base64.b64encode(data).decode()
         self._apply_picture(o, uri)
+
+    def text_to_table(self):
+        """Turn the selected text frame's lines into a table, splitting columns on a delimiter."""
+        from PySide6.QtWidgets import QComboBox
+        objs = [o for o in self.sel_objs() if o['type'] in ('text', 'artistic', 'button') and o.get('html')]
+        if not objs:
+            QMessageBox.information(self, APP, 'Select a text frame to convert to a table.'); return
+        o = objs[0]
+        txt = re.sub(r'</p\s*>|<br\s*/?>|</li\s*>', '\n', o['html'], flags=re.I)
+        txt = H.unescape(re.sub(r'<[^>]+>', '', txt))
+        lines = [ln.strip() for ln in txt.split('\n') if ln.strip()]
+        if not lines:
+            QMessageBox.information(self, APP, 'That text frame has no text.'); return
+        det = 0
+        if any('\t' in ln for ln in lines): det = 1
+        elif any(';' in ln for ln in lines): det = 3
+        elif any(',' in ln for ln in lines): det = 2
+        cb = QComboBox(); cb.addItems(['Two or more spaces', 'Tabs', 'Commas', 'Semicolons', 'Whole line (one column)'])
+        cb.setCurrentIndex(det)
+        dlg = form_dialog(self, 'Convert Text to Table', [('Split columns on:', cb)],
+                          QLabel(f'{len(lines)} line(s) will become table rows; the first row is the header.'))
+        if not dlg.exec(): return
+        splitters = [r'\s{2,}', '\t', ',', ';', None]; sp = splitters[cb.currentIndex()]
+        def split(ln):
+            if sp is None: return [ln]
+            if sp in ('\t', ',', ';'): return [c.strip() for c in ln.split(sp)]
+            return [c.strip() for c in re.split(sp, ln)]
+        cells = [[H.escape(c) for c in split(ln)] for ln in lines]
+        ncol = max(len(r) for r in cells)
+        for r in cells: r.extend([''] * (ncol - len(r)))
+        self.commit()
+        t = mk('table', o['x'], o['y'], max(120, o['w']), 0); t['cells'] = cells
+        for k in ('font', 'size', 'color'):
+            if o.get(k): t[k] = o[k]
+        t['h'] = max(60, len(cells) * (int(t.get('size', 14)) + 16) + 8)
+        L = self.layer(); L.append(t)
+        if o in L: L.remove(o)
+        self.sel = [t['id']]; self.refresh()
 
     def table_dialog(self, o):
         cells = o.get('cells') or [['']]
@@ -6189,6 +8005,305 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, APP, "That doesn't look like a YouTube link, so nothing was changed."); return
             self.commit(); o['video'] = vid; o['title'] = title.text().strip(); self.refresh()
 
+    @staticmethod
+    def _vimeo_id(s):
+        """Pull the numeric video id out of any Vimeo link (vimeo.com/123, player.vimeo.com/video/123) or a bare id."""
+        s = (s or '').strip()
+        if re.fullmatch(r'\d{6,}', s): return s
+        m = re.search(r'vimeo\.com/(?:video/|channels/[^/]+/|groups/[^/]+/videos/)?(\d{6,})', s)
+        return m.group(1) if m else ''
+
+    def vimeo_dialog(self, o):
+        url = QLineEdit('https://vimeo.com/' + o['video'] if o.get('video') else '')
+        url.setPlaceholderText('https://vimeo.com/123456789   or   player.vimeo.com/video/123456789')
+        title = QLineEdit(o.get('title', ''))
+        dlg = form_dialog(self, 'Vimeo Video', [('Vimeo link or ID:', url), ('Title (optional):', title)],
+                          QLabel('Paste a Vimeo link — the video plays embedded right in the page when published.'))
+        if dlg.exec():
+            vid = self._vimeo_id(url.text())
+            if not vid:
+                QMessageBox.warning(self, APP, "That doesn't look like a Vimeo link, so nothing was changed."); return
+            self.commit(); o['video'] = vid; o['title'] = title.text().strip(); self.refresh()
+
+    def audio_dialog(self, o):
+        url = QLineEdit(o.get('url', '')); url.setPlaceholderText('https://example.com/clip.mp3')
+        title = QLineEdit(o.get('title', ''))
+        chosen = [o.get('src', '')]
+        pick = QPushButton(ticon(['document-open', 'folder-open'], ''),
+                           self.site.get('assetnames', {}).get(chosen[0], 'Choose audio file…') if chosen[0] else 'Choose audio file…')
+        def choose():
+            path, _ = QFileDialog.getOpenFileName(self, 'Choose audio', os.path.expanduser('~'),
+                                                  'Audio (*.mp3 *.ogg *.wav *.m4a *.aac *.flac);;All files (*)')
+            if not path: return
+            with open(path, 'rb') as fh: data = fh.read()
+            ext = os.path.splitext(path)[1].lower().lstrip('.')
+            mime = {'mp3': 'mpeg', 'm4a': 'mp4', 'aac': 'aac', 'ogg': 'ogg', 'wav': 'wav', 'flac': 'flac'}.get(ext, ext)
+            key = add_asset(self.site, f'data:audio/{mime};base64,' + base64.b64encode(data).decode())
+            self.site.setdefault('assetnames', {})[key] = os.path.basename(path)
+            chosen[0] = key; pick.setText(os.path.basename(path)); url.clear()
+        pick.clicked.connect(choose)
+        dlg = form_dialog(self, 'Audio', [('Audio file:', pick), ('…or link (URL):', url), ('Title (optional):', title)],
+                          QLabel('Place an audio player. Choose a file to embed it in the site, or paste a link.\n'
+                                 'It plays with the browser’s built-in audio controls when published.'))
+        if dlg.exec():
+            self.commit()
+            o['src'] = chosen[0] if chosen[0] in self.site.get('assets', {}) else ''
+            o['url'] = url.text().strip(); o['title'] = title.text().strip()
+            self.refresh()
+
+    def embed_dialog(self):
+        """Insert a third-party embed — the static-site alternative to WebPlus 'smart
+        objects': comments (Disqus), a mailing-list signup (Mailchimp), a Google Form,
+        or any custom HTML/iframe. Drops an HTML-fragment object."""
+        from PySide6.QtWidgets import QComboBox, QPlainTextEdit
+        PRESETS = [('Comments (Disqus)', 'disqus', 'Your Disqus shortname', 'yoursite'),
+                   ('Mailing list (Mailchimp)', 'mailchimp', 'Mailchimp form action URL', ''),
+                   ('Form (Google Forms)', 'gform', 'Google Form URL (…/viewform)', ''),
+                   ('Custom embed / iframe', 'custom', '', '')]
+        kind = QComboBox(); [kind.addItem(p[0]) for p in PRESETS]
+        field = QLineEdit()
+        code = QPlainTextEdit(); code.setPlaceholderText('Paste full embed HTML / <iframe> here'); code.setFixedHeight(90)
+        def on_kind():
+            _, k, ph, ex = PRESETS[kind.currentIndex()]
+            field.setPlaceholderText(ph)
+            if not field.text(): field.setText(ex)
+            field.setVisible(k != 'custom'); code.setVisible(k == 'custom')
+        kind.currentIndexChanged.connect(lambda *_: on_kind()); on_kind()
+        dlg = form_dialog(self, 'Insert Embed', [('Service:', kind), ('Value:', field), ('Custom HTML:', code)],
+                          QLabel('Embed a third-party service — comments, a signup form, a Google Form — or paste any\n'
+                                 'HTML. These are the static-site alternatives to WebPlus “smart objects”.'))
+        if not dlg.exec(): return
+        _, k, _, _ = PRESETS[kind.currentIndex()]; val = field.text().strip()
+        if k == 'disqus' and val:
+            html = (f'<div id="disqus_thread"></div><script>(function(){{var d=document,s=d.createElement("script");'
+                    f's.src="https://{esc(val)}.disqus.com/embed.js";s.setAttribute("data-timestamp",+new Date());'
+                    f'(d.head||d.body).appendChild(s);}})();</script>')
+        elif k == 'mailchimp' and val:
+            html = (f'<form action="{esc(val)}" method="post" target="_blank" style="font:inherit;display:flex;gap:8px">'
+                    f'<input type="email" name="EMAIL" placeholder="Your email" required style="flex:1;padding:9px">'
+                    f'<button type="submit" style="padding:9px 16px">Subscribe</button></form>')
+        elif k == 'gform' and val:
+            src = val if 'embedded=true' in val else (val + ('&' if '?' in val else '?') + 'embedded=true')
+            html = f'<iframe src="{esc(src)}" width="100%" height="560" frameborder="0" style="border:0">Loading…</iframe>'
+        else:
+            html = code.toPlainText().strip()
+        if not html:
+            QMessageBox.information(self, APP, 'Nothing to embed — fill in the value or paste HTML.'); return
+        self.commit()
+        o = mk('html', 60, 60, 480, 320, code=html)
+        self.add_object(o); self.refresh()
+        self.hint('Embed inserted — preview or publish to see it live.')
+
+    FILL_OBJ = ('shape', 'text', 'picture', 'button')
+    FX_OBJ = ('shape', 'text', 'artistic', 'picture', 'button', 'table', 'gallery')
+
+    def effects_dialog(self):
+        from PySide6.QtWidgets import QSpinBox, QCheckBox
+        objs = [o for o in self.sel_objs() if o['type'] in self.FX_OBJ]
+        if not objs: return
+        o0 = objs[0]; s0 = o0.get('shadow') or {}; g0 = o0.get('glow') or {}
+        s_on = QCheckBox('Enable drop shadow'); s_on.setChecked(bool(o0.get('shadow')))
+        sdx = QSpinBox(); sdx.setRange(-100, 100); sdx.setSuffix(' px'); sdx.setValue(int(s0.get('dx', 6)))
+        sdy = QSpinBox(); sdy.setRange(-100, 100); sdy.setSuffix(' px'); sdy.setValue(int(s0.get('dy', 6)))
+        sbl = QSpinBox(); sbl.setRange(0, 80); sbl.setSuffix(' px'); sbl.setValue(int(s0.get('blur', 8)))
+        sop = QSpinBox(); sop.setRange(0, 100); sop.setSuffix(' %'); sop.setValue(int(s0.get('opacity', 45)))
+        scol = [s0.get('color', '#000000')]
+        scb = ColorButton(scol[0], lambda c: scol.__setitem__(0, c or '#000000'), 'Shadow colour')
+        g_on = QCheckBox('Enable outer glow'); g_on.setChecked(bool(o0.get('glow')))
+        gbl = QSpinBox(); gbl.setRange(1, 80); gbl.setSuffix(' px'); gbl.setValue(int(g0.get('blur', 12)))
+        gop = QSpinBox(); gop.setRange(0, 100); gop.setSuffix(' %'); gop.setValue(int(g0.get('opacity', 70)))
+        gcol = [g0.get('color', '#ffd54a')]
+        gcb = ColorButton(gcol[0], lambda c: gcol.__setitem__(0, c or '#ffd54a'), 'Glow colour')
+        rows = [('', s_on), ('Offset across:', sdx), ('Offset down:', sdy), ('Shadow blur:', sbl),
+                ('Shadow strength:', sop), ('Shadow colour:', scb),
+                ('', g_on), ('Glow spread:', gbl), ('Glow strength:', gop), ('Glow colour:', gcb)]
+        dlg = form_dialog(self, 'Effects — Shadow & Glow', rows,
+                          QLabel('Drop shadow and outer glow lift an object off the page. They preview live '
+                                 'and publish as CSS filters on the web.'))
+        if not dlg.exec(): return
+        self.commit()
+        for o in objs:
+            if s_on.isChecked():
+                o['shadow'] = {'dx': sdx.value(), 'dy': sdy.value(), 'blur': sbl.value(),
+                               'opacity': sop.value(), 'color': scol[0]}
+            else: o.pop('shadow', None)
+            if g_on.isChecked():
+                o['glow'] = {'blur': gbl.value(), 'opacity': gop.value(), 'color': gcol[0]}
+            else: o.pop('glow', None)
+        self.refresh()
+
+    def _collect_misspellings(self):
+        import html as _h
+        sp = spell(); word_re = re.compile(r"[A-Za-z]+(?:['’][A-Za-z]+)?"); res = {}; seen = set()
+        for pg in self.site['pages']:
+            for o in page_objects(self.site, pg):
+                if o.get('type') not in ('text', 'artistic', 'button') or not o.get('html'): continue
+                if o['id'] in seen: continue
+                seen.add(o['id'])
+                text = _h.unescape(re.sub(r'<[^>]+>', ' ', o['html']))
+                for m in word_re.finditer(text):
+                    w = m.group(0)
+                    if not sp.ok(w): res.setdefault(w, []).append(o)
+        return res
+
+    def spell_dialog(self):
+        from PySide6.QtWidgets import QDialog, QListWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLineEdit
+        sp = spell()
+        if not sp.ready:
+            if QMessageBox.question(self, 'Spell Check', 'No spelling dictionary is installed yet.\n\n'
+                    'Download a free English word list now (about 4 MB, one time)?',
+                    QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+                return
+            QApplication.setOverrideCursor(Qt.WaitCursor); okk = sp.try_download(); QApplication.restoreOverrideCursor()
+            if not okk:
+                QMessageBox.warning(self, 'Spell Check', 'Could not download a dictionary. Check your internet '
+                    'connection, or install one with your package manager (for example hunspell-en_gb).')
+                return
+        miss = self._collect_misspellings()
+        if not miss:
+            QMessageBox.information(self, 'Spell Check', 'No misspellings found. ✓'); return
+        dlg = QDialog(self); dlg.setWindowTitle('Spell Check'); dlg.resize(500, 340)
+        lay = QHBoxLayout(dlg)
+        left = QListWidget()
+        for w in sorted(miss, key=str.lower): left.addItem(w)
+        lay.addWidget(left, 1)
+        right = QVBoxLayout(); lay.addLayout(right, 1)
+        sugg = QListWidget(); changeto = QLineEdit()
+        right.addWidget(QLabel('Suggestions:')); right.addWidget(sugg, 1)
+        right.addWidget(QLabel('Change to:')); right.addWidget(changeto)
+        bChange = QPushButton('Change All'); bIgnore = QPushButton('Ignore')
+        bAdd = QPushButton('Add to Dictionary'); bClose = QPushButton('Close')
+        for b in (bChange, bIgnore, bAdd, bClose): right.addWidget(b)
+        def refresh_sugg(*_):
+            sugg.clear(); it = left.currentItem()
+            if not it: changeto.clear(); return
+            s = sp.suggest(it.text())
+            for x in s: sugg.addItem(x)
+            changeto.setText(s[0] if s else it.text())
+        left.currentItemChanged.connect(refresh_sugg)
+        sugg.currentItemChanged.connect(lambda *_: changeto.setText(sugg.currentItem().text()) if sugg.currentItem() else None)
+        def drop_current():
+            it = left.currentItem()
+            if it: miss.pop(it.text(), None); left.takeItem(left.row(it))
+            if left.count() == 0: dlg.accept()
+        def do_change():
+            it = left.currentItem()
+            if not it: return
+            w = it.text(); new = changeto.text().strip()
+            if not new or new == w: return
+            self.commit()
+            for o in miss.get(w, []): o['html'] = _replace_word_in_html(o.get('html', ''), w, new)
+            self.refresh(); drop_current()
+        def do_add():
+            it = left.currentItem()
+            if it: sp.add_personal(it.text())
+            drop_current()
+        bChange.clicked.connect(do_change); bIgnore.clicked.connect(drop_current)
+        bAdd.clicked.connect(do_add); bClose.clicked.connect(dlg.accept)
+        if left.count(): left.setCurrentRow(0)
+        dlg.exec()
+
+    def transform_dialog(self):
+        """Type an exact position, size and rotation for the selection."""
+        from PySide6.QtWidgets import QDoubleSpinBox
+        objs = self.sel_objs()
+        if not objs: return
+        o0 = objs[0]
+        bx = min(o['x'] for o in objs); by = min(o['y'] for o in objs)
+        def spin(val, lo, hi, suf='px'):
+            s = QDoubleSpinBox(); s.setRange(lo, hi); s.setDecimals(1); s.setSuffix(' ' + suf); s.setValue(float(val)); return s
+        sx = spin(bx, -20000, 100000); sy = spin(by, -20000, 100000)
+        sw = spin(o0['w'], 1, 100000); sh = spin(o0['h'], 1, 100000)
+        sr = spin(o0.get('rot', 0), -360, 360, '°')
+        many = len(objs) > 1
+        note = ('Position moves the whole selection; size applies to the first object; '
+                'rotation applies to each.') if many else 'Exact position, size and rotation of the object.'
+        rows = [('X (left):', sx), ('Y (top):', sy), ('Width:', sw), ('Height:', sh), ('Rotation:', sr)]
+        dlg = form_dialog(self, 'Transform', rows, QLabel(note))
+        if not dlg.exec(): return
+        self.commit()
+        dx = sx.value() - bx; dy = sy.value() - by
+        for o in objs:
+            o['x'] += dx; o['y'] += dy; o['rot'] = sr.value()
+        o0['w'] = max(1, sw.value()); o0['h'] = max(1, sh.value())
+        self.refresh()
+
+    def gradient_dialog(self, kind='linear'):
+        from PySide6.QtWidgets import QSpinBox
+        if not isinstance(kind, str): kind = 'linear'
+        objs = [o for o in self.sel_objs() if o['type'] in self.FILL_OBJ]
+        if not objs: return
+        g0 = objs[0].get('grad') or {}
+        c1 = [g0.get('c1', '#ffffff')]; c2 = [g0.get('c2', '#2a7d6b')]
+        b1 = ColorButton(c1[0], lambda c: c1.__setitem__(0, c or '#ffffff'), 'Start colour')
+        b2 = ColorButton(c2[0], lambda c: c2.__setitem__(0, c or '#000000'), 'End colour')
+        ang = QSpinBox(); ang.setRange(0, 360); ang.setSuffix('°'); ang.setValue(int(g0.get('angle', 90)))
+        rows = [('Start colour:', b1), ('End colour:', b2)] + ([('Angle:', ang)] if kind == 'linear' else [])
+        dlg = form_dialog(self, ('Radial' if kind == 'radial' else 'Linear') + ' Gradient',
+                          rows, QLabel(f'A {kind} gradient between two colours.'))
+        if not dlg.exec(): return
+        self.commit()
+        for o in objs: o['grad'] = {'c1': c1[0], 'c2': c2[0], 'angle': ang.value(), 'type': kind}
+        self.refresh()
+
+    def fill_solid(self):
+        from PySide6.QtWidgets import QColorDialog
+        objs = [o for o in self.sel_objs() if o['type'] in self.FILL_OBJ]
+        if not objs: return
+        c = QColorDialog.getColor(QColor(objs[0].get('fill') or '#2a7d6b'), self, 'Fill colour')
+        if not c.isValid(): return
+        self.commit()
+        for o in objs: o['fill'] = c.name(); o.pop('grad', None)
+        self.refresh()
+
+    def fill_none(self):
+        objs = [o for o in self.sel_objs() if o['type'] in self.FILL_OBJ]
+        if not objs: return
+        self.commit()
+        for o in objs: o['fill'] = ''; o.pop('grad', None)
+        self.refresh()
+
+    def map_dialog(self, o):
+        from PySide6.QtWidgets import QSpinBox
+        place = QLineEdit(o.get('place', ''))
+        place.setPlaceholderText('e.g.  14 Ladywell Apartments, Dover CT16 1DJ   or   London')
+        marker = QLineEdit(o.get('marker', ''))
+        marker.setPlaceholderText('(optional) exact pin label / address if different')
+        zoom = QSpinBox(); zoom.setRange(1, 21); zoom.setValue(int(o.get('zoom', 14) or 14))
+        zoom.setToolTip('1 = whole world, 14 = town, 18+ = street level')
+        dlg = form_dialog(self, 'Google Map',
+                          [('Location / address:', place), ('Pin label (optional):', marker), ('Zoom level:', zoom)],
+                          QLabel('Type an address or place name and it appears as an interactive Google Map '
+                                 'when you preview or publish — no API key or account needed.'))
+        if dlg.exec():
+            self.commit()
+            o['place'] = place.text().strip()
+            o['marker'] = marker.text().strip()
+            o['zoom'] = zoom.value()
+            self.refresh()
+
+    def newsfeed_dialog(self, o):
+        from PySide6.QtWidgets import QComboBox, QSpinBox, QCheckBox
+        src = QComboBox(); src.addItem('This page (its own sub-pages)', None)
+        for p in self.site['pages']:
+            if not p.get('level'): src.addItem(p['title'], p['id'])
+        cur = o.get('source')
+        src.setCurrentIndex(max(0, src.findData(cur)) if cur else 0)
+        mx = QSpinBox(); mx.setRange(0, 999); mx.setSpecialValueText('All'); mx.setValue(int(o.get('max', 0) or 0))
+        showdate = QCheckBox('Show each story’s date'); showdate.setChecked(o.get('showdate', True))
+        showimg = QCheckBox('Show thumbnails'); showimg.setChecked(o.get('showimg', True))
+        acc = [o.get('accent', '#2a7d6b')]
+        accb = ColorButton(acc[0], lambda c: acc.__setitem__(0, c or '#2a7d6b'), 'Heading / accent colour')
+        dlg = form_dialog(self, 'News Feed', [('Stories from:', src), ('Maximum stories:', mx),
+                          ('', showdate), ('', showimg), ('Accent colour:', accb)],
+                          QLabel('Lists the sub-pages of the chosen page as cards, newest first.\n'
+                                 'New stories appear automatically whenever you publish.'))
+        if dlg.exec():
+            self.commit()
+            o.update(source=src.currentData(), max=mx.value(), showdate=showdate.isChecked(),
+                     showimg=showimg.isChecked(), accent=acc[0])
+            self.refresh()
+
     # ------------------------------------------------------------ hyperlinks
     def link_to_href(self, L):
         if not L: return ''
@@ -6273,6 +8388,20 @@ class MainWindow(QMainWindow):
         for o in objs: o['link'] = link
         self.refresh()
         self.hint(('Link set: ' + self.describe_link(link)[0]) if link else 'Link removed.')
+
+    def link_action(self):
+        """The Hyperlink toolbar button / Ctrl+K. Links the highlighted words while
+        editing text, or the selected object; with nothing chosen it arms a one-click
+        'pick' so the next object clicked on the page gets the link popup."""
+        if self.editor: return self.text_link_dialog()
+        if self.sel: return self.hyperlink_dialog()
+        self._link_pick = True
+        self.view.viewport().setCursor(Qt.PointingHandCursor)
+        self.hint('Click the object on the page you want to add a link to (Esc to cancel).')
+
+    def cancel_link_pick(self):
+        if getattr(self, '_link_pick', False):
+            self._link_pick = False; self.view.viewport().setCursor(Qt.ArrowCursor); self.update_hint()
 
     def text_link_dialog(self):
         ed = self.editor; c = ed.textCursor()
@@ -6543,6 +8672,91 @@ class MainWindow(QMainWindow):
         self.goto_page(target['id']); self.refresh()
         QMessageBox.information(self, APP, f'Index page {"updated" if existing and target is existing else "created"} with {n} links.')
 
+    def news_from_link_dialog(self):
+        """Fetch a web article and turn it into a news-story sub-page under a chosen
+        hub, so the hub's News Feed lists it automatically on the next publish."""
+        from PySide6.QtWidgets import QComboBox
+        url = QLineEdit(); url.setPlaceholderText('https://example.com/news/their-article'); url.setMinimumWidth(440)
+        feed_hubs = [p['id'] for p in self.site['pages']
+                     if not p.get('level') and any(o.get('type') == 'newsfeed' for o in page_objects(self.site, p))]
+        hubs = [p for p in self.site['pages'] if not p.get('level')]
+        hub = QComboBox()
+        for p in hubs:
+            hub.addItem(p['title'] + ('   ★ has a News Feed' if p['id'] in feed_hubs else ''), p['id'])
+        # Default to the current page's hub (walk back to the nearest level-0 page).
+        cur = self.page(); cur_hub = cur['id']
+        if cur.get('level'):
+            i = self.site['pages'].index(cur)
+            for q in reversed(self.site['pages'][:i]):
+                if not q.get('level'): cur_hub = q['id']; break
+        default = cur_hub if cur_hub in [h['id'] for h in hubs] else (feed_hubs[0] if feed_hubs else hubs[0]['id'])
+        hub.setCurrentIndex(max(0, hub.findData(default)))
+        info = QLabel('Paste a news article’s web address. WEBcreator fetches the page and builds a new '
+                      'story sub-page — heading, date, lead image and text — under the page you choose, '
+                      'where its News Feed will list it automatically.\n\nAlways review the imported text, '
+                      'and only republish content you have the right to use.')
+        info.setWordWrap(True)
+        dlg = form_dialog(self, 'Add News from a Link',
+                          [('Article URL:', url), ('Add as a story under:', hub)], info)
+        if not dlg.exec(): return
+        link = url.text().strip()
+        if not link: return
+        if not re.match(r'https?://', link, re.I): link = 'https://' + link
+        hub_page = next((p for p in self.site['pages'] if p['id'] == hub.currentData()), None)
+        if not hub_page: return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try: data = self._download(link)
+        finally: QApplication.restoreOverrideCursor()
+        if not data:
+            QMessageBox.warning(self, APP, 'Could not fetch that web address.\n\nCheck the link and your '
+                                'internet connection. Some sites block automated downloads.')
+            return
+        art = parse_article(data, link)
+        if not art['body_html'] and art['title'] == 'Untitled':
+            QMessageBox.warning(self, APP, 'Fetched the page but couldn’t find an article in it.\n\nSome sites '
+                                'build their text with JavaScript, which this importer can’t read.')
+            return
+        self.commit()
+        idx = self.site['pages'].index(hub_page) + 1       # newest child first in authored order
+        p = add_page(self.site, art['title'], level=1, index=idx, master=hub_page['master'])
+        if art['date']: p['date'] = art['date']
+        p['seo'] = {'description': art['excerpt'][:300]}
+        p['source_url'] = link
+        cx, cw, y = 28, self.site['width'] - 56, 262
+        img_key = None
+        if art['image']:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try: idata = self._download(art['image'])
+            finally: QApplication.restoreOverrideCursor()
+            qi = QImage()
+            if idata and qi.loadFromData(idata) and not qi.isNull():
+                ba = QByteArray(); buf = QBuffer(ba); buf.open(QIODevice.WriteOnly); qi.save(buf, 'PNG')
+                img_key = add_asset(self.site, 'data:image/png;base64,' + bytes(ba.toBase64()).decode())
+                self.site.setdefault('assetnames', {})[img_key] = (re.sub(r'[^\w -]+', '', art['title'])[:40] or 'news') + '.png'
+                ar = (qi.height() / qi.width()) if qi.width() else 0.6
+                ih = int(max(140, min(360, cw * ar)))
+                p['objects'].append(mk('picture', cx, y, cw, ih, src=img_key, fit='cover'))
+                p['seo']['og_image'] = img_key
+                y += ih + 24
+        head = f'<h1>{H.escape(art["title"])}</h1>'
+        datel = f'<p><i>{_date_label(art["date"])}</i></p>' if art['date'] else ''
+        body = art['body_html'] or f'<p>{H.escape(art["excerpt"])}</p>'
+        txt = mk('text', cx, y, cw, 300, html=head + datel + body)
+        # Rough height so nothing is clipped on arrival; the author can resize the frame.
+        blocks = body.count('<p') + body.count('<h3') + 2
+        cpl = max(20, int(cw / (txt['size'] * 0.52)))
+        lines = blocks + len(_strip_tags(head + datel + body)) // cpl
+        txt['h'] = max(160, int(lines * txt['size'] * 1.7) + 40)
+        p['objects'].append(txt)
+        p['height'] = max(self.site['height'], y + txt['h'] + 60)
+        self.goto_page(p['id']); self.refresh()
+        bits = [('date ' + _date_label(art['date'])) if art['date'] else 'no date found',
+                'lead image' if img_key else 'no image', f'{art["n_paras"]} paragraph(s)']
+        QMessageBox.information(self, APP,
+            f'Created the story “{art["title"]}” under “{hub_page["title"]}”.\n\n'
+            f'Imported: {", ".join(bits)}.\n\nReview and edit it like any page — it appears in the '
+            'News Feed when you publish.')
+
     def delete_page(self):
         if len(self.site['pages']) < 2: QMessageBox.information(self, APP, 'A site needs at least one page.'); return
         p = self.page()
@@ -6580,12 +8794,16 @@ class MainWindow(QMainWindow):
         title = QLineEdit(p['title']); file = QLineEdit(p['file'])
         mas = QComboBox(); [mas.addItem(m['name'], m['id']) for m in self.site['masters']]; mas.setCurrentIndex(max(0, mas.findData(p['master'])))
         nav = QCheckBox('Include this page in navigation bars'); nav.setChecked(p.get('nav', True))
+        date = QLineEdit(p.get('date', '') or '')
+        date.setPlaceholderText('e.g. 2026-11-22 or 15 Nov 2013 — used to order News feeds (optional)')
+        date.setToolTip('Published date for this story. Leave blank and a News Feed will fall back to any\n'
+                        '“posted …” date in the page text, or the page order.')
         hh = QSpinBox(); hh.setRange(0, 30000); hh.setSpecialValueText('Site default'); hh.setValue(p.get('height') or 0); hh.setSuffix(' px')
         bgc = [p.get('bg', '')]
         bgb = ColorButton(p.get('bg') or self.master_of(p).get('bg'), lambda c: (bgc.__setitem__(0, c), bgb.setIcon(swatch_icon(c or self.master_of(p).get('bg'), 18))), 'Page background', allow_none=True)
         bgb.setToolTip('Choose None to use the master page background')
         dlg = form_dialog(self, 'Page Properties', [('Page name:', title), ('File name:', file), ('Master page:', mas), ('Height:', hh),
-                                                     ('Background:', bgb), ('', nav)])
+                                                     ('Published date:', date), ('Background:', bgb), ('', nav)])
         if not dlg.exec(): return
         fn = re.sub(r'[^A-Za-z0-9._-]+', '-', file.text().strip()) or slug(title.text(), set())
         if not fn.lower().endswith(('.html', '.htm')): fn += '.html'
@@ -6593,7 +8811,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP, f'Another page already uses the file name {fn}.'); return
         self.commit()
         p.update(title=title.text().strip() or p['title'], file=fn, master=mas.currentData(), nav=nav.isChecked(),
-                 height=hh.value() or None, bg=bgc[0])
+                 height=hh.value() or None, bg=bgc[0], date=date.text().strip())
         self.refresh()
 
     def site_props(self):
@@ -7049,8 +9267,16 @@ class MainWindow(QMainWindow):
             m.addAction(self.a['lock'])
             o = self.sel_objs()[0]
             if o['type'] in ('text', 'artistic', 'button'): m.addAction('Edit Text', lambda: self.start_edit(o))
-            if o['type'] == 'picture': m.addAction('Replace Picture…', lambda: self.pick_picture(o))
+            if o['type'] in ('text', 'artistic', 'button') and o.get('html'):
+                m.addAction(ticon(['insert-table', 'table'], ''), 'Convert to Table…', self.text_to_table)
+            if o['type'] == 'picture':
+                m.addAction('Replace Picture…', lambda: self.pick_picture(o))
+                if o.get('src'):
+                    m.addAction(ticon(['draw-brush', 'krita'], '🖌'), 'Edit in PAINTcanvas', lambda: self.edit_in_paint(o['src']))
+                    self._pic_adjust_menu(m, o['src'])
             if o['type'] in ('table', 'form', 'html'): m.addAction('Edit…', lambda: self.edit_object(o))
+            if o['type'] in self.FX_OBJ: m.addAction('Effects — Shadow & Glow…', self.effects_dialog)
+            m.addAction('Transform — Position & Size…', self.transform_dialog)
         else:
             m.addAction(self.a['paste']); m.addSeparator(); m.addAction(self.a['pageprops']); m.addAction(self.a['newpage'])
         m.exec(gpos)
@@ -7059,6 +9285,15 @@ class MainWindow(QMainWindow):
         on = self.a['rulers'].isChecked()
         for w in self.ruler_widgets: w.setVisible(on)
         self.settings.setValue('rulers', on)
+
+    def toggle_crosshair(self, *_):
+        self.crosshair = not self.crosshair
+        a = self.a.get("crosshair")
+        if a is not None and a.isChecked() != self.crosshair:
+            a.blockSignals(True); a.setChecked(self.crosshair); a.blockSignals(False)
+        self.view.viewport().setCursor(Qt.CrossCursor if self.crosshair else Qt.ArrowCursor)
+        self.view.viewport().update()
+        if getattr(self, "corner_toggle", None): self.corner_toggle.update()
 
     def toggle_grid(self):
         self.show_grid = self.a['grid'].isChecked(); self.settings.setValue('grid', self.show_grid); self.view.viewport().update()
@@ -7074,6 +9309,7 @@ class MainWindow(QMainWindow):
     def add_recent(self, path):
         r = [path] + [p for p in self.recent_files() if p != path]
         self.settings.setValue('recent', r[:10])
+        _justapps_recent('webcreator', path)
 
     def maybe_save(self):
         if self.editor: self.finish_edit()
@@ -7108,7 +9344,138 @@ class MainWindow(QMainWindow):
             if dlg.result_site: self.set_site(dlg.result_site)
             elif dlg.result_path: self.load_path(dlg.result_path)
             elif dlg.result_webplus: self.load_webplus(*dlg.result_webplus)
+            elif dlg.result_url: self.open_url_as_site(dlg.result_url)
             elif dlg.result_import: self.import_folder(skip_save_check=True)
+
+    def import_text(self):
+        """Read a .txt, .html/.htm or Markdown file and drop its text onto the current
+        page as a text box. HTML keeps basic structure; plain text and Markdown become
+        paragraphs (blank-line separated), with simple Markdown headings/emphasis."""
+        last = self.settings.value('importTextDir', os.path.expanduser('~'))
+        path, _ = QFileDialog.getOpenFileName(self, 'Import Text — choose a file', last,
+                                              'Text, Word and web files (*.txt *.text *.md *.markdown *.docx *.html *.htm);;All files (*)')
+        if not path: return
+        self.settings.setValue('importTextDir', os.path.dirname(path))
+        ext = os.path.splitext(path)[1].lower()
+        if ext == '.docx':
+            try:
+                import docx
+            except ImportError:
+                QMessageBox.warning(self, 'Import Text',
+                    'Reading a Word .docx needs the python-docx package.\n'
+                    'Install it:  sudo pacman -S python-docx   (or: pip install python-docx)'); return
+            try:
+                d = docx.Document(path)
+            except Exception as ex:
+                QMessageBox.warning(self, 'Import Text', f"Couldn't open that Word file.\n{ex}"); return
+            paras = []
+            for pa in d.paragraphs:
+                txt = (pa.text or '').strip()
+                if not txt: continue
+                style = (pa.style.name or '').lower() if pa.style else ''
+                if 'heading' in style:
+                    paras.append(f'<h3>{H.escape(txt)}</h3>')
+                else:
+                    paras.append(f'<p>{H.escape(txt)}</p>')
+            html = '\n'.join(paras)
+        else:
+            try:
+                with open(path, 'rb') as fh:
+                    raw = fh.read()
+                text = raw.decode('utf-8', errors='replace')
+            except OSError as ex:
+                QMessageBox.warning(self, 'Import Text', f"Couldn't read that file.\n{ex}"); return
+            html = self._text_to_html(text, ext)
+        if not html:
+            QMessageBox.warning(self, 'Import Text', 'That file had no readable text in it.'); return
+        # place a text box near the top-left of the current view, a comfortable width
+        c = self.view.mapToScene(self.view.viewport().rect().center())
+        o = mk('text', 0, 0)
+        o['w'] = min(640, max(320, self.site['width'] - 80))
+        o['h'] = 400
+        o['html'] = html
+        o['x'] = self.view.snap(max(0, c.x() - o['w'] / 2))
+        o['y'] = self.view.snap(max(0, c.y() - o['h'] / 2))
+        self.add_object(o)
+        self.set_tool('pointer')
+        self.hint(f'Imported text from “{os.path.basename(path)}”. Drag its handles to resize the box.')
+
+    def _text_to_html(self, text, ext):
+        """Convert file contents to the simple <p>/<h3>/<b>/<i> HTML the text boxes use."""
+        if ext in ('.html', '.htm'):
+            try:
+                from bs4 import BeautifulSoup
+            except ImportError:
+                BeautifulSoup = None
+            if BeautifulSoup is not None:
+                soup = BeautifulSoup(text, 'html.parser')
+                for bad in soup(['script', 'style', 'head', 'nav', 'footer']):
+                    bad.decompose()
+                root = soup.body or soup
+                parts = []
+                for el in root.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote']):
+                    t = re.sub(r'\s+', ' ', el.get_text(' ', strip=True))
+                    if not t: continue
+                    if el.name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
+                        parts.append(f'<h3>{H.escape(t)}</h3>')
+                    elif el.name == 'li':
+                        parts.append(f'<p>• {H.escape(t)}</p>')
+                    else:
+                        parts.append(f'<p>{H.escape(t)}</p>')
+                if parts:
+                    return ''.join(parts)
+            # fall through to plain-text handling if bs4 missing or found nothing
+            text = re.sub(r'<[^>]+>', ' ', text)
+            text = H.unescape(text)
+        # plain text / markdown: blocks separated by blank lines
+        is_md = ext in ('.md', '.markdown')
+        blocks = re.split(r'\n\s*\n', text.strip())
+        out = []
+        for blk in blocks:
+            blk = blk.strip()
+            if not blk: continue
+            if is_md:
+                mh = re.match(r'^(#{1,6})\s+(.*)$', blk)
+                if mh:
+                    out.append(f'<h3>{self._md_inline(mh.group(2).strip())}</h3>'); continue
+                # list block: each line starting with - or *
+                lines = blk.splitlines()
+                if all(re.match(r'^\s*[-*+]\s+', ln) for ln in lines):
+                    for ln in lines:
+                        item = re.sub(r'^\s*[-*+]\s+', '', ln)
+                        out.append(f'<p>• {self._md_inline(item.strip())}</p>')
+                    continue
+                out.append('<p>' + self._md_inline(' '.join(l.strip() for l in blk.splitlines())) + '</p>')
+            else:
+                joined = ' '.join(l.strip() for l in blk.splitlines())
+                out.append(f'<p>{H.escape(joined)}</p>')
+        return ''.join(out)
+
+    @staticmethod
+    def _md_inline(s):
+        """Escape then apply **bold** / *italic* Markdown to a single line."""
+        s = H.escape(s)
+        s = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', s)
+        s = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<i>\1</i>', s)
+        return s
+
+    def open_url_as_site(self, url):
+        """Import a single web page from its URL as a new one-page site."""
+        if not re.match(r'https?://', url, re.I): url = 'https://' + url
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try: data = self._download(url)
+        finally: QApplication.restoreOverrideCursor()
+        if not data:
+            QMessageBox.warning(self, APP, 'Could not fetch that web address.\n\nCheck the link and your internet connection.'); return
+        art = parse_article(data, url)
+        site = tpl_blank(art['title'] or 'Imported page')
+        W = site['width']
+        head = mk('text', 28, 60, W - 56, 70, html=f'<h1>{esc(art["title"])}</h1>')
+        body = mk('text', 28, 150, W - 56, 500, html=art.get('body_html') or f'<p>{esc(art.get("excerpt", ""))}</p>')
+        site['pages'][0]['objects'] = [head, body]
+        site['pages'][0]['height'] = max(site['height'], 760)
+        self.set_site(site); self.dirty = True; self.update_title()
+        self.hint(f'Imported “{art["title"]}” from the web — edit and lay it out as you like.')
 
     def import_folder(self, skip_save_check=False):
         if not skip_save_check and not self.maybe_save(): return
@@ -7222,7 +9589,7 @@ class MainWindow(QMainWindow):
 
     def save_as(self):
         if self.editor: self.finish_edit()
-        start = self.path or os.path.join(os.path.expanduser('~'), re.sub(r'[^\w -]+', '', self.site['name']).strip() + EXT)
+        start = self.path or os.path.join(_just_dir('docs'), re.sub(r'[^\w -]+', '', self.site['name']).strip() + EXT)
         path, _ = QFileDialog.getSaveFileName(self, 'Save Site As', start, f'WEBcreator sites (*{EXT})')
         if not path: return False
         if not path.endswith(EXT): path += EXT
@@ -7255,7 +9622,9 @@ class MainWindow(QMainWindow):
         if self.editor: self.finish_edit()
         self._preview(self.site['pages'][0]['file'])
 
-    def _preview(self, file):
+    def _build_preview(self, file):
+        """Build the whole site into the preview folder and return the full path
+        to `file` within it (or None, having shown a warning, on failure)."""
         try:
             for f in os.listdir(self.preview_dir):
                 fp = os.path.join(self.preview_dir, f)
@@ -7263,14 +9632,31 @@ class MainWindow(QMainWindow):
             publish_site(self.site, self.preview_dir)
         except Exception as ex:
             # Catch ANY build error (a bad image used to crash this and kill preview silently).
-            QMessageBox.warning(self, APP, f"Couldn't build the preview.\n{ex}"); return
+            QMessageBox.warning(self, APP, f"Couldn't build the preview.\n{ex}"); return None
         target = os.path.join(self.preview_dir, file)
         if not os.path.exists(target):
-            QMessageBox.warning(self, APP, "The preview page couldn't be found after building."); return
+            QMessageBox.warning(self, APP, "The preview page couldn't be found after building."); return None
+        return target
+
+    def _preview(self, file):
+        target = self._build_preview(file)
+        if not target: return
         if not open_external(target, is_file=True):
             QMessageBox.warning(self, APP, "Couldn't open a web browser to show the preview.")
             return
         self.hint('Preview opened in your web browser.')
+
+    def preview_device(self, which='current'):
+        """In-app preview with Website / Tablet / Phone widths. `which` picks the
+        start page: 'current' = the page being edited, 'home' = the site's first page."""
+        if self.editor: self.finish_edit()
+        file = self.page()['file'] if which == 'current' else self.site['pages'][0]['file']
+        target = self._build_preview(file)
+        if not target: return
+        dlg = DevicePreviewDialog(self, target, os.path.basename(file))
+        dlg.show()
+        self._device_preview = dlg   # keep a reference so it isn't garbage-collected
+        self.hint('Preview window opened — switch between Website, Tablet and Phone at the top.')
 
     # ------------------------------------------------------------ Netlify CLI
     def _netlify_cli_token(self):
@@ -7468,6 +9854,114 @@ class MainWindow(QMainWindow):
             bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
             dv.addWidget(bb); dlg.exec()
 
+    def _run_shell(self, script, cwd=None, timeout=300, busy_msg=None):
+        """Run a bash <script> (one -c string) behind a cancellable, animated
+        'please wait' dialog so the GUI stays alive during a network push.
+        Mirrors _run_netlify's QProcess pattern. Returns (ok, stdout, stderr)."""
+        from PySide6.QtCore import QProcess, QProcessEnvironment, QEventLoop, QTimer
+        from PySide6.QtWidgets import QProgressDialog
+        bash = shutil.which('bash') or '/bin/bash'
+        proc = QProcess(self)
+        proc.setProcessEnvironment(QProcessEnvironment.systemEnvironment())
+        if cwd: proc.setWorkingDirectory(cwd)
+        out, err = [], []
+        proc.readyReadStandardOutput.connect(
+            lambda: out.append(bytes(proc.readAllStandardOutput()).decode('utf-8', 'replace')))
+        proc.readyReadStandardError.connect(
+            lambda: err.append(bytes(proc.readAllStandardError()).decode('utf-8', 'replace')))
+        loop = QEventLoop()
+        st = {'cancelled': False, 'timed_out': False}
+        proc.finished.connect(lambda *a: loop.quit())
+        dlg = QProgressDialog(busy_msg or 'Working…', 'Cancel', 0, 0, self)
+        dlg.setWindowTitle(APP); dlg.setWindowModality(Qt.WindowModal)
+        dlg.setMinimumDuration(0); dlg.setAutoClose(False); dlg.setAutoReset(False); dlg.setValue(0)
+        dlg.canceled.connect(lambda: (st.__setitem__('cancelled', True), proc.kill(), loop.quit()))
+        dlg.show()
+        tmr = QTimer(); tmr.setSingleShot(True)
+        tmr.timeout.connect(lambda: (st.__setitem__('timed_out', True), proc.kill(), loop.quit()))
+        tmr.start(int(timeout * 1000))
+        proc.start(bash, ['-c', script])
+        if not proc.waitForStarted(5000):
+            tmr.stop(); dlg.close()
+            return False, '', 'Could not start bash to run the publish commands.'
+        loop.exec()
+        tmr.stop(); dlg.close()
+        if proc.state() != QProcess.NotRunning:
+            proc.kill(); proc.waitForFinished(2000)
+        out_s, err_s = ''.join(out), ''.join(err)
+        if st['cancelled']:
+            return False, out_s, 'Publishing was cancelled.'
+        if st['timed_out']:
+            return False, out_s, f'The publish took longer than {timeout} seconds and was stopped.'
+        ok = proc.exitStatus() == QProcess.NormalExit and proc.exitCode() == 0
+        return ok, out_s, err_s
+
+    def publish_github(self, folder, files=None):
+        """Deploy <folder> to this site's GitHub Pages repo. Per-site: only a site
+        carrying a site['github'] config comes here (the app still defaults to
+        Netlify everywhere else). Writes .nojekyll + CNAME so Pages keeps serving
+        the custom domain, then commits the published folder and pushes over SSH.
+
+        The push adopts the remote tip first (fetch + soft reset) so a re-publish
+        is always a fast-forward — the folder is a build artifact, so the app's
+        output is the source of truth, not the local git history."""
+        import shlex
+        gh = self.site.get('github') or {}
+        repo = gh.get('repo', '')
+        remote = gh.get('remote') or (f'git@github.com:{repo}.git' if repo else '')
+        branch = gh.get('branch') or 'main'
+        cname = gh.get('cname', '')
+        if not remote:
+            QMessageBox.warning(self, APP, 'This site has no GitHub repository configured.')
+            return
+        self.hint('Publishing to GitHub Pages…')
+        q = shlex.quote
+        lines = ['set -e', f'cd {q(folder)}',
+                 'git init -q 2>/dev/null || true',
+                 'git config user.name "Jan Szafranski" 2>/dev/null || true',
+                 'git config user.email "jan.szafranski@gmail.com" 2>/dev/null || true',
+                 '> .nojekyll']
+        if cname:
+            lines.append(f'printf %s {q(cname)} > CNAME')   # keep the custom domain on every push
+        lines += [f'git remote remove origin 2>/dev/null || true',
+                  f'git remote add origin {q(remote)}',
+                  f'if git fetch -q origin {q(branch)} 2>/dev/null; then git reset --soft origin/{q(branch)} || true; fi',
+                  'git add -A',
+                  f'git commit -q -m "Publish from WEBcreator $(date -u +%Y-%m-%dT%H:%M:%SZ)" || true',
+                  f'git push origin HEAD:{q(branch)}']
+        ok, out, err = self._run_shell(
+            '\n'.join(lines), cwd=folder, timeout=300,
+            busy_msg='Publishing to GitHub Pages — pushing your site…\n\n'
+                     'This uploads only the changes and usually takes a few seconds.\n'
+                     'You can Cancel to stop.')
+        if not ok and 'cancelled' in (err or '').lower():
+            return
+        live = gh.get('url') or (f'https://{cname}' if cname else (f'https://github.com/{repo}' if repo else ''))
+        tail = '\n'.join((out + '\n' + err).strip().splitlines()[-14:])
+        if ok:
+            dlg = QDialog(self); dlg.setWindowTitle('Live site updated'); dlg.setMinimumWidth(480)
+            dv = QVBoxLayout(dlg)
+            head = QLabel('<b>Your live site was published to GitHub Pages.</b>'
+                          + (f'<br>{esc(live)}' if live else ''))
+            head.setWordWrap(True); head.setTextFormat(Qt.RichText); dv.addWidget(head)
+            note = QLabel('GitHub Pages can take up to a minute to show the change after a push.')
+            note.setWordWrap(True); note.setStyleSheet('color:gray'); dv.addWidget(note)
+            row = QHBoxLayout()
+            if live:
+                b = QPushButton('Open the live site'); b.clicked.connect(lambda: open_external(live)); row.addWidget(b)
+            of = QPushButton('Open the folder'); of.clicked.connect(lambda: open_external(folder, is_file=True))
+            row.addWidget(of); row.addStretch(); dv.addLayout(row)
+            bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
+            dv.addWidget(bb); dlg.exec()
+        else:
+            dlg = QDialog(self); dlg.setWindowTitle('GitHub publish'); dlg.setMinimumWidth(620)
+            dv = QVBoxLayout(dlg)
+            dv.addWidget(QLabel('<b>The publish did not finish.</b> Details below. Your files are still '
+                                'saved in the published folder, so nothing was lost.'))
+            log = QPlainTextEdit(tail or 'No output.'); log.setReadOnly(True); log.setFixedHeight(200); dv.addWidget(log)
+            bb = QDialogButtonBox(QDialogButtonBox.Close); bb.rejected.connect(dlg.reject); bb.accepted.connect(dlg.accept)
+            dv.addWidget(bb); dlg.exec()
+
     def link_netlify(self):
         """Pick an existing Netlify site to publish to (or create one), and store
         its id/name on the site so future publishes update that same site."""
@@ -7556,7 +10050,11 @@ class MainWindow(QMainWindow):
         # just wants the live site updated. Deploy straight away and show a short
         # "done" popup with how many pages/files changed. Only an unpublished
         # site (no stored Netlify link) gets the full first-time hosting guide.
-        if (self.site.get('netlify') or {}).get('site_id') and self.netlify_ready():
+        # Per-site publish target. A site carrying a github config publishes to
+        # its GitHub Pages repo; everything else keeps the app-wide Netlify default.
+        if (self.site.get('github') or {}).get('repo') or (self.site.get('github') or {}).get('remote'):
+            self.publish_github(folder, files)
+        elif (self.site.get('netlify') or {}).get('site_id') and self.netlify_ready():
             self.publish_netlify(folder, files)
         else:
             self.go_online(folder, files)
@@ -7836,7 +10334,7 @@ class MainWindow(QMainWindow):
         ai_key = QLineEdit(self.settings.value('aiOpenAIKey', '') or self.settings.value('aiStabilityKey', ''))
         ai_key.setEchoMode(QLineEdit.Password); ai_key.setPlaceholderText('Only needed for OpenAI / Stability')
         # --- Tools & software updates ---
-        painter = QLineEdit(self.settings.value('imagePainterCmd', '') or 'IMAGEpainter'); painter.setPlaceholderText('IMAGEpainter')
+        painter = QLineEdit(self.settings.value('imagePainterCmd', '') or ''); painter.setPlaceholderText('paint (just a… PAINTcanvas)')
         repo = QLineEdit(self.update_repo()); repo.setPlaceholderText('yourname/webcreator')
         branch = QLineEdit(self.settings.value('updateBranch', '') or UPDATE_BRANCH)
         path = QLineEdit(self.settings.value('updatePath', '') or UPDATE_PATH); path.setPlaceholderText('webcreator.py')
@@ -7853,7 +10351,7 @@ class MainWindow(QMainWindow):
                 section('AI images', 'Used by Insert ▸ Picture ▸ Create with AI'),
                 ('Image generator:', ai_prov), ('API key (if needed):', ai_key),
                 section('Tools & updates', 'Image editor, and where app updates come from'),
-                ('Image editor (IMAGEpainter button):', painter),
+                ('Image editor (blank = PAINTcanvas):', painter),
                 ('GitHub repository:', repo), ('Branch:', branch), ('File in it:', path), ('', auto)]
 
         # The merged form is long, so make the dialog scrollable.
@@ -7886,7 +10384,7 @@ class MainWindow(QMainWindow):
         if prov == 'openai': self.settings.setValue('aiOpenAIKey', k)
         elif prov == 'stability': self.settings.setValue('aiStabilityKey', k)
         # --- Save: tools & updates ---
-        self.settings.setValue('imagePainterCmd', painter.text().strip() or 'IMAGEpainter')
+        self.settings.setValue('imagePainterCmd', painter.text().strip())
         self.settings.setValue('updateRepo', repo.text().strip()); self.settings.setValue('updateBranch', branch.text().strip() or UPDATE_BRANCH)
         self.settings.setValue('updatePath', path.text().strip() or UPDATE_PATH)
         self.settings.setValue('autoUpdate', auto.isChecked())
@@ -7894,10 +10392,24 @@ class MainWindow(QMainWindow):
         if repo.text().strip(): self.check_updates(quiet=False)
 
     def about(self):
-        QMessageBox.about(self, f'About {APP}', f'<h3>{APP}</h3><p>Version {VERSION}</p>'
-                          '<p>A desktop website designer. Lay out pages freely, share headers and footers on master pages, '
-                          'preview in your browser and publish plain HTML to a folder.</p>'
-                          f'<p>Built with Qt {QApplication.instance().applicationVersion() or ""} — it follows your desktop theme.</p>')
+        dlg = QDialog(self); dlg.setWindowTitle(f'About {APP}')
+        v = QVBoxLayout(dlg); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
+        # Banner across the top (scaled to the dialog width).
+        if os.path.isfile(BANNER_IMG):
+            pm = QPixmap(BANNER_IMG)
+            if not pm.isNull():
+                bl = QLabel(); bl.setPixmap(pm.scaledToWidth(560, Qt.SmoothTransformation))
+                bl.setAlignment(Qt.AlignCenter); v.addWidget(bl)
+        body = QLabel(f'<p>Version {VERSION}</p>'
+                      '<p>A desktop website designer. Lay out pages freely, share headers and footers on master pages, '
+                      'preview in your browser and publish plain HTML to a folder.</p>'
+                      f'<p style="color:gray">Built with Qt {QApplication.instance().applicationVersion() or ""} — '
+                      'it follows your desktop theme.</p>')
+        body.setWordWrap(True); body.setTextFormat(Qt.RichText)
+        body.setContentsMargins(18, 14, 18, 8); v.addWidget(body)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok); bb.accepted.connect(dlg.accept)
+        bb.setContentsMargins(12, 0, 12, 12); v.addWidget(bb)
+        dlg.exec()
 
     # ------------------------------------------------------------ window
     def after_show(self):
@@ -7930,7 +10442,11 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('WEBcreator'); app.setApplicationDisplayName(APP); app.setOrganizationName(ORG)
     app.setApplicationVersion(VERSION)
+    app.setWindowIcon(QIcon.fromTheme('webcreator'))
     w = MainWindow(); w.show()
+    _args = [a for a in sys.argv[1:] if not a.startswith('-')]
+    if _args and os.path.isfile(_args[0]):
+        QTimer.singleShot(0, lambda: w.load_path(_args[0]))
     sys.exit(app.exec())
 
 
